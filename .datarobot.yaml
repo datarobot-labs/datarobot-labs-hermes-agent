@@ -1,0 +1,41 @@
+workloadId: 6a88727095dc5c8ca2c3c123 # managed by the CLI
+name: hermes-agent
+importance: low # low | moderate | high | critical
+artifact:
+  name: hermes-agent-artifact
+  type: service
+  spec:
+    containerGroups:
+      - name: default
+        containers:
+          - name: primary
+            primary: true
+            port: 8642 # Hermes' default api_server port; must be 1024 or above
+            imageBuildConfig: # built from this repository's Dockerfile
+              dockerfile:
+                source: provided
+            readinessProbe:
+              path: /health
+              port: 8642
+              # Boot is ~20s (seed copy into /tmp, bundled-skills sync, gateway
+              # start). Without a delay the probe polls from t=0 and logs
+              # "Running, not ready (possible probe failure)" every deploy.
+              initialDelaySeconds: 30
+            environmentVars:
+              - name: HERMES_CUSTOM_APP_DATAROBOT_COM_API_KEY
+                value: dr-credential:6a886e6af0d4e441ee5b1d96/apiToken
+              - name: SLACK_BOT_TOKEN
+                value: dr-credential:6a886e6bf0d4e441ee5b1d98/apiToken
+              - name: SLACK_APP_TOKEN
+                value: dr-credential:6a886e6bb5e40bbb4f4a684f/apiToken
+              - name: SLACK_ALLOWED_USERS
+                value: UNQDGFL1J
+              - name: SLACK_HOME_CHANNEL
+                value: C0BRUQ3CLF4
+runtime:
+  containerGroups:
+    - name: default # matches the artifact group
+      replicaCount: 1
+      containers:
+        - name: primary
+          resourceAllocation: {cpu: 1, memory: 2GB}

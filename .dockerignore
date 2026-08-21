@@ -1,0 +1,39 @@
+# Everything is excluded by default; the seed is added back explicitly below.
+# This keeps the build context (and the `dr workload up` source upload) at a
+# few MB instead of the 375 MB `hermes setup` left in ./config.
+*
+
+!Dockerfile
+!docker/
+!config/config.yaml
+!config/SOUL.md
+!config/slack-manifest.json
+!config/skills/
+
+# Secrets are injected as workload environment variables, never baked.
+config/.env
+.env
+
+# Host-arch binaries from a local `hermes setup` run (uv, uvx, browser-use
+# venv, cua-driver). These are arm64 on this machine and would be wrong in
+# the linux/amd64 workload image; the base image already ships uv and a
+# Playwright Chromium of the correct arch.
+config/bin/
+config/.local/
+config/.cua-driver/
+config/lazy-packages/
+
+# Runtime state — recreated on boot, must not be frozen into a layer.
+config/state.db*
+config/auth.json
+config/auth.lock
+config/logs/
+config/sessions/
+config/cache/
+config/.cache/
+config/backups/
+config/audio_cache/
+config/image_cache/
+config/config.yaml.bak.*
+
+__pycache__/

@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Secrets. Never committed.
+# ---------------------------------------------------------------------------
+# The real tokens (DataRobot LLM gateway key, Slack bot + app tokens) reach the
+# workload as environment variables, via the dr-credential references in
+# .datarobot.yaml. ./.env is only the local source those were minted from.
+#
+# Unanchored so the rules apply at any depth, and covering the variants people
+# actually create (.env.local, .env.prod, hand-made backups) rather than just
+# the exact name.
+.env
+.env.*
+*.env
+!.env.example
+!.env.template
+!.env.sample
+
+# Hermes stores provider/OAuth credentials here, and state.db can carry session
+# content. Both are seeded fresh at runtime, so there is never a reason to
+# commit them.
+auth.json
+auth.lock
+state.db
+state.db-shm
+state.db-wal
+
+# Private keys and certificates, wherever they land.
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Local `hermes setup` output that is not part of the baked seed.
+config/bin/
+config/.local/
+config/.cua-driver/
+config/lazy-packages/
+config/logs/
+config/sessions/
+config/cache/
+config/.cache/
+config/backups/
+config/audio_cache/
+config/image_cache/
+config/config.yaml.bak.*
+
+__pycache__/

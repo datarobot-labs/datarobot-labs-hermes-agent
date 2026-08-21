@@ -1,0 +1,48 @@
+# What `dr workload up` uploads to the artifact. Gitignore syntax.
+#
+# This is a SEPARATE mechanism from .dockerignore: .wapiignore decides what
+# leaves this machine, .dockerignore decides what the (server-side) docker
+# build sees. Keep the two in step.
+
+# Secrets. They reach the workload as environment variables via the
+# dr-credential references in .datarobot.yaml, and must never be uploaded.
+# Unanchored and variant-covering, matching .gitignore -- this file is the one
+# that decides what leaves the machine.
+.env
+.env.*
+*.env
+!.env.example
+!.env.template
+auth.json
+auth.lock
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Host-arch (arm64) binaries installed by the local `hermes setup` run. ~14k
+# files and 320 MB; the build reinstalls what it needs for linux/amd64.
+config/bin/
+config/.local/
+config/.cua-driver/
+config/lazy-packages/
+
+# Runtime state — recreated on boot, must not be frozen into the image.
+config/state.db*
+config/auth.lock
+config/logs/
+config/sessions/
+config/cache/
+config/.cache/
+config/backups/
+config/audio_cache/
+config/image_cache/
+config/config.yaml.bak.*
+
+# Local CLI bookkeeping.
+.datarobot/
+.claude/
+
+__pycache__/

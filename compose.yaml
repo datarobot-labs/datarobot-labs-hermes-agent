@@ -1,0 +1,31 @@
+# Local dev that reproduces how DataRobot actually runs this container, so a
+# green run here means something. The three constraints that broke the first
+# deploy are all reproduced below: uid 1000, a read-only root filesystem, and
+# /tmp as the only writable path.
+services:
+  hermes:
+    build:
+      context: .
+      args:
+        WITH_BROWSER_USE: "0"
+    # The workload runs linux/amd64. Building and running the same here catches
+    # arch-specific breakage on an Apple Silicon host (slow under emulation;
+    # comment out for a faster native loop once you trust the image).
+    platform: linux/amd64
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      # Hermes copies its seed here and writes all state here. `exec` because
+      # skills and lazy installs put executables under HERMES_HOME.
+      - /tmp:exec,mode=1777
+    # The secrets DataRobot injects from its credential store. Locally they
+    # come from ./.env, which is gitignored and never enters the image.
+    env_file: .env
+    ports:
+      - "8642:8642"
+    healthcheck:
+      # The same endpoint the workload's readinessProbe hits.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8642/health').read()"]
+      interval: 10s
+      start_period: 90s
+      retries: 3
