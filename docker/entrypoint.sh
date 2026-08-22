@@ -13,8 +13,9 @@
 #
 # HERMES_HOME points into /tmp, so the seed baked at $HERMES_SEED has to be
 # copied in on every boot. That also means state is per-boot: sessions,
-# memories and state.db do not survive a restart. Nothing here can change
-# that without a writable volume.
+# memories and state.db would not survive a restart without help. dr-sync
+# (below) provides that help by mirroring $HERMES_HOME to a Files API
+# container -- pulled on boot, pushed on an interval.
 set -e
 
 : "${HERMES_HOME:?HERMES_HOME must be set}"
@@ -43,6 +44,32 @@ mkdir -p "$TOOLS_HOME/go/bin" \
          "$TOOLS_HOME/config/gh" "$TOOLS_HOME/config/glab" \
          "$TOOLS_HOME/config/kube" "$TOOLS_HOME/config/helm" \
          "$TOOLS_HOME/data" "$TOOLS_HOME/state" "$TOOLS_HOME/pulumi"
+
+# HERMES_HOME is per-boot (see top of file); DR_SYNC_CATALOG_ID points dr-sync
+# at the Files API container that survives restarts. Pull first, so a
+# previous boot's sessions/memories/state.db land before the gateway starts;
+# .drsyncignore (baked into the seed above) keeps this from clobbering it
+# with a stale copy. Single writer -- this container -- so no lease conflicts
+# are expected; a failure here costs continuity, not the boot.
+if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
+    dr-sync download "$HERMES_HOME" \
+        || echo "[entrypoint] Warning: dr-sync download failed; starting fresh" >&2
+
+    # Background push loop -- there is no cron/supervisor in this container
+    # (see the s6 note at the top), so periodic persistence is just a sleep
+    # loop backgrounded before the gateway takes over as PID 1. It dies with
+    # the container; the boot-time download above is what actually recovers
+    # state, this just keeps the remote copy fresh in between.
+    (
+        while true; do
+            sleep "${DR_SYNC_INTERVAL_SECONDS:-600}"
+            dr-sync upload "$HERMES_HOME" \
+                || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
+        done
+    ) &
+else
+    echo "[entrypoint] DR_SYNC_CATALOG_ID not set; state will not persist across restarts" >&2
+fi
 
 # The gateway's api_server refuses to start without a usable API_SERVER_KEY,
 # and that server is what answers the platform's /health probe. It also

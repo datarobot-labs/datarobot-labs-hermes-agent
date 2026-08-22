@@ -1,0 +1,17 @@
+# What dr-sync excludes when syncing $HERMES_HOME with the Files API
+# container (see docker/entrypoint.sh and README.md's "Persisting state
+# across restarts"). Gitignore syntax.
+
+# Baked from the image seed on every boot -- a stale download must never
+# overwrite the version the current image just shipped.
+/config.yaml
+/SOUL.md
+/skills/
+
+# Regenerable caches and pure logs. No value in persisting them, and the
+# image/audio caches in particular can grow large fast.
+/logs/
+/cache/
+/audio_cache/
+/image_cache/
+/lazy-packages/

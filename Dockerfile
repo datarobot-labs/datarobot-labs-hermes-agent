@@ -27,10 +27,28 @@ RUN usermod  --uid 1000 hermes \
 #   * state.db, logs/, sessions/, cache/  -> runtime state
 #   * bin/, .local/, .cua-driver/  -> host-arch (arm64) binaries from setup
 ENV HERMES_SEED=/opt/hermes-seed
+
+# Defaults for config.yaml's ${LLM_*} substitutions -- swap in a different
+# chat_completions gateway by overriding these at the workload level instead
+# of editing config.yaml. LLM_API_KEY has no default here; it's a secret and
+# comes solely from the workload's injected credential (.datarobot.yaml).
+ENV LLM_MODEL=anthropic/claude-opus-4-8 \
+    LLM_PROVIDER=custom \
+    LLM_BASE_URL=https://app.datarobot.com/api/v2/genai/llmgw \
+    LLM_API_MODE=chat_completions
+
+# dr-sync (see below) needs an endpoint to call back to. Non-secret, so it
+# defaults here like the LLM_* vars above; DATAROBOT_API_TOKEN and
+# DR_SYNC_CATALOG_ID have no default -- see .datarobot.yaml and README.md
+# "Persisting state across restarts".
+ENV DATAROBOT_ENDPOINT=https://app.datarobot.com/api/v2 \
+    DR_SYNC_INTERVAL_SECONDS=600
+
 COPY --chown=1000:1000 config/config.yaml          ${HERMES_SEED}/config.yaml
 COPY --chown=1000:1000 config/SOUL.md              ${HERMES_SEED}/SOUL.md
 COPY --chown=1000:1000 config/slack-manifest.json  ${HERMES_SEED}/slack-manifest.json
 COPY --chown=1000:1000 config/skills/              ${HERMES_SEED}/skills/
+COPY --chown=1000:1000 config/.drsyncignore        ${HERMES_SEED}/.drsyncignore
 
 COPY --chown=1000:1000 docker/entrypoint.sh /opt/hermes-workload/entrypoint.sh
 RUN chmod 0755 /opt/hermes-workload/entrypoint.sh
@@ -111,6 +129,7 @@ ARG TASK_VERSION=3.53.1
 ARG KUBECTL_VERSION=1.36.4
 ARG HELM_VERSION=4.2.4
 ARG PULUMI_VERSION=3.259.0
+ARG DR_SYNC_VERSION=0.1.2
 
 RUN set -eux; \
     case "${TARGETARCH}" in \
@@ -134,8 +153,11 @@ RUN set -eux; \
     curl -fsSL "https://get.pulumi.com/releases/sdk/pulumi-v${PULUMI_VERSION}-linux-${pulumi_arch}.tar.gz" \
         | tar -xz -C /opt; \
     mv /opt/pulumi /opt/pulumi-sdk; \
+    curl -fsSL "https://github.com/datarobot/datarobot-sync/releases/download/v${DR_SYNC_VERSION}/dr-sync_${DR_SYNC_VERSION}_linux_${TARGETARCH}.tar.gz" \
+        | tar -xz -O dr-sync > /usr/local/bin/dr-sync; \
     chmod 0755 /usr/local/bin/gh /usr/local/bin/glab /usr/local/bin/yq \
-               /usr/local/bin/task /usr/local/bin/kubectl /usr/local/bin/helm
+               /usr/local/bin/task /usr/local/bin/kubectl /usr/local/bin/helm \
+               /usr/local/bin/dr-sync
 
 # The DataRobot CLI -- this project's own deploy tool, so an agent working in
 # here can redeploy, read logs and inspect workloads. Its installer resolves

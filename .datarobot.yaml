@@ -22,20 +22,37 @@ artifact:
               # "Running, not ready (possible probe failure)" every deploy.
               initialDelaySeconds: 30
             environmentVars:
-              - name: HERMES_CUSTOM_APP_DATAROBOT_COM_API_KEY
+              - name: LLM_API_KEY
                 value: dr-credential:6a886e6af0d4e441ee5b1d96/apiToken
               - name: SLACK_BOT_TOKEN
                 value: dr-credential:6a886e6bf0d4e441ee5b1d98/apiToken
               - name: SLACK_APP_TOKEN
                 value: dr-credential:6a886e6bb5e40bbb4f4a684f/apiToken
+              # Comma-separated Slack Member IDs (Uxxxxxxx) authorized to use
+              # the bot. Add teammates by extending this list -- each gets
+              # their own isolated session (group_sessions_per_user: true in
+              # config.yaml), sharing one workload but not one conversation.
               - name: SLACK_ALLOWED_USERS
                 value: UNQDGFL1J
               - name: SLACK_HOME_CHANNEL
                 value: C0BRUQ3CLF4
+              # dr-sync's Files API container (see README.md "Persisting
+              # state across restarts"), created once via `dr sync init`.
+              - name: DR_SYNC_CATALOG_ID
+                value: 6a88ed0ccf7eb8ff244a6715
+              # Platform-injected workload API key, so dr-sync can call back
+              # into the Files API without a separately managed credential.
+              # Unverified: the `dr` CLI's own manifest compiler only knows
+              # "dr-credential" as a typed source, so this passes through to
+              # the Workload API verbatim -- file a ticket if the server
+              # doesn't actually mount a token from it.
+              - source: api-key
 runtime:
   containerGroups:
     - name: default # matches the artifact group
       replicaCount: 1
       containers:
         - name: primary
-          resourceAllocation: {cpu: 1, memory: 2GB}
+          # Bumped from the single-user default (1 CPU / 2GB) so a team can
+          # run concurrent sessions without starving each other's tool calls.
+          resourceAllocation: {cpu: 2, memory: 4GB}

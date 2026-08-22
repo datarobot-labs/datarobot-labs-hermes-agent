@@ -38,6 +38,17 @@ Only the portable half of `./config` is baked. The rest is deliberately excluded
 
 That drops the build context from 375 MB / 15,277 files to ~50 KB / 492.
 
+## Swapping the LLM gateway
+
+`config/config.yaml`'s `model:` block is `${LLM_MODEL}` / `${LLM_PROVIDER}` /
+`${LLM_BASE_URL}` / `${LLM_API_KEY}` / `${LLM_API_MODE}` — env vars Hermes
+substitutes at load time. `LLM_MODEL`, `LLM_PROVIDER`, `LLM_BASE_URL`, and
+`LLM_API_MODE` default in the Dockerfile to the current DataRobot LLM gateway;
+`LLM_API_KEY` has no default and comes solely from the credential
+`.datarobot.yaml` injects. To point at a different `chat_completions`
+gateway, override the relevant vars in `.datarobot.yaml`'s `environmentVars`
+(or the local `.env` for `docker compose`) — no edits to `config.yaml` needed.
+
 The same exclusions appear twice, because two different mechanisms are at play:
 
 - **`.wapiignore`** decides what `dr workload up` uploads to the artifact. It is
@@ -129,11 +140,15 @@ Java/JVM, Terraform. Each is one more line in the same pattern.
 (gitignored) purely as the local source of truth, and `dr workload config` turned
 it into the `environmentVars` block in `.datarobot.yaml`:
 
-- **Secrets** (`HERMES_CUSTOM_APP_DATAROBOT_COM_API_KEY`, `SLACK_BOT_TOKEN`,
+- **Secrets** (`LLM_API_KEY`, `SLACK_BOT_TOKEN`,
   `SLACK_APP_TOKEN`) became DataRobot credentials, referenced by id:
   `value: dr-credential:<id>/apiToken`. The values are in DataRobot's credential
   store; the manifest holds only the id.
-- **Non-secrets** (`SLACK_ALLOWED_USERS`, `SLACK_HOME_CHANNEL`) are literals.
+- **Non-secrets** (`SLACK_ALLOWED_USERS`, `SLACK_HOME_CHANNEL`,
+  `DR_SYNC_CATALOG_ID`) are literals.
+- **`DATAROBOT_API_TOKEN`** is the odd one out: it's a secret, but not a
+  `dr-credential` — it's a platform-injected workload API key (`source:
+  api-key`). See "Persisting state across restarts" below.
 
 Nothing needs a `.env` on disk in the container, and the entrypoint never writes
 one. Hermes reads these keys straight from the real environment
@@ -176,8 +191,70 @@ Three changes fix it:
    is PID 1 and its exit is the container's exit.
 
 > **State is per-boot.** `/tmp` is the only writable path and it is not a
-> volume, so sessions, memories and `state.db` do not survive a restart. Fixing
-> that needs a persistent volume the Workload API does not currently expose.
+> volume, so sessions, memories and `state.db` do not survive a restart on
+> their own. The Workload API does not expose a persistent volume — see
+> "Persisting state across restarts" below for how this repo works around
+> that instead.
+
+## Persisting state across restarts
+
+`$HERMES_HOME` lives on `/tmp`, so a restart would otherwise lose every
+session, memory and `state.db` (see above). [`dr-sync`](https://github.com/datarobot/datarobot-sync)
+— a single static Go binary baked into the image (`DR_SYNC_VERSION` in the
+Dockerfile) — mirrors `$HERMES_HOME` against a DataRobot Files API container
+instead:
+
+- **On boot**, `docker/entrypoint.sh` runs `dr-sync download "$HERMES_HOME"`
+  before starting the gateway, restoring whatever the last boot pushed.
+- **Every `DR_SYNC_INTERVAL_SECONDS`** (default 600), a background loop the
+  entrypoint starts runs `dr-sync upload "$HERMES_HOME"`. There is no
+  supervisor in this container to hang a real cron job off of (see above), so
+  this is a plain `sleep`-and-upload loop backgrounded before `exec hermes
+  gateway run` takes over as PID 1.
+- **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
+  excludes what's baked from the image — `config.yaml`, `SOUL.md`, `skills/`
+  — so a stale download can never clobber what the current image just
+  shipped, plus pure caches and logs that aren't worth persisting.
+
+This assumes a **single writer**: one replica pushing to one container, so
+there's no lock contention to design around. It does not assume the
+Workload API's `replicaCount` stays at 1 forever — if that changes, this
+sync strategy needs revisiting first.
+
+### One-time setup
+
+Create the Files API container once, from a machine with `dr` authenticated
+(`dr` discovers the `sync` plugin automatically once installed):
+
+```sh
+dr sync init --name "hermes-workload-state"
+# create  container <id>
+# ...
+# export DR_SYNC_CATALOG_ID=<id>
+```
+
+Wire the printed id in as `DR_SYNC_CATALOG_ID`:
+
+- **Production** — a plain literal in `.datarobot.yaml`'s `environmentVars`
+  (it's not a secret, just a container id).
+- **Local dev** — the same variable in `.env`, which `compose.yaml` already
+  passes through via `env_file`.
+
+`dr-sync` also needs `DATAROBOT_ENDPOINT` (defaults in the Dockerfile,
+alongside the `LLM_*` vars) and `DATAROBOT_API_TOKEN` to call the Files API.
+Locally, put `DATAROBOT_API_TOKEN` in `.env` next to the other secrets. In
+`.datarobot.yaml` it's wired as a platform-injected workload API key rather
+than a manually managed `dr-credential`:
+
+```yaml
+- source: api-key
+```
+
+This is the newest piece here and unverified end-to-end: the `dr` CLI's own
+manifest compiler only knows `dr-credential` as a typed `environmentVars`
+source today, so `source: api-key` passes through to the Workload API
+verbatim rather than being validated locally. If the server doesn't actually
+mount a token from it, that's worth its own ticket against the Workload API.
 
 ## The health probe
 

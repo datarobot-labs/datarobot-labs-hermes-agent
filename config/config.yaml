@@ -1,9 +1,13 @@
+# LLM_MODEL/LLM_PROVIDER/LLM_BASE_URL/LLM_API_MODE default from Dockerfile ENV;
+# LLM_API_KEY comes from the workload's injected credential (.datarobot.yaml).
+# Override any of them at the workload level to point at a different
+# chat_completions gateway without editing this file.
 model:
-  default: anthropic/claude-opus-4-8
-  provider: custom
-  base_url: https://app.datarobot.com/api/v2/genai/llmgw
-  api_key: ${HERMES_CUSTOM_APP_DATAROBOT_COM_API_KEY}
-  api_mode: chat_completions
+  default: ${LLM_MODEL}
+  provider: ${LLM_PROVIDER}
+  base_url: ${LLM_BASE_URL}
+  api_key: ${LLM_API_KEY}
+  api_mode: ${LLM_API_MODE}
 database:
   journal_mode: wal
 runtime:
@@ -172,7 +176,7 @@ platform_toolsets:
 custom_providers:
   - name: DataRobot
     base_url: https://app.datarobot.com/api/v2/genai/llmgw
-    key_env: HERMES_CUSTOM_APP_DATAROBOT_COM_API_KEY
+    key_env: LLM_API_KEY
     model: anthropic/claude-opus-4-8
     api_mode: chat_completions
     models:
