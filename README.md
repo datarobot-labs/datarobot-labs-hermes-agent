@@ -200,9 +200,9 @@ Three changes fix it:
 
 `$HERMES_HOME` lives on `/tmp`, so a restart would otherwise lose every
 session, memory and `state.db` (see above). [`dr-sync`](https://github.com/datarobot/datarobot-sync)
-— a single static Go binary baked into the image (`DR_SYNC_VERSION` in the
-Dockerfile) — mirrors `$HERMES_HOME` against a DataRobot Files API container
-instead:
+— a single static Go binary, vendored under `vendor/dr-sync/` and `COPY`'d
+into the image — mirrors `$HERMES_HOME` against a DataRobot Files API
+container instead:
 
 - **On boot**, `docker/entrypoint.sh` runs `dr-sync download "$HERMES_HOME"`
   before starting the gateway, restoring whatever the last boot pushed.
@@ -220,6 +220,28 @@ This assumes a **single writer**: one replica pushing to one container, so
 there's no lock contention to design around. It does not assume the
 Workload API's `replicaCount` stays at 1 forever — if that changes, this
 sync strategy needs revisiting first.
+
+### Why `dr-sync` is vendored instead of downloaded
+
+Every other pinned tool in the Dockerfile (`gh`, `glab`, `pulumi`, ...) is
+`curl`'d from a public release during the build. `dr-sync` can't be: its repo,
+`datarobot/datarobot-sync`, is **private**, and the server-side image build
+has no GitHub credentials to fetch a release asset with — that `curl` 404s
+with no hint why. Its other two distribution channels (the `ghcr.io` image,
+the `dr` plugin tarball) are the same private org and fail the same way.
+
+So the two Linux binaries live in the repo, unversioned, at
+`vendor/dr-sync/linux_amd64/dr-sync` and `vendor/dr-sync/linux_arm64/dr-sync`
+— the Dockerfile just `COPY`s the one matching `TARGETARCH`.
+`vendor/dr-sync/VERSION` records which release they came from, since the
+binaries themselves don't carry that in their path or filename.
+
+To bump to the latest release (needs `gh` authenticated against the
+`datarobot` org):
+
+```sh
+task vendor:dr-sync
+```
 
 ### One-time setup
 

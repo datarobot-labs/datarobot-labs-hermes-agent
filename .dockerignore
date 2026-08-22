@@ -10,6 +10,7 @@
 !config/slack-manifest.json
 !config/skills/
 !config/.drsyncignore
+!vendor/
 
 # Secrets are injected as workload environment variables, never baked.
 config/.env

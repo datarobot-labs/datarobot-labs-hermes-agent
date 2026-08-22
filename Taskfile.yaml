@@ -1,0 +1,26 @@
+version: "3"
+
+tasks:
+  vendor:dr-sync:
+    desc: >
+      Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync
+      release. Private repo -- needs `gh` authenticated against the
+      datarobot org. See README.md "Why dr-sync is vendored instead of
+      downloaded".
+    cmds:
+      - |
+        set -euo pipefail
+        version=$(gh release list --repo datarobot/datarobot-sync --limit 1 \
+            --json tagName -q '.[0].tagName' | sed 's/^v//')
+        for arch in amd64 arm64; do
+          dir="vendor/dr-sync/linux_${arch}"
+          mkdir -p "$dir"
+          asset="dr-sync_${version}_linux_${arch}.tar.gz"
+          gh release download "v${version}" --repo datarobot/datarobot-sync \
+              --pattern "${asset}" --clobber -D "$dir"
+          tar -xzf "${dir}/${asset}" -C "$dir" dr-sync
+          chmod 0755 "${dir}/dr-sync"
+          rm -f "${dir}/${asset}"
+        done
+        echo "${version}" > vendor/dr-sync/VERSION
+        echo "Vendored dr-sync ${version} for linux/amd64 and linux/arm64"

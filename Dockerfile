@@ -129,7 +129,6 @@ ARG TASK_VERSION=3.53.1
 ARG KUBECTL_VERSION=1.36.4
 ARG HELM_VERSION=4.2.4
 ARG PULUMI_VERSION=3.259.0
-ARG DR_SYNC_VERSION=0.1.2
 
 RUN set -eux; \
     case "${TARGETARCH}" in \
@@ -153,11 +152,15 @@ RUN set -eux; \
     curl -fsSL "https://get.pulumi.com/releases/sdk/pulumi-v${PULUMI_VERSION}-linux-${pulumi_arch}.tar.gz" \
         | tar -xz -C /opt; \
     mv /opt/pulumi /opt/pulumi-sdk; \
-    curl -fsSL "https://github.com/datarobot/datarobot-sync/releases/download/v${DR_SYNC_VERSION}/dr-sync_${DR_SYNC_VERSION}_linux_${TARGETARCH}.tar.gz" \
-        | tar -xz -O dr-sync > /usr/local/bin/dr-sync; \
     chmod 0755 /usr/local/bin/gh /usr/local/bin/glab /usr/local/bin/yq \
-               /usr/local/bin/task /usr/local/bin/kubectl /usr/local/bin/helm \
-               /usr/local/bin/dr-sync
+               /usr/local/bin/task /usr/local/bin/kubectl /usr/local/bin/helm
+
+# dr-sync (github.com/datarobot/datarobot-sync) can't be curl'd here like the
+# tools above: that repo is private, and this build has no GitHub credentials
+# to fetch a release asset with. Vendored under vendor/dr-sync/ instead --
+# see README.md "Persisting state across restarts" for how to bump it.
+COPY vendor/dr-sync/linux_${TARGETARCH}/dr-sync /usr/local/bin/dr-sync
+RUN chmod 0755 /usr/local/bin/dr-sync
 
 # The DataRobot CLI -- this project's own deploy tool, so an agent working in
 # here can redeploy, read logs and inspect workloads. Its installer resolves
