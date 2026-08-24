@@ -13,16 +13,38 @@
 #
 # HERMES_HOME points into /tmp, so the seed baked at $HERMES_SEED has to be
 # copied in on every boot. That also means state is per-boot: sessions,
-# memories and state.db would not survive a restart without help. dr-sync
-# (below) provides that help by mirroring $HERMES_HOME to a Files API
-# container -- pulled on boot, pushed on an interval.
+# memories and state.db do not survive a restart. Nothing here can change
+# that without a writable volume.
 set -e
 
-: "${HERMES_HOME:?HERMES_HOME must be set}"
+# Hardcoded, not trusted from the image's ENV: this is the one path every
+# write in this script (the seed copy) depends on being under /tmp, and
+# there's no reason to let anything -- a manifest override, a stale env
+# var -- put it anywhere else.
+export HERMES_HOME=/tmp/hermes
+
 : "${HERMES_SEED:?HERMES_SEED must be set}"
 : "${TOOLS_HOME:?TOOLS_HOME must be set}"
 
+# Names only, never values -- several of these are secrets (LLM_API_KEY,
+# SLACK_*_TOKEN, DATAROBOT_API_TOKEN). This is what confirms whether a given
+# environmentVars entry actually mounted anything, e.g. whether
+# `source: api-key` in .datarobot.yaml produces a DATAROBOT_API_TOKEN.
+echo "[entrypoint] environment variable names: $(env | cut -d= -f1 | sort | tr '\n' ' ')" >&2
+
 mkdir -p "$HERMES_HOME"
+
+# Diagnostic for the "cp: Permission denied" crash loop seen 2026-08-21/22:
+# every seed file fails to copy into $HERMES_HOME, which worked fine on the
+# 2026-08-21 morning boot. Print who we are, the mode of every directory in
+# play, AND whether $HERMES_HOME is already non-empty at this point -- a
+# CrashLoopBackOff restarts the same pod, and if /tmp survives that restart,
+# leftovers from an earlier attempt (not a fresh empty dir) would be the
+# actual difference from the working boot.
+echo "[entrypoint] id: $(id)" >&2
+ls -ld /tmp "$HERMES_HOME" "$HERMES_SEED" >&2 2>&1 || true
+echo "[entrypoint] contents of \$HERMES_HOME before the seed copy:" >&2
+ls -la "$HERMES_HOME" >&2 2>&1 || true
 
 # The baked seed: config.yaml, SOUL.md, skills/. Read-only in the image, so
 # copy rather than symlink -- Hermes rewrites config.yaml in place.

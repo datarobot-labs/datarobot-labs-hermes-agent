@@ -37,10 +37,9 @@ ENV LLM_MODEL=anthropic/claude-opus-4-8 \
     LLM_BASE_URL=https://app.datarobot.com/api/v2/genai/llmgw \
     LLM_API_MODE=chat_completions
 
-# dr-sync (see below) needs an endpoint to call back to. Non-secret, so it
-# defaults here like the LLM_* vars above; DATAROBOT_API_TOKEN and
-# DR_SYNC_CATALOG_ID have no default -- see .datarobot.yaml and README.md
-# "Persisting state across restarts".
+# dr-sync's endpoint (see the vendor/dr-sync COPY below); non-secret, so it
+# defaults here too. DATAROBOT_API_TOKEN and DR_SYNC_CATALOG_ID have no
+# default -- see .datarobot.yaml.
 ENV DATAROBOT_ENDPOINT=https://app.datarobot.com/api/v2 \
     DR_SYNC_INTERVAL_SECONDS=600
 
@@ -48,16 +47,9 @@ COPY --chown=1000:1000 config/config.yaml          ${HERMES_SEED}/config.yaml
 COPY --chown=1000:1000 config/SOUL.md              ${HERMES_SEED}/SOUL.md
 COPY --chown=1000:1000 config/slack-manifest.json  ${HERMES_SEED}/slack-manifest.json
 COPY --chown=1000:1000 config/skills/              ${HERMES_SEED}/skills/
-COPY --chown=1000:1000 config/.drsyncignore        ${HERMES_SEED}/.drsyncignore
 
 COPY --chown=1000:1000 docker/entrypoint.sh /opt/hermes-workload/entrypoint.sh
 RUN chmod 0755 /opt/hermes-workload/entrypoint.sh
-
-# Everything Hermes writes has to land under /tmp.
-ENV HERMES_HOME=/tmp/hermes \
-    HOME=/tmp/hermes \
-    HERMES_WRITE_SAFE_ROOT=/tmp/hermes \
-    HERMES_LAZY_INSTALL_TARGET=/tmp/hermes/lazy-packages
 
 # Hermes' own health endpoint. The gateway's api_server serves an
 # unauthenticated GET /health (and a richer /health/detailed), which is what
@@ -155,10 +147,9 @@ RUN set -eux; \
     chmod 0755 /usr/local/bin/gh /usr/local/bin/glab /usr/local/bin/yq \
                /usr/local/bin/task /usr/local/bin/kubectl /usr/local/bin/helm
 
-# dr-sync (github.com/datarobot/datarobot-sync) can't be curl'd here like the
-# tools above: that repo is private, and this build has no GitHub credentials
-# to fetch a release asset with. Vendored under vendor/dr-sync/ instead --
-# see README.md "Persisting state across restarts" for how to bump it.
+# dr-sync's repo (github.com/datarobot/datarobot-sync) is private, so unlike
+# the tools above it can't be curl'd at build time. Vendored under
+# vendor/dr-sync/ instead -- see README.md for how to bump it.
 COPY vendor/dr-sync/linux_${TARGETARCH}/dr-sync /usr/local/bin/dr-sync
 RUN chmod 0755 /usr/local/bin/dr-sync
 
@@ -216,12 +207,35 @@ ENV PATH=/tmp/tools/go/bin:${PATH}
 # `hermes setup` installed browser-use into ./config/.local as an arm64 venv.
 # Re-install it for the image's own architecture when the browser and
 # computer_use toolsets are wanted; ~220 MB, so it is off by default.
+#
+# UV_CACHE_DIR is repinned to /root -- without it, uv would use the
+# $TOOLS_HOME/cache/uv set above, baking a root-owned cache into the exact
+# path uid 1000 needs to create fresh at runtime (see the HERMES_HOME note
+# below for the general version of this trap).
 ARG WITH_BROWSER_USE=0
 RUN [ "${WITH_BROWSER_USE}" = "1" ] || exit 0; \
     UV_TOOL_DIR=${HERMES_SEED}/.local/share/uv/tools \
     UV_TOOL_BIN_DIR=${HERMES_SEED}/bin \
+    UV_CACHE_DIR=/root/.cache/uv \
     uv tool install browser-use \
     && chown -R 1000:1000 ${HERMES_SEED}
+
+# HERMES_HOME has to wait until here, after every RUN that installs a tool.
+# uv and npm both cache under $HOME by default (uv's ruff install and npm's
+# global typescript/prettier install above ran under the base image's own
+# root HOME), and every step up to this point runs as root. Setting
+# HOME=/tmp/hermes any earlier bakes root-owned .cache/.npm directories
+# straight into the image at the exact path uid 1000 needs to write into at
+# runtime -- an unwritable, undeletable landmine, since uid 1000 can't chown,
+# chmod, or (thanks to /tmp's sticky bit) even remove a root-owned entry it
+# doesn't own. This bit us for real: a resourceAllocation change on the
+# workload apparently stopped shadowing /tmp with a fresh mount, and the
+# image's own baked content underneath showed through, permission denied on
+# every file.
+ENV HERMES_HOME=/tmp/hermes \
+    HOME=/tmp/hermes \
+    HERMES_WRITE_SAFE_ROOT=/tmp/hermes \
+    HERMES_LAZY_INSTALL_TARGET=/tmp/hermes/lazy-packages
 
 USER 1000
 
