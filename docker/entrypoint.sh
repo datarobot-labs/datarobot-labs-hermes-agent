@@ -103,6 +103,41 @@ if [ -z "${API_SERVER_KEY:-}" ]; then
     export API_SERVER_KEY
 fi
 
+# Default LLM_API_KEY to the platform-injected DATAROBOT_API_TOKEN (`source:
+# api-key` in .datarobot.yaml) rather than requiring a separately managed
+# dr-credential: LLM_BASE_URL's default is the DataRobot LLM gateway itself,
+# which accepts a normal DataRobot API token, and this one is rotated by the
+# platform instead of going stale in a credential nobody remembers to renew.
+: "${LLM_API_KEY:=${DATAROBOT_API_TOKEN:-}}"
+export LLM_API_KEY
+
+# Some Hermes provider names (e.g. "NVIDIA") are also recognized as
+# built-in providers with their own credential lookup by convention --
+# <PROVIDER>_API_KEY -- independent of custom_providers[].key_env. Verified
+# 2026-08-24: setting LLM_PROVIDER=NVIDIA made Hermes look for
+# NVIDIA_API_KEY specifically and ignore our custom_providers entry
+# entirely. Alias it dynamically, keyed off whatever LLM_PROVIDER actually
+# is, so either lookup path finds the same credential.
+if [ -n "${LLM_PROVIDER:-}" ] && [ -n "${LLM_API_KEY:-}" ]; then
+    provider_key_var=$(printf '%s' "$LLM_PROVIDER" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_')_API_KEY
+    eval "export ${provider_key_var}=\"\$LLM_API_KEY\""
+fi
+
+# Diagnostic for the 401s seen 2026-08-24: README.md flags `source: api-key`
+# as unverified -- confirm DATAROBOT_API_TOKEN is actually non-empty here,
+# and that it's actually accepted by the gateway LLM_BASE_URL points at.
+# Length and HTTP status only, never the token value.
+echo "[entrypoint] DATAROBOT_API_TOKEN length: ${#DATAROBOT_API_TOKEN}; LLM_API_KEY length: ${#LLM_API_KEY}" >&2
+if [ -n "${LLM_API_KEY:-}" ] && [ -n "${LLM_BASE_URL:-}" ]; then
+    llm_selftest_status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
+        -X POST "${LLM_BASE_URL}/chat/completions" \
+        -H "Authorization: Bearer ${LLM_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -d "{\"model\":\"${LLM_MODEL:-anthropic/claude-opus-4-8}\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}],\"max_tokens\":1}" \
+        2>/dev/null || echo "curl_failed")
+    echo "[entrypoint] LLM gateway self-test: HTTP $llm_selftest_status" >&2
+fi
+
 # shellcheck disable=SC1091
 . /opt/hermes/.venv/bin/activate
 
@@ -114,6 +149,24 @@ if [ -d /opt/hermes/skills ]; then
 fi
 
 cd "$HERMES_HOME"
+
+# Hermes' own ${VAR} substitution in config.yaml resolves correctly for a
+# fresh `hermes config get` read, but NOT for the long-running gateway's
+# conversation loop -- verified 2026-08-24: a live chat completion kept
+# sending the literal string "${LLM_MODEL}" upstream, 404ing against the
+# DataRobot LLM gateway, even though `hermes config get model` showed it
+# fully resolved. custom_providers[].base_url isn't templated at all: it's
+# a plain literal that never tracked LLM_BASE_URL to begin with.
+# HERMES_MODEL -- Hermes' own documented process-level model override --
+# doesn't reach this path either; the docs scope it to the cron scheduler
+# only, and it was verified not to affect gateway chat completions.
+# Resolve both through Hermes' own `config set` instead, so LLM_MODEL/
+# LLM_BASE_URL still fully control this at every boot with zero commits to
+# config.yaml -- just resolved by us instead of Hermes' broken templating.
+# LLM_API_KEY is deliberately untouched here: its ${VAR} substitution and
+# custom_providers[].key_env both provably work already.
+hermes config set model.default "$LLM_MODEL" >&2
+hermes config set custom_providers.0.base_url "$LLM_BASE_URL" >&2
 
 # No s6 to hand off to, so --no-supervise is the only correct mode: the
 # gateway is the container's main process and its exit is the container's

@@ -47,3 +47,5 @@ config/image_cache/
 config/config.yaml.bak.*
 
 __pycache__/
+
+.datarobot.yaml*

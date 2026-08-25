@@ -47,6 +47,11 @@ COPY --chown=1000:1000 config/config.yaml          ${HERMES_SEED}/config.yaml
 COPY --chown=1000:1000 config/SOUL.md              ${HERMES_SEED}/SOUL.md
 COPY --chown=1000:1000 config/slack-manifest.json  ${HERMES_SEED}/slack-manifest.json
 COPY --chown=1000:1000 config/skills/              ${HERMES_SEED}/skills/
+# Without this, dr-sync download finds no .drsyncignore at $HERMES_HOME (its
+# default ignore-file lookup is relative to the sync root) and freely
+# restores whatever the Files API container has for config.yaml/SOUL.md/
+# skills/, clobbering the fresh seed copy entrypoint.sh just placed there.
+COPY --chown=1000:1000 config/.drsyncignore        ${HERMES_SEED}/.drsyncignore
 
 COPY --chown=1000:1000 docker/entrypoint.sh /opt/hermes-workload/entrypoint.sh
 RUN chmod 0755 /opt/hermes-workload/entrypoint.sh
