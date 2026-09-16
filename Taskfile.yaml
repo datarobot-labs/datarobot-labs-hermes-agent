@@ -24,3 +24,32 @@ tasks:
         done
         echo "${version}" > vendor/dr-sync/VERSION
         echo "Vendored dr-sync ${version} for linux/amd64 and linux/arm64"
+
+  skills:datarobot:
+    desc: >
+      Sync config/skills/datarobot/ from the datarobot-oss/datarobot-agent-skills
+      repo's skills/ directory (public repo, no auth needed). Idempotent --
+      re-running always replaces the folder with a clean copy of upstream
+      HEAD, so it also drops skills that were removed upstream.
+    cmds:
+      - |
+        set -euo pipefail
+        dest="config/skills/datarobot"
+        tmp=$(mktemp -d)
+        trap 'rm -rf "$tmp"' EXIT
+        git clone --depth 1 --quiet \
+            https://github.com/datarobot-oss/datarobot-agent-skills.git "$tmp/repo"
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        cp -R "$tmp/repo/skills/." "$dest/"
+        cat > "$dest/DESCRIPTION.md" <<'EOF'
+        ---
+        description: DataRobot platform skills for building, deploying, and governing AI agents, and for AI/ML tasks such as model training, deployment, predictions, feature engineering, and monitoring. Synced from datarobot-oss/datarobot-agent-skills.
+        ---
+        EOF
+        echo "Synced datarobot-agent-skills into $dest"
+  hermes:
+    desc: Run hermes commands inside the docker image
+    cmds:
+      - |
+        docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent {{.CLI_ARGS}}

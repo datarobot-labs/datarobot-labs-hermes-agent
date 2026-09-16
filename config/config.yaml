@@ -1,7 +1,3 @@
-# LLM_MODEL/LLM_PROVIDER/LLM_BASE_URL/LLM_API_MODE default from Dockerfile ENV;
-# LLM_API_KEY comes from the workload's injected credential (.datarobot.yaml).
-# Override any of them at the workload level to point at a different
-# chat_completions gateway without editing this file.
 model:
   default: ${LLM_MODEL}
   provider: ${LLM_PROVIDER}
@@ -110,7 +106,7 @@ updates:
   non_interactive_local_changes: stash
 computer_use:
   backend: cua
-_config_version: 38
+_config_version: 45
 session_reset:
   mode: none
   idle_minutes: 1440
@@ -119,11 +115,11 @@ group_sessions_per_user: true
 platform_toolsets:
   cli:
     - a2a
-    - bfl
     - browser
     - clarify
     - code_execution
     - computer_use
+    - connections
     - cronjob
     - delegation
     - file
@@ -144,11 +140,11 @@ platform_toolsets:
     - hermes-whatsapp
   slack:
     - a2a
-    - bfl
     - browser
     - clarify
     - code_execution
     - computer_use
+    - connections
     - cronjob
     - delegation
     - file
@@ -191,11 +187,11 @@ known_plugin_toolsets:
     - spotify
 known_builtin_toolsets:
   cli:
-    - bfl
     - browser
     - clarify
     - code_execution
     - computer_use
+    - connections
     - context_engine
     - cronjob
     - delegation
@@ -219,11 +215,11 @@ known_builtin_toolsets:
     - x_search
     - yuanbao
   slack:
-    - bfl
     - browser
     - clarify
     - code_execution
     - computer_use
+    - connections
     - context_engine
     - cronjob
     - delegation
