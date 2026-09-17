@@ -1,3 +1,4 @@
 # Extra Python packages to install into Hermes' own venv at image build time.
 # One requirement per line, standard pip requirements syntax (name==version,
 # git+https://..., -e ./local-path, etc.). Empty by default.
+ddgs
