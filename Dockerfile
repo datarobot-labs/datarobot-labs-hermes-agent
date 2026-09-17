@@ -142,7 +142,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates gnupg openssh-client rsync less file tree \
         jq sqlite3 unzip zip xz-utils bzip2 \
         fd-find bat git-delta git-lfs shellcheck patch diffutils \
-        pandoc graphviz \
+        pandoc graphviz poppler-utils \
         build-essential pkg-config \
         procps psmisc iproute2 dnsutils netcat-openbsd \
         gettext-base \

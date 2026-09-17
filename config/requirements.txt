@@ -1,4 +1,55 @@
 # Extra Python packages to install into Hermes' own venv at image build time.
 # One requirement per line, standard pip requirements syntax (name==version,
-# git+https://..., -e ./local-path, etc.). Empty by default.
+# git+https://..., -e ./local-path, etc.).
+#
+# This workload disables Hermes' lazy pip-install fallback
+# (HERMES_DISABLE_LAZY_INSTALLS=1, see docker/entrypoint.sh / README.md's
+# "Running under the Workload API's constraints") because the root
+# filesystem is read-only at runtime — a skill's on-demand `pip install X`
+# has nowhere to write and just fails. So every package a bundled skill's
+# SKILL.md tells the agent to `pip install` has to be pre-baked here instead,
+# or that skill silently can't do its job on this workload.
+#
+# Below: the lightweight, broadly-used skill dependencies. Deliberately NOT
+# included: heavy/opt-in ML packages (torch, vllm, llama-cpp-python,
+# auto-gptq, lm-eval, faster-whisper, wandb, manim, comfy-cli, ...) — those
+# skills are for occasional, deliberate heavy workloads where installing at
+# time-of-use (even if that means asking the user to enable lazy installs, or
+# running in a different environment) is the right tradeoff, not a multi-GB
+# default baked into every boot of this bot.
+
 ddgs
+
+# datarobot skills (datarobot-predictions, datarobot-data-preparation,
+# datarobot-model-training, datarobot-workload-api)
+datarobot
+datarobot-predict
+pandas
+
+# productivity/pdf + productivity/ocr-and-documents
+pypdf
+reportlab
+pdfplumber
+pymupdf
+pymupdf4llm
+pypdfium2
+
+# productivity/docx, productivity/powerpoint, productivity/xlsx
+python-docx
+python-pptx
+openpyxl
+
+# productivity/nano-pdf
+nano-pdf
+
+# creative/ascii-art
+pyfiglet
+
+# software-development/codebase-inspection
+pygount
+
+# software-development/python-debugpy
+debugpy
+
+# research/arxiv
+arxiv
