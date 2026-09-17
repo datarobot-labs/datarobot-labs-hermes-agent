@@ -114,6 +114,29 @@ does not survive a restart. Pass tokens as environment variables instead —
 `GH_TOKEN`, `GITLAB_TOKEN`, `DATAROBOT_API_TOKEN` — which is what these CLIs
 prefer anyway in non-interactive use.
 
+### Acting on GitHub as itself (GitHub App identity)
+
+Rather than a personal `GH_TOKEN`, this workload can authenticate as its own
+GitHub App installation, so commits and PRs show up as the bot, not a
+human's token. Three env vars drive it:
+
+- `GITHUB_APP_ID` — the App's numeric ID (distinct from the installation ID).
+- `GITHUB_PRIVATE_KEY` — the App's PEM private key, as a literal env value
+  (no file on disk needed).
+- `GITHUB_INSTALLATION_IDS` — comma-separated installation IDs, one per org
+  the App is installed on. Plural and comma-separated on purpose: a single
+  App registration can be installed on multiple orgs, letting one workload
+  act across all of them without re-registering per org.
+
+At runtime: sign a short-lived JWT (`iss: GITHUB_APP_ID`, RS256, ≤10 min
+expiry) with `GITHUB_PRIVATE_KEY`, then exchange it at
+`POST /app/installations/<id>/access_tokens` for each id in
+`GITHUB_INSTALLATION_IDS` to get a ~1-hour installation token scoped to that
+org's repos. Use the token as the `x-access-token` password over HTTPS git, or
+as a bearer token against the REST API — no interactive `gh auth login`
+required, and nothing here needs to survive a restart since tokens are minted
+fresh every boot.
+
 **The sqlite3 CLI needed pinning.** Debian's `sqlite3` binary is built against
 Debian's libsqlite3, but the base image ships a newer libsqlite3 (3.53.4) in
 `/usr/local/lib` that wins the linker's search order. The CLI then aborts on
