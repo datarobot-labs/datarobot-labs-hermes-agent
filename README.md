@@ -65,6 +65,15 @@ get the `browser` and `computer_use` toolsets in the deployed image, build with
 `--build-arg WITH_BROWSER_USE=1` — it reinstalls the tool for the image's own
 architecture (~220 MB, so it is off by default).
 
+## Adding Python packages
+
+`config/requirements.txt` (empty by default) takes standard pip requirement
+lines. The Dockerfile installs it with `uv` — already the base image's own
+package manager — straight into `/opt/hermes/.venv`, the same venv Hermes and
+its plugins (like hermes-otel above) run on, so anything listed there is
+importable from Hermes' own Python process at runtime. No separate venv or
+`pip` to reach for: the base image's venv ships no `pip` binary, only `uv`.
+
 ## Bundled toolchain
 
 The image carries a working set for autonomous coding, git, pipeline and
@@ -277,6 +286,66 @@ manifest compiler only knows `dr-credential` as a typed `environmentVars`
 source today, so `source: api-key` passes through to the Workload API
 verbatim rather than being validated locally. If the server doesn't actually
 mount a token from it, that's worth its own ticket against the Workload API.
+
+## Exporting traces to DataRobot
+
+[`hermes-otel`](https://github.com/briancaffey/hermes-otel) is a Hermes
+plugin that turns LLM calls, tool calls and API requests into OpenTelemetry
+spans and exports them to any OTLP backend. The Dockerfile installs it
+straight into `$HERMES_SEED` at build time (`hermes plugins install
+briancaffey/hermes-otel/hermes_otel --ref <pinned commit>`) so it rides along
+with everything else `docker/entrypoint.sh` copies into `$HERMES_HOME` on
+boot, and `config/config.yaml`'s `plugins.enabled` turns it on.
+
+`hermes` on `PATH` resolves to a privilege-drop shim that always execs as the
+`hermes` user when invoked as root, so that install step has to run after the
+Dockerfile's `usermod` remaps that user to uid 1000 — otherwise it dies
+writing into a seed directory it can no longer see past the drop.
+
+### Why the backend config is templated, not baked
+
+hermes-otel's generic `otlp` backend type (what DataRobot's OTLP endpoint
+needs) only accepts static `headers:` strings — unlike its Langfuse/SigNoz/etc.
+backends, it has no `*_env:` indirection for pulling a header value out of an
+environment variable at load time. DataRobot's auth is two headers,
+`X-DataRobot-Api-Key` and `X-DataRobot-Entity-Id`, and the API key is a
+secret — so it can never be written into a config file that lands in a git
+commit or an image layer, the same rule the "Secrets" section above applies
+to `LLM_API_KEY`.
+
+The fix is the same shape as `dr-sync`'s and the LLM gateway's: bake a
+*template*, `config/hermes_otel.yaml.tmpl`, into the seed, and have
+`docker/entrypoint.sh` render it into the real
+`$HERMES_HOME/hermes_otel.yaml` on every boot via `envsubst`, once
+`DATAROBOT_API_TOKEN` exists as a real (injected) env var. If
+`DATAROBOT_ENTITY_ID` isn't set, rendering is skipped entirely and
+hermes-otel just stays unconfigured rather than exporting with empty auth
+headers.
+
+### The telemetry target
+
+Traces land under a DataRobot **Use Case**, referenced by
+`DATAROBOT_ENTITY_ID=experiment_container-<use_case_id>` in
+`.datarobot.yaml`'s `environmentVars` (a literal, not a secret — the id alone
+grants nothing without `DATAROBOT_API_TOKEN`). `DATAROBOT_OTEL_ENDPOINT`
+defaults in the Dockerfile to `https://app.datarobot.com/otel`, mirroring
+`DATAROBOT_ENDPOINT`'s own default.
+
+To view traces:
+
+```sh
+dr plugin install xp                                        # one-time
+dr xp --entity-id <use_case_id> --enable-logs --enable-metrics
+```
+
+then open `http://127.0.0.1:8090`. Use the bare Use Case id, not the
+`experiment_container-` prefixed form.
+
+### Upgrading the plugin
+
+`hermes plugins install --ref` pins to a commit so a rebuild months from now
+doesn't silently pick up whatever `main` has drifted to. To move to a newer
+release, bump `HERMES_OTEL_REF` in the Dockerfile to the new tag's commit SHA.
 
 ## The health probe
 

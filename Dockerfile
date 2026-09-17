@@ -41,17 +41,67 @@ ENV LLM_MODEL=anthropic/claude-opus-4-8 \
 # defaults here too. DATAROBOT_API_TOKEN and DR_SYNC_CATALOG_ID have no
 # default -- see .datarobot.yaml.
 ENV DATAROBOT_ENDPOINT=https://app.datarobot.com/api/v2 \
+    DATAROBOT_OTEL_ENDPOINT=https://app.datarobot.com/otel \
     DR_SYNC_INTERVAL_SECONDS=600
 
 COPY --chown=1000:1000 config/config.yaml          ${HERMES_SEED}/config.yaml
 COPY --chown=1000:1000 config/SOUL.md              ${HERMES_SEED}/SOUL.md
 COPY --chown=1000:1000 config/slack-manifest.json  ${HERMES_SEED}/slack-manifest.json
 COPY --chown=1000:1000 config/skills/              ${HERMES_SEED}/skills/
+# Only a template -- it renders to hermes_otel.yaml at boot, once
+# DATAROBOT_API_TOKEN (a secret) is available as a real env var. See
+# docker/entrypoint.sh and README.md's "Exporting traces to DataRobot".
+COPY --chown=1000:1000 config/hermes_otel.yaml.tmpl ${HERMES_SEED}/hermes_otel.yaml.tmpl
 # Without this, dr-sync download finds no .drsyncignore at $HERMES_HOME (its
 # default ignore-file lookup is relative to the sync root) and freely
 # restores whatever the Files API container has for config.yaml/SOUL.md/
 # skills/, clobbering the fresh seed copy entrypoint.sh just placed there.
 COPY --chown=1000:1000 config/.drsyncignore        ${HERMES_SEED}/.drsyncignore
+
+# hermes-otel (github.com/briancaffey/hermes-otel): an OpenTelemetry plugin
+# that turns Hermes' LLM calls, tool calls and API requests into OTel spans.
+# Installed straight into the seed (not $HERMES_HOME, which lives on
+# ephemeral /tmp) so entrypoint.sh's seed copy carries it in on every boot,
+# same as config.yaml/SOUL.md/skills/ above.
+#
+# `hermes` on PATH resolves to /opt/hermes/bin/hermes, a privilege-drop shim
+# that always execs as the `hermes` user when invoked as root (see its
+# source in NousResearch/hermes-agent) -- so this has to run after the
+# usermod above remapped that user to uid 1000, the same uid COPY --chown
+# gave the seed above; otherwise the plugin install dies with EACCES writing
+# into a root-owned directory it can't see past the drop.
+#
+# --ref pins the install to the hermes-otel-v1.3.0 tag's commit, so a
+# rebuild months from now installs the same plugin code rather than
+# whatever main has drifted to -- same reasoning as the pinned ARGs below.
+# `hermes plugins install` also bootstraps a few HERMES_HOME scaffolding
+# paths as a side effect of touching a fresh directory (a plugin-catalog
+# cache, a config.yaml backup, empty state dirs); none of that belongs in
+# the image -- entrypoint.sh creates the real ones on every boot -- so it's
+# deleted right back out. uv (not pip) installs into the base image's venv:
+# that venv ships no pip binary, only the interpreter.
+ARG HERMES_OTEL_REF=973008ec4f8a4c1f7d9a963177c072964788d163
+RUN HERMES_HOME=${HERMES_SEED} hermes plugins install \
+        briancaffey/hermes-otel/hermes_otel --ref ${HERMES_OTEL_REF} \
+    && uv pip install --python /opt/hermes/.venv/bin/python3 \
+        -r ${HERMES_SEED}/plugins/hermes_otel/requirements.txt \
+    && rm -rf ${HERMES_SEED}/audio_cache ${HERMES_SEED}/backups \
+        ${HERMES_SEED}/cache ${HERMES_SEED}/cron ${HERMES_SEED}/hooks \
+        ${HERMES_SEED}/image_cache ${HERMES_SEED}/logs \
+        ${HERMES_SEED}/memories ${HERMES_SEED}/pairing \
+        ${HERMES_SEED}/sessions \
+    && chown -R 1000:1000 ${HERMES_SEED}/plugins
+
+# Extra Python packages for the agent's own use -- list them in
+# config/requirements.txt (one per line, standard pip syntax) and uv installs
+# them straight into the same venv as Hermes and hermes-otel above
+# (/opt/hermes/.venv), so anything imported here is on the interpreter Hermes
+# itself runs. Empty by default; `uv pip install -r` on an empty file is a
+# no-op, so there's nothing to conditionally skip.
+COPY config/requirements.txt /tmp/requirements.txt
+RUN uv pip install --python /opt/hermes/.venv/bin/python3 \
+        -r /tmp/requirements.txt \
+    && rm -f /tmp/requirements.txt
 
 COPY --chown=1000:1000 docker/entrypoint.sh /opt/hermes-workload/entrypoint.sh
 RUN chmod 0755 /opt/hermes-workload/entrypoint.sh

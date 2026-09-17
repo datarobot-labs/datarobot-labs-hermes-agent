@@ -286,3 +286,13 @@ known_builtin_toolsets:
 # fallback_model:
 #   provider: openrouter
 #   model: anthropic/claude-sonnet-4
+
+# ── Plugins ───────────────────────────────────────────────────────────
+# hermes_otel (github.com/briancaffey/hermes-otel): exports LLM calls, tool
+# calls and API requests as OTel spans. Installed at build time by the
+# Dockerfile straight into the seed; its own backend config is rendered per
+# boot at $HERMES_HOME/hermes_otel.yaml from config/hermes_otel.yaml.tmpl,
+# because that file's DataRobot header carries a secret (see README.md).
+plugins:
+  enabled:
+    - hermes_otel

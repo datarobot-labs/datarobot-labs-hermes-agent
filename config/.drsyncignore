@@ -7,6 +7,12 @@
 /config.yaml
 /SOUL.md
 /skills/
+/plugins/
+
+# Regenerated from a template every boot (see docker/entrypoint.sh); a
+# restored copy would carry a stale DATAROBOT_API_TOKEN from a previous boot.
+/hermes_otel.yaml
+/hermes_otel.yaml.tmpl
 
 # Regenerable caches and pure logs. No value in persisting them, and the
 # image/audio caches in particular can grow large fast.

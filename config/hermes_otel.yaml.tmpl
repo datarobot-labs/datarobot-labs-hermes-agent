@@ -1,0 +1,22 @@
+# hermes_otel plugin config, rendered to $HERMES_HOME/hermes_otel.yaml by
+# docker/entrypoint.sh (via envsubst) on every boot.
+#
+# Not baked as a plain .yaml: DATAROBOT_API_TOKEN is a secret and headers on
+# an `otlp`-type backend are static strings the plugin has no *_env indirection
+# for (unlike its langfuse/signoz/etc. backends) -- so the real value can only
+# land here at boot, from the workload's injected env vars, never in a file
+# committed to git or baked into the image layer. See README.md.
+#
+# X-DataRobot-Entity-Id / X-DataRobot-Api-Key are DataRobot's own OTLP auth
+# headers (see the datarobot-external-agent-monitoring skill's
+# dr_otel_config.py template) -- not a hermes-otel convention.
+backends:
+  - type: otlp
+    name: datarobot
+    endpoint: "${DATAROBOT_OTEL_ENDPOINT}/v1/traces"
+    headers:
+      X-DataRobot-Entity-Id: "${DATAROBOT_ENTITY_ID}"
+      X-DataRobot-Api-Key: "${DATAROBOT_API_TOKEN}"
+    metrics: true
+    logs: true
+project_name: hermes-agent

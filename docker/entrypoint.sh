@@ -93,6 +93,23 @@ else
     echo "[entrypoint] DR_SYNC_CATALOG_ID not set; state will not persist across restarts" >&2
 fi
 
+# hermes-otel (baked into the seed by the Dockerfile) reads its OTLP backend
+# config from $HERMES_HOME/hermes_otel.yaml. That file's DataRobot headers
+# carry DATAROBOT_API_TOKEN, a secret, so only a template ships in the seed
+# -- rendered into the real file here, once the token exists as a real env
+# var, the same reasoning as LLM_API_KEY never landing in a file on disk.
+# Skipped when DATAROBOT_ENTITY_ID isn't set (e.g. no Use Case wired up
+# yet): hermes-otel then just stays unconfigured rather than exporting
+# nowhere with empty auth headers.
+if [ -n "${DATAROBOT_ENTITY_ID:-}" ] && [ -f "$HERMES_HOME/hermes_otel.yaml.tmpl" ]; then
+    : "${DATAROBOT_OTEL_ENDPOINT:=https://app.datarobot.com/otel}"
+    export DATAROBOT_OTEL_ENDPOINT
+    envsubst '${DATAROBOT_OTEL_ENDPOINT} ${DATAROBOT_ENTITY_ID} ${DATAROBOT_API_TOKEN}' \
+        < "$HERMES_HOME/hermes_otel.yaml.tmpl" > "$HERMES_HOME/hermes_otel.yaml"
+else
+    echo "[entrypoint] DATAROBOT_ENTITY_ID not set; hermes-otel DataRobot export disabled" >&2
+fi
+
 # The gateway's api_server refuses to start without a usable API_SERVER_KEY,
 # and that server is what answers the platform's /health probe. It also
 # fronts terminal-capable agent routes, so the key is a real credential:
