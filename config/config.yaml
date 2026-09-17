@@ -120,10 +120,12 @@ platform_toolsets:
     - code_execution
     - computer_use
     - connections
+    - context_engine
     - cronjob
     - delegation
     - file
     - image_gen
+    - kanban
     - memory
     - session_search
     - skills
@@ -145,10 +147,12 @@ platform_toolsets:
     - code_execution
     - computer_use
     - connections
+    - context_engine
     - cronjob
     - delegation
     - file
     - image_gen
+    - kanban
     - memory
     - session_search
     - skills
@@ -200,6 +204,7 @@ known_builtin_toolsets:
     - file
     - homeassistant
     - image_gen
+    - kanban
     - memory
     - session_search
     - skills
@@ -228,6 +233,7 @@ known_builtin_toolsets:
     - file
     - homeassistant
     - image_gen
+    - kanban
     - memory
     - session_search
     - skills
