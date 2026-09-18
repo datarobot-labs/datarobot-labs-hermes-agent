@@ -52,9 +52,13 @@ cp -R "$HERMES_SEED/." "$HERMES_HOME/"
 
 # Directories Hermes expects to exist, mirroring stage2-hook.sh's list.
 for d in backups cron sessions logs logs/gateways hooks memories skills skins \
-         plans workspace home pairing platforms/pairing lazy-packages; do
+         plans workspace home pairing platforms/pairing lazy-packages webui; do
     mkdir -p "$HERMES_HOME/$d"
 done
+
+# nginx's pid file and temp dirs (see docker/nginx.conf) -- /tmp starts
+# empty on every boot, same reasoning as the loop above.
+mkdir -p /tmp/nginx
 
 # Cache/config/state dirs for the bundled toolchain (go, npm, gh, glab, helm,
 # kubectl, pulumi, uv). The Dockerfile points every relevant env var at
@@ -166,6 +170,31 @@ if [ -d /opt/hermes/skills ]; then
 fi
 
 cd "$HERMES_HOME"
+
+# hermes-webui and nginx (docker/nginx.conf) run backgrounded, same pattern
+# as the dr-sync push loop above -- the gateway below stays PID 1 via exec,
+# since ITS exit is what should end/restart the container. A crash in
+# either background process costs the UI until the next boot, not the bot;
+# each gets its own restart loop so a transient failure doesn't wedge it
+# for the rest of the container's life.
+#
+# Explicit venv path (not relying on the `activate` above) because these
+# are separate long-running processes, not sourced into this shell.
+(
+    while true; do
+        /opt/hermes/.venv/bin/python3 /opt/hermes-webui/server.py \
+            || echo "[entrypoint] Warning: hermes-webui exited; restarting in 2s" >&2
+        sleep 2
+    done
+) &
+
+(
+    while true; do
+        nginx -c /opt/hermes-workload/nginx.conf \
+            || echo "[entrypoint] Warning: nginx exited; restarting in 2s" >&2
+        sleep 2
+    done
+) &
 
 # Hermes' own ${VAR} substitution in config.yaml resolves correctly for a
 # fresh `hermes config get` read, but NOT for the long-running gateway's

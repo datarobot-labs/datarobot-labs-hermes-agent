@@ -370,30 +370,77 @@ then open `http://127.0.0.1:8090`. Use the bare Use Case id, not the
 doesn't silently pick up whatever `main` has drifted to. To move to a newer
 release, bump `HERMES_OTEL_REF` in the Dockerfile to the new tag's commit SHA.
 
-## The health probe
+## Serving a web UI on the workload endpoint
 
-Hermes already serves this — no sidecar. The gateway's `api_server` exposes an
-unauthenticated `GET /health`, so the readiness probe just points at it:
+Browsing the workload's endpoint used to 404: the gateway's own `api_server`
+only defines `/v1/*` and `/health`, no root route. nginx now fronts the
+single port the workload exposes (**8642**, unchanged) and splits traffic by
+path between two backends that both run inside this same container:
+
+```
+external :8642  ->  nginx (docker/nginx.conf)
+                     |-- /health  /health/detailed  /v1/*  /p/*        -> 127.0.0.1:8643  hermes gateway api_server
+                     |-- /api/jobs*  /api/cron/fire  /api/model/options
+                     |     /api/platforms/*/events                    -> 127.0.0.1:8643  hermes gateway api_server
+                     '-- everything else (webui shell, static, its own
+                          /api/* namespace, including /api/sessions*)  -> 127.0.0.1:8787  hermes-webui
+```
+
+`/health` and a handful of the gateway's own `/api/*` routes are deliberately
+kept on the gateway rather than falling under the WebUI's catch-all — see
+`docker/nginx.conf` for the full reasoning. In short: `/health` is the
+readiness probe target, and routing it to the WebUI instead would stop
+catching a wedged gateway event loop; `/api/jobs`, `/api/cron/fire`,
+`/api/model/options` and `/api/platforms/*/events` are a different namespace
+than the WebUI's own much larger `/api/*` surface and would otherwise become
+unreachable. One exception on purpose: the gateway also has its own
+`/api/sessions*` HTTP API, but hermes-webui claims that *exact same path*
+for its own session list (the whole left-sidebar UI is built on it) — two
+apps can't share one path, and the WebUI's UI wins, so the gateway's
+`/api/sessions*` is not reachable through this endpoint.
+
+[hermes-webui](https://github.com/nesquena/hermes-webui) is baked into the image
+(`/opt/hermes-webui`, pinned via `HERMES_WEBUI_REF` — the upstream repo cuts
+releases several times a day, so bump the tag deliberately rather than
+floating on a branch). Its browser chat is configured to run turns through
+this container's own gateway (`HERMES_WEBUI_CHAT_BACKEND=gateway`) rather than
+its own default in-process runtime, so there is exactly one agent process
+touching `HERMES_HOME`, not two competing ones.
+
+hermes-webui emits relative asset and API URLs (`static/style.css`,
+`fetch('api/...')`), which is what lets it work unmodified under the
+DataRobot edge's stripped path prefix — but it also means the endpoint URL
+must be opened **with its trailing slash** (`dr workload endpoint <id>`
+already prints it that way); without it, the browser resolves those relative
+URLs one directory up and everything 404s.
+
+The WebUI's own login (`HERMES_WEBUI_PASSWORD`) is deliberately left unset.
+The DataRobot edge already requires a tenant login to reach the endpoint at
+all (see the next section) — an app-level login on top of that is redundant,
+and its cookies are prone to not round-tripping through the edge proxy.
+
+`API_SERVER_HOST`/`API_SERVER_PORT` moved the gateway's own API off the public
+port entirely, to `127.0.0.1:8643` — nginx is now the only thing bound to a
+non-loopback address. That server still fronts terminal-capable agent routes
+and the OpenAI-compatible `/v1` API, still gated by `API_SERVER_KEY` (the
+entrypoint generates it from `/dev/urandom` on every boot and never persists
+or exports it), reachable through nginx at the same paths as before.
+
+## The health probe
 
 ```console
 $ curl localhost:8642/health
-{"status": "ok", "platform": "hermes-agent", "version": "0.20.5"}
+{"status": "ok", "platform": "hermes-agent", "version": "0.21.3"}
 ```
 
-The port is Hermes' own default, **8642** — the Dockerfile does not override
-`API_SERVER_PORT`, and `.datarobot.yaml` is what points at it (both `port:` and
-`readinessProbe.port:`). Only the bind host is overridden, to
-`API_SERVER_HOST=0.0.0.0`: the default `127.0.0.1` is unreachable from the
-kubelet running the probe. The server auto-enables as soon as a usable
-`API_SERVER_KEY` exists.
-
-That same server also fronts terminal-capable agent routes, and it logs a
-warning about being network-accessible with `terminal.backend: local`. Those
-routes are all behind `API_SERVER_KEY`, which the entrypoint generates from
-`/dev/urandom` on every boot and never persists or exports — so nothing can
-authenticate to them, and only `/health` is reachable. Binding `0.0.0.0` is
-required for the kubelet to reach the probe at all. `/health/detailed` is
-key-gated and returns 401; use `/health`.
+Unchanged from before nginx existed: the gateway's own `api_server` still
+answers `/health`, unauthenticated, and `.datarobot.yaml`'s `readinessProbe`
+still points at it (`path: /health, port: 8642`) — nginx just sits in front
+now. It's deliberately **not** routed to hermes-webui (see
+`docker/nginx.conf`): the WebUI answering its own health would prove nothing
+about whether the gateway's event loop is still alive, and that's the
+failure mode a readiness probe exists to catch. `/health/detailed` is
+unchanged too — still key-gated, still 401 without `API_SERVER_KEY`.
 
 Slack itself needs no inbound port — Socket Mode is an outbound WebSocket.
 
