@@ -184,7 +184,8 @@ custom_providers:
         context_length: 1000000
 mcp_servers:
   atlassian:
-    url: "https://mcp.atlassian.com/v1/sse"
+    url: "https://mcp.atlassian.com/v1/mcp"
+    auth: oauth
   datarobot:
     url: "https://app.datarobot.com/api/v2/genai/globalmcp/mcp"
     headers:
