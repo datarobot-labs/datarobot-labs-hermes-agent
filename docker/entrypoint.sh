@@ -112,10 +112,15 @@ fi
 
 # Derive the OTel endpoint from the API endpoint so export follows whichever
 # install this runs on (app, staging, on-prem) instead of a pinned host --
-# the same derivation DataRobot's own dr_otel_config does (strip /api/v2, add
-# /otel).
+# the same derivation DataRobot's own dr_otel_config does: trim trailing
+# slashes, strip the /api/v2 suffix, then add /otel. The trailing-slash trim
+# matters: without it a "https://host/api/v2/" endpoint would not match the
+# /api/v2 suffix and would yield "/api/v2//otel".
 if [ -z "${DATAROBOT_OTEL_ENDPOINT:-}" ] && [ -n "${DATAROBOT_ENDPOINT:-}" ]; then
-    DATAROBOT_OTEL_ENDPOINT="${DATAROBOT_ENDPOINT%/api/v2}/otel"
+    _dr_base="$DATAROBOT_ENDPOINT"
+    while [ "$_dr_base" != "${_dr_base%/}" ]; do _dr_base="${_dr_base%/}"; done
+    DATAROBOT_OTEL_ENDPOINT="${_dr_base%/api/v2}/otel"
+    unset _dr_base
 fi
 
 # With the entity derivable from WORKLOAD_ID this is the normal path, not a
