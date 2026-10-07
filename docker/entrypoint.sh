@@ -102,16 +102,32 @@ fi
 # carry DATAROBOT_API_TOKEN, a secret, so only a template ships in the seed
 # -- rendered into the real file here, once the token exists as a real env
 # var, the same reasoning as LLM_API_KEY never landing in a file on disk.
-# Skipped when DATAROBOT_ENTITY_ID isn't set (e.g. no Use Case wired up
-# yet): hermes-otel then just stays unconfigured rather than exporting
-# nowhere with empty auth headers.
+# A workload's traces live under its own "workload-<id>" entity -- the same
+# service.name the platform's gateway spans use -- so default the OTel entity
+# to this workload when one wasn't set explicitly (e.g. to a Use Case). The
+# platform injects WORKLOAD_ID at runtime, so this needs no manual wiring.
+if [ -z "${DATAROBOT_ENTITY_ID:-}" ] && [ -n "${WORKLOAD_ID:-}" ]; then
+    DATAROBOT_ENTITY_ID="workload-${WORKLOAD_ID}"
+fi
+
+# Derive the OTel endpoint from the API endpoint so export follows whichever
+# install this runs on (app, staging, on-prem) instead of a pinned host --
+# the same derivation DataRobot's own dr_otel_config does (strip /api/v2, add
+# /otel).
+if [ -z "${DATAROBOT_OTEL_ENDPOINT:-}" ] && [ -n "${DATAROBOT_ENDPOINT:-}" ]; then
+    DATAROBOT_OTEL_ENDPOINT="${DATAROBOT_ENDPOINT%/api/v2}/otel"
+fi
+
+# With the entity derivable from WORKLOAD_ID this is the normal path, not a
+# special case. It is skipped only when there is genuinely no entity to
+# attribute traces to (no DATAROBOT_ENTITY_ID and no WORKLOAD_ID).
 if [ -n "${DATAROBOT_ENTITY_ID:-}" ] && [ -f "$HERMES_HOME/hermes_otel.yaml.tmpl" ]; then
-    : "${DATAROBOT_OTEL_ENDPOINT:=https://app.datarobot.com/otel}"
-    export DATAROBOT_OTEL_ENDPOINT
+    export DATAROBOT_ENTITY_ID DATAROBOT_OTEL_ENDPOINT
     envsubst '${DATAROBOT_OTEL_ENDPOINT} ${DATAROBOT_ENTITY_ID} ${DATAROBOT_API_TOKEN}' \
         < "$HERMES_HOME/hermes_otel.yaml.tmpl" > "$HERMES_HOME/hermes_otel.yaml"
+    echo "[entrypoint] hermes-otel export enabled: entity=${DATAROBOT_ENTITY_ID} endpoint=${DATAROBOT_OTEL_ENDPOINT}" >&2
 else
-    echo "[entrypoint] DATAROBOT_ENTITY_ID not set; hermes-otel DataRobot export disabled" >&2
+    echo "[entrypoint] no DATAROBOT_ENTITY_ID and no WORKLOAD_ID; hermes-otel DataRobot export disabled" >&2
 fi
 
 # The gateway's api_server refuses to start without a usable API_SERVER_KEY,

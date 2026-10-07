@@ -39,9 +39,10 @@ ENV LLM_MODEL=anthropic/claude-opus-4-8 \
 
 # dr-sync's endpoint (see the vendor/dr-sync COPY below); non-secret, so it
 # defaults here too. DATAROBOT_API_TOKEN and DR_SYNC_CATALOG_ID have no
-# default -- see .datarobot.yaml.
+# default -- see .datarobot.yaml. DATAROBOT_OTEL_ENDPOINT is deliberately not
+# set here: docker/entrypoint.sh derives it from DATAROBOT_ENDPOINT at boot so
+# OTel export follows whichever install this runs on, instead of pinning app.
 ENV DATAROBOT_ENDPOINT=https://app.datarobot.com/api/v2 \
-    DATAROBOT_OTEL_ENDPOINT=https://app.datarobot.com/otel \
     DR_SYNC_INTERVAL_SECONDS=600
 
 COPY --chown=1000:1000 config/config.yaml          ${HERMES_SEED}/config.yaml
