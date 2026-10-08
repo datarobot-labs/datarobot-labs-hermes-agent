@@ -219,8 +219,9 @@ Three changes fix it:
    supervising — the gateway is one foreground process. The entrypoint does the
    handful of things `stage2-hook.sh` did that still apply: copy the seed,
    create the directories Hermes expects, generate an `API_SERVER_KEY`, sync
-   bundled skills, then `exec hermes gateway run --no-supervise` so the gateway
-   is PID 1 and its exit is the container's exit.
+   bundled skills, then run `hermes gateway run --no-supervise` and wait on it,
+   so the gateway's exit is the container's exit (the shell stays PID 1 to
+   flush state on SIGTERM — see "Persisting state across restarts").
 
 > **State is per-boot.** `/tmp` is the only writable path and it is not a
 > volume, so sessions, memories and `state.db` do not survive a restart on
@@ -236,22 +237,62 @@ session, memory and `state.db` (see above). [`dr-sync`](https://github.com/datar
 into the image — mirrors `$HERMES_HOME` against a DataRobot Files API
 container instead:
 
-- **On boot**, `docker/entrypoint.sh` runs `dr-sync download "$HERMES_HOME"`
-  before starting the gateway, restoring whatever the last boot pushed.
+- **On boot**, `docker/entrypoint.sh` logs a `[entrypoint] boot <utc> host=<pod>`
+  line, then runs `dr-sync download "$HERMES_HOME"` before starting the
+  gateway, restoring whatever the last boot pushed. The download is retried
+  (`DR_SYNC_DOWNLOAD_ATTEMPTS`, default 5, with backoff) and, if it still
+  fails, the container **exits non-zero** rather than starting with empty
+  state — otherwise the first upload would overwrite the good remote copy.
+  An empty remote (first deploy) is a successful download and boots normally.
 - **Every `DR_SYNC_INTERVAL_SECONDS`** (default 600), a background loop the
   entrypoint starts runs `dr-sync upload "$HERMES_HOME"`. There is no
   supervisor in this container to hang a real cron job off of (see above), so
-  this is a plain `sleep`-and-upload loop backgrounded before `exec hermes
-  gateway run` takes over as PID 1.
+  this is a plain `sleep`-and-upload loop backgrounded before the gateway
+  starts.
+- **On shutdown** (Kubernetes moving or stopping the pod sends SIGTERM to
+  PID 1), the entrypoint forwards the signal to the gateway, waits for it to
+  exit, then runs one final upload bounded by `DR_SYNC_FINAL_TIMEOUT`
+  (default 20s, to fit the pod's 30s termination grace period). The gateway
+  is therefore a child of the entrypoint shell, not `exec`'d.
+- **SQLite databases are snapshotted, not copied live.** Hermes keeps
+  `state.db`, `cron/*.db`, `kanban.db`, … open in WAL mode, and copying the
+  `.db`/`-wal`/`-shm` files at different instants can yield a mismatched
+  trio that silently loses recent writes. Each upload first takes a
+  `sqlite3 .backup` copy of every `*.db` into `$HERMES_HOME/.dr-sync-snapshots/`
+  (`<path>.db.snap`), and the live `*.db`/`-wal`/`-shm` files are excluded
+  from the upload. On boot the snapshots are copied back over the live
+  paths.
 - **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
   excludes what's baked from the image — `config.yaml`, `SOUL.md`, `skills/`
   — so a stale download can never clobber what the current image just
   shipped, plus pure caches and logs that aren't worth persisting.
+- **Retention** is `--keep-generations 144` (about a day of 10-minute
+  uploads), so a bad overwrite can be rolled back (see below).
 
 This assumes a **single writer**: one replica pushing to one container, so
 there's no lock contention to design around. It does not assume the
 Workload API's `replicaCount` stays at 1 forever — if that changes, this
 sync strategy needs revisiting first.
+
+### Checking and recovering state
+
+```sh
+# Did the pod restart? One line per boot:
+dr workload logs --limit 50000 | grep ' boot '
+
+# What does the remote hold right now, and which generations are retained?
+dr sync inspect --catalog-id "$DR_SYNC_CATALOG_ID"
+dr sync ls --long --catalog-id "$DR_SYNC_CATALOG_ID" --prefix sessions
+
+# Roll a bad overwrite back: restore an older generation into a scratch dir
+# first, look at it, then (with the workload stopped) into the real one.
+dr sync download --catalog-id "$DR_SYNC_CATALOG_ID" --generation <N> /some/empty/dir
+```
+
+Never point a local `.env` at the production container: a local
+`docker compose up` becomes a second writer and its fresh state competes with
+the pod's. Create a throwaway container for local runs with `dr sync init
+--name hermes-local`.
 
 ### Why `dr-sync` is vendored instead of downloaded
 

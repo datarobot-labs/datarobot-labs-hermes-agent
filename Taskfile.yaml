@@ -8,6 +8,10 @@ tasks:
       `task test -- --filter dr-sync`.
     cmds:
       - tests/run.sh {{.CLI_ARGS}}
+  lint:
+    desc: Lint the repo's own shell scripts with shellcheck (synced skills are excluded)
+    cmds:
+      - shellcheck docker/entrypoint.sh
   vendor:dr-sync:
     desc: >
       Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync
