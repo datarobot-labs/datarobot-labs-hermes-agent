@@ -1,6 +1,11 @@
 version: "3"
 
 tasks:
+  lint:
+    desc: Lint the repo's own shell scripts with shellcheck (synced skills are excluded)
+    cmds:
+      - shellcheck docker/entrypoint.sh
+
   vendor:dr-sync:
     desc: >
       Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync

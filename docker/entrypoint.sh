@@ -26,6 +26,105 @@ export HERMES_HOME=/tmp/hermes
 : "${HERMES_SEED:?HERMES_SEED must be set}"
 : "${TOOLS_HOME:?TOOLS_HOME must be set}"
 
+# One greppable line per container start (`dr workload logs | grep ' boot '`),
+# so a pod move is visible in the logs. hostname is the pod name.
+echo "[entrypoint] boot $(date -u +%Y-%m-%dT%H:%M:%SZ) host=$(hostname) dr_sync_catalog=${DR_SYNC_CATALOG_ID:-none}" >&2
+
+# --- State sync helpers (see the dr-sync block below for the why) -----------
+#
+# Hermes keeps live SQLite databases (state.db, cron/*.db, kanban.db, ...)
+# open in WAL mode under $HERMES_HOME. Uploading the .db, -wal and -shm files
+# as three independent reads can capture them at different instants, and a
+# restore of a mismatched trio silently drops whatever the WAL held. So live
+# databases are never uploaded; instead each tick takes a consistent
+# `sqlite3 .backup` copy of every one into $DB_SNAPSHOTS (as <relpath>.snap)
+# and those copies are what travel.
+DB_SNAPSHOTS="$HERMES_HOME/.dr-sync-snapshots"
+DR_SYNC_DOWNLOAD_ATTEMPTS="${DR_SYNC_DOWNLOAD_ATTEMPTS:-5}"
+
+snapshot_dbs() {
+    find "$HERMES_HOME" \
+        \( -path "$DB_SNAPSHOTS" -o -path "$HERMES_HOME/skills" \
+           -o -path "$HERMES_HOME/plugins" -o -path "$HERMES_HOME/lazy-packages" \
+           -o -path "$HERMES_HOME/cache" -o -path "$HERMES_HOME/logs" \) -prune \
+        -o -type f -name '*.db' -print |
+    {
+    unprotected=0
+    while IFS= read -r db; do
+        snap="$DB_SNAPSHOTS/${db#"$HERMES_HOME"/}.snap"
+        mkdir -p "$(dirname "$snap")"
+        # Back up to a temp name, then rename: a failed backup must not
+        # replace the previous good snapshot with a truncated one.
+        if sqlite3 "$db" ".backup '$snap.tmp'"; then
+            mv -f "$snap.tmp" "$snap"
+        else
+            rm -f "$snap.tmp"
+            if [ ! -f "$snap" ]; then
+                # Live .db files are never uploaded, so with no earlier
+                # snapshot this generation would carry no copy of $db.
+                echo "[entrypoint] Error: snapshot of $db failed and no previous snapshot exists" >&2
+                unprotected=1
+                continue
+            fi
+            echo "[entrypoint] Warning: snapshot of $db failed; keeping the previous snapshot" >&2
+        fi
+    done
+    # Non-zero aborts the upload so a generation without databases is never
+    # published as the latest.
+    [ "$unprotected" -eq 0 ]
+    }
+}
+
+# Put the downloaded snapshots back at their real paths. A -wal/-shm that
+# came down alongside (legacy uploads, from before snapshots existed) belongs
+# to the OLD main file, so it is removed rather than paired with the snapshot.
+# With no snapshots yet (first boot after this shipped) the legacy live files
+# that were downloaded are left exactly as they are.
+restore_dbs() {
+    [ -d "$DB_SNAPSHOTS" ] || return 0
+    ( cd "$DB_SNAPSHOTS" && find . -type f -name '*.db.snap' -print ) |
+    while IFS= read -r rel; do
+        rel="${rel#./}"
+        dest="$HERMES_HOME/${rel%.snap}"
+        mkdir -p "$(dirname "$dest")"
+        rm -f "$dest-wal" "$dest-shm"
+        cp -f "$DB_SNAPSHOTS/$rel" "$dest"
+        echo "[entrypoint] restored database $rel" >&2
+    done
+}
+
+# One upload. The flock serialises the periodic loop against the final
+# shutdown upload, so they can't contend for dr-sync's lease. $1 is an
+# optional timeout (seconds) for the dr-sync call; 0/unset means none. The
+# lock wait is short and timeout escalates to SIGKILL so the shutdown upload
+# can't outlive the pod's termination grace period.
+sync_up() {
+    (
+        flock -w 5 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
+        snapshot_dbs
+        timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
+            --keep-generations 144 \
+            --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'
+    ) 9>/tmp/.dr-sync.lock
+}
+
+download_state() {
+    attempt=1
+    delay=5
+    while true; do
+        if dr-sync download "$HERMES_HOME"; then
+            return 0
+        fi
+        if [ "$attempt" -ge "$DR_SYNC_DOWNLOAD_ATTEMPTS" ]; then
+            return 1
+        fi
+        echo "[entrypoint] dr-sync download failed (attempt $attempt/$DR_SYNC_DOWNLOAD_ATTEMPTS); retrying in ${delay}s" >&2
+        sleep "$delay"
+        delay=$((delay * 2))
+        attempt=$((attempt + 1))
+    done
+}
+
 # Names only, never values -- several of these are secrets (LLM_API_KEY,
 # SLACK_*_TOKEN, DATAROBOT_API_TOKEN). This is what confirms whether a given
 # environmentVars entry actually mounted anything, e.g. whether
@@ -75,24 +174,33 @@ mkdir -p "$TOOLS_HOME/go/bin" \
 # at the Files API container that survives restarts. Pull first, so a
 # previous boot's sessions/memories/state.db land before the gateway starts;
 # .drsyncignore (baked into the seed above) keeps this from clobbering it
-# with a stale copy. Single writer -- this container -- so no lease conflicts
-# are expected; a failure here costs continuity, not the boot.
+# with a stale copy.
+#
+# A failed download is FATAL (after retries), not "start fresh": booting with
+# empty state would let the push loop below overwrite the good remote
+# state.db/sessions/memories with an empty copy within one interval. Exiting
+# lets Kubernetes retry the pod instead. An empty remote (first deploy) is a
+# successful download of nothing, so that still boots.
+sync_loop_pid=""
 if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
-    dr-sync download "$HERMES_HOME" \
-        || echo "[entrypoint] Warning: dr-sync download failed; starting fresh" >&2
+    if ! download_state; then
+        echo "[entrypoint] FATAL: dr-sync download failed after $DR_SYNC_DOWNLOAD_ATTEMPTS attempts; refusing to start with empty state" >&2
+        exit 1
+    fi
+    restore_dbs
 
     # Background push loop -- there is no cron/supervisor in this container
-    # (see the s6 note at the top), so periodic persistence is just a sleep
-    # loop backgrounded before the gateway takes over as PID 1. It dies with
-    # the container; the boot-time download above is what actually recovers
-    # state, this just keeps the remote copy fresh in between.
+    # (see the s6 note at the top), so periodic persistence is a sleep loop
+    # backgrounded before the gateway starts. The gateway is NOT exec'd (see
+    # the end of this file), so the SIGTERM handler there can stop this loop
+    # and run one last upload before the container exits.
     (
         while true; do
             sleep "${DR_SYNC_INTERVAL_SECONDS:-600}"
-            dr-sync upload "$HERMES_HOME" \
-                || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
+            sync_up || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
         done
     ) &
+    sync_loop_pid=$!
 else
     echo "[entrypoint] DR_SYNC_CATALOG_ID not set; state will not persist across restarts" >&2
 fi
@@ -134,6 +242,8 @@ if [ -n "${DATAROBOT_ENTITY_ID:-}" ] \
     && [ -n "${DATAROBOT_OTEL_ENDPOINT:-}" ] \
     && [ -f "$HERMES_HOME/hermes_otel.yaml.tmpl" ]; then
     export DATAROBOT_ENTITY_ID DATAROBOT_OTEL_ENDPOINT
+    # envsubst needs the literal variable names, so the single quotes are intended.
+    # shellcheck disable=SC2016
     envsubst '${DATAROBOT_OTEL_ENDPOINT} ${DATAROBOT_ENTITY_ID} ${DATAROBOT_API_TOKEN}' \
         < "$HERMES_HOME/hermes_otel.yaml.tmpl" > "$HERMES_HOME/hermes_otel.yaml"
     echo "[entrypoint] hermes-otel export enabled: entity=${DATAROBOT_ENTITY_ID} endpoint=${DATAROBOT_OTEL_ENDPOINT}" >&2
@@ -199,8 +309,8 @@ fi
 cd "$HERMES_HOME"
 
 # hermes-webui and nginx (docker/nginx.conf) run backgrounded, same pattern
-# as the dr-sync push loop above -- the gateway below stays PID 1 via exec,
-# since ITS exit is what should end/restart the container. A crash in
+# as the dr-sync push loop above -- the gateway below is what this script
+# waits on, since ITS exit is what should end/restart the container. A crash in
 # either background process costs the UI until the next boot, not the bot;
 # each gets its own restart loop so a transient failure doesn't wedge it
 # for the rest of the container's life.
@@ -242,6 +352,32 @@ hermes config set model.default "$LLM_MODEL" >&2
 hermes config set custom_providers.0.base_url "$LLM_BASE_URL" >&2
 
 # No s6 to hand off to, so --no-supervise is the only correct mode: the
-# gateway is the container's main process and its exit is the container's
-# exit, which is what lets Kubernetes restart a wedged bot.
-exec hermes gateway run --no-supervise "$@"
+# gateway's exit is the container's exit, which is what lets Kubernetes
+# restart a wedged bot.
+#
+# Not `exec`'d: this shell stays PID 1 so it can flush state on the way out.
+# Kubernetes moving a pod sends SIGTERM to PID 1; with the gateway as PID 1
+# nothing was left to push the last (up to DR_SYNC_INTERVAL_SECONDS) of
+# sessions/memories. Now SIGTERM is forwarded to the gateway, and once it has
+# exited cleanly one final upload runs, bounded by DR_SYNC_FINAL_TIMEOUT so it
+# stays inside the pod's termination grace period (30s by default).
+hermes gateway run --no-supervise "$@" &
+gateway_pid=$!
+trap 'kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
+
+# `wait` returns early when a trapped signal arrives; keep waiting until the
+# gateway is really gone, then take its true exit status. The `||` keeps a
+# non-zero status from tripping `set -e`.
+gateway_status=0
+while kill -0 "$gateway_pid" 2>/dev/null; do
+    gateway_status=0
+    wait "$gateway_pid" || gateway_status=$?
+done
+
+if [ -n "$sync_loop_pid" ]; then
+    kill "$sync_loop_pid" 2>/dev/null || true
+    echo "[entrypoint] gateway exited ($gateway_status); running final dr-sync upload" >&2
+    sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}" \
+        || echo "[entrypoint] Warning: final dr-sync upload failed" >&2
+fi
+exit "$gateway_status"
