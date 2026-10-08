@@ -570,6 +570,10 @@ The suite runs in a tools image pinned by digest (`tests/Dockerfile`) as uid 100
 
 When you change the entrypoint, add a test for the new behavior to `tests/entrypoint.bats`. When you bump the base image digest, change it in the Dockerfile, the Taskfile and the README together: the suite fails if they differ.
 
+## License and contributing
+
+Apache 2.0, see [LICENSE](LICENSE). Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) before you open a pull request, and report security issues as described in [SECURITY.md](SECURITY.md).
+
 ## Operating it
 
 ```sh
