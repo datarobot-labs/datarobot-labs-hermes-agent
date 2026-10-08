@@ -1,0 +1,3 @@
+#!/bin/sh
+# The entrypoint only reads the HTTP status code that `curl -w` prints.
+echo 200

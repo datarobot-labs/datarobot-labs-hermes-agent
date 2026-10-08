@@ -1,0 +1,8 @@
+#!/bin/sh
+# Records the call. For the final `gateway run`, also saves the environment the
+# gateway would start with.
+echo "hermes $*" >> "$STUB_LOG"
+if [ "$1 $2" = "gateway run" ]; then
+    env > "$STUB_ENV"
+fi
+exit 0

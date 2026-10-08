@@ -1,6 +1,13 @@
 version: "3"
 
 tasks:
+  test:
+    desc: >
+      Run the static checks and the entrypoint tests in a pinned tools image.
+      Needs only Docker. Extra arguments go to bats, for example
+      `task test -- --filter dr-sync`.
+    cmds:
+      - tests/run.sh {{.CLI_ARGS}}
   vendor:dr-sync:
     desc: >
       Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync

@@ -1,0 +1,76 @@
+#!/usr/bin/env bats
+# Checks that need no running container: linters, file formats, the pinned
+# base image, what `dr workload up` would upload, and a secret scan.
+
+DIGEST_PATTERN='hermes-agent:latest@sha256:[0-9a-f]{64}'
+
+setup_file() {
+    git config --global --add safe.directory /repo
+}
+
+@test "entrypoint passes shellcheck" {
+    run shellcheck -s sh -S warning /repo/docker/entrypoint.sh
+    [ "$status" -eq 0 ]
+}
+
+@test "test scripts and stubs pass shellcheck" {
+    run shellcheck -s bash -S warning /repo/tests/run.sh
+    [ "$status" -eq 0 ]
+    run shellcheck -s sh -S warning /repo/tests/fixtures/opt/stubs/*
+    [ "$status" -eq 0 ]
+}
+
+@test "Dockerfiles pass hadolint" {
+    cd /repo
+    run hadolint Dockerfile tests/Dockerfile
+    [ "$status" -eq 0 ]
+}
+
+@test "YAML and JSON files parse" {
+    cd /repo
+    for f in config/config.yaml compose.yaml Taskfile.yaml .github/workflows/test.yml; do
+        python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"
+    done
+    python3 -m json.tool config/slack-manifest.json > /dev/null
+}
+
+@test "the base image is pinned by digest" {
+    run grep -Ec "^FROM nousresearch/${DIGEST_PATTERN}( |\$)" /repo/Dockerfile
+    [ "$output" = 1 ]
+}
+
+@test "the Taskfile and README use the same digest as the Dockerfile" {
+    expected=$(grep -oE "$DIGEST_PATTERN" /repo/Dockerfile | sort -u)
+    [ -n "$expected" ]
+    for f in /repo/Taskfile.yaml /repo/README.md; do
+        found=$(grep -oE "$DIGEST_PATTERN" "$f" | sort -u)
+        [ "$found" = "$expected" ]
+    done
+    # No hermes-agent image reference may float.
+    run grep -nE 'nousresearch/hermes-agent(:latest)?( |$)' /repo/Taskfile.yaml /repo/README.md
+    [ "$status" -ne 0 ]
+}
+
+@test "the upload set stays under the 1000 file limit and holds no secret files" {
+    cd /repo
+    ignore_file=.drignore
+    [ -f "$ignore_file" ] || ignore_file=.wapiignore
+    scratch=$(mktemp -d)
+    git -C "$scratch" init -q
+    cp "$ignore_file" "$scratch/.gitignore"
+    git ls-files | git -C "$scratch" check-ignore --no-index --stdin > "$scratch/ignored" || true
+    git ls-files | sort > "$scratch/tracked"
+    sort "$scratch/ignored" > "$scratch/ignored.sorted"
+    comm -23 "$scratch/tracked" "$scratch/ignored.sorted" > "$scratch/upload"
+    count=$(wc -l < "$scratch/upload")
+    echo "upload set: $count files (limit 1000)"
+    [ "$count" -lt 1000 ]
+    run grep -nE '(^|/)(\.env(\..*)?|.*\.(pem|key|p12|pfx)|id_rsa|id_ed25519|auth\.json)$' "$scratch/upload"
+    [ -z "$(grep -vE '\.env\.(example|template|sample)$' <<< "$output")" ]
+}
+
+@test "no secrets in the working tree" {
+    cd /repo
+    run gitleaks dir . --no-banner --redact
+    [ "$status" -eq 0 ]
+}

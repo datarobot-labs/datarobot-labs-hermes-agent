@@ -1,0 +1,4 @@
+#!/bin/sh
+# Records the call. Fails when STUB_DRSYNC_FAIL is set.
+echo "dr-sync $*" >> "$STUB_LOG"
+[ -z "${STUB_DRSYNC_FAIL:-}" ]

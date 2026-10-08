@@ -1,0 +1,4 @@
+#!/bin/sh
+# The entrypoint restarts nginx in a loop. The real binary is only used by the
+# `nginx -t` test, by its full path.
+exit 0
