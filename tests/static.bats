@@ -101,3 +101,11 @@ setup_file() {
     run gitleaks dir . --no-banner --redact
     [ "$status" -eq 0 ]
 }
+
+@test "no secrets in the git history" {
+    cd /repo
+    run gitleaks git . --no-banner --no-color --redact
+    [ "$status" -eq 0 ]
+    # gitleaks exits 0 after zero commits when git cannot read the repository.
+    echo "$output" | grep -Eq '(^|[^0-9])[1-9][0-9]* commits scanned'
+}
