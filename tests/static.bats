@@ -73,6 +73,21 @@ setup_file() {
     [ "$status" -ne 0 ]
 }
 
+@test "every pinned build tool has a checksum for both architectures" {
+    for tool in GO GH GLAB YQ TASK KUBECTL HELM PULUMI; do
+        version=$(sed -nE "s/^ARG ${tool}_VERSION=(.+)$/\\1/p" /repo/Dockerfile)
+        [ -n "$version" ]
+        name=$(echo "$tool" | tr 'A-Z' 'a-z')
+        for arch in amd64 arm64; do
+            grep -qE "^[0-9a-f]{64}  ${name}-${version}-${arch}$" /repo/docker/tool-checksums.txt
+        done
+    done
+}
+
+@test "the web UI is fetched by commit" {
+    grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
+}
+
 @test "compose publishes the gateway port on loopback only" {
     grep -qE '"127\.0\.0\.1:8642:8642"' /repo/compose.yaml
     run grep -nE '^\s+- "8642:8642"' /repo/compose.yaml
