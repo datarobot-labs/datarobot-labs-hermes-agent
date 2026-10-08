@@ -1,11 +1,17 @@
 version: "3"
 
 tasks:
+  test:
+    desc: >
+      Run the static checks and the entrypoint tests in a pinned tools image.
+      Needs only Docker. Extra arguments go to bats, for example
+      `task test -- --filter dr-sync`.
+    cmds:
+      - tests/run.sh {{.CLI_ARGS}}
   lint:
     desc: Lint the repo's own shell scripts with shellcheck (synced skills are excluded)
     cmds:
       - shellcheck docker/entrypoint.sh
-
   vendor:dr-sync:
     desc: >
       Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync
@@ -57,4 +63,4 @@ tasks:
     desc: Run hermes commands inside the docker image
     cmds:
       - |
-        docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent {{.CLI_ARGS}}
+        docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db {{.CLI_ARGS}}

@@ -1,10 +1,12 @@
 # Hermes agent, pre-configured from the `hermes setup` run in ./config and
 # packaged for `dr workload up`.
 #
-# :latest is what `hermes setup` ran against and what ./config was written for.
-# Pin to a release tag (e.g. :v2026.8.19) for a reproducible deploy, but check
-# `_config_version` in config.yaml when moving between releases.
-FROM nousresearch/hermes-agent:latest
+# Pinned by digest: a moving :latest broke the OTel plugin install on 2026-10-08
+# (the newer Hermes CLI declines a non-interactive install that has Python
+# dependencies). Bump the digest on purpose, and check `_config_version` in
+# config.yaml when moving between releases. The Taskfile `hermes` task and the
+# README `docker run` commands use the same digest: change all of them together.
+FROM nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db
 
 # The Workload API runs containers as uid 1000 on a read-only root filesystem
 # with only /tmp writable. Two consequences shape everything below:

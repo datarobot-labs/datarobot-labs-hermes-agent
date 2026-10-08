@@ -3,7 +3,7 @@
 The `hermes setup` wizard was run once against a local data dir:
 
 ```sh
-docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent setup
+docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db setup
 ```
 
 Its output lives in `./config`. This repo bakes the durable half of that into an
@@ -553,8 +553,22 @@ platform constraints):
 
 ```sh
 docker run -it --rm -v ./config:/opt/data --env-file .env \
-  nousresearch/hermes-agent chat
+  nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db chat
 ```
+
+## Tests
+
+```sh
+task test                       # or tests/run.sh; needs only Docker
+task test -- --filter dr-sync   # extra arguments go to bats
+```
+
+The suite runs in a tools image pinned by digest (`tests/Dockerfile`) as uid 1000 on a read-only root, like the workload. CI runs the same command on every pull request (`.github/workflows/test.yml`).
+
+- `tests/static.bats`: shellcheck, hadolint, YAML and JSON validity, the base image pinned by digest in the Dockerfile, Taskfile and README, the `dr workload up` upload set (under 1,000 files, no secret files), and a gitleaks scan.
+- `tests/entrypoint.bats`: runs `docker/entrypoint.sh` with stub `hermes`, `dr-sync`, `curl` and `nginx` (`tests/fixtures/opt/stubs`), and checks the boot sequence, that no secret value is ever logged, and `nginx -t`.
+
+When you change the entrypoint, add a test for the new behavior to `tests/entrypoint.bats`. When you bump the base image digest, change it in the Dockerfile, the Taskfile and the README together: the suite fails if they differ.
 
 ## Operating it
 

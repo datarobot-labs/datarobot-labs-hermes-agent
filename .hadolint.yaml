@@ -1,0 +1,3 @@
+failure-threshold: warning
+ignored:
+  - DL3008 # apt packages follow the pinned Debian snapshot, not per-package versions
