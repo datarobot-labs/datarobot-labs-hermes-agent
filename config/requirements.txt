@@ -28,12 +28,10 @@ datarobot==3.19.0
 datarobot-predict==1.13.5
 pandas==3.0.6
 
-# productivity/pdf + productivity/ocr-and-documents
+# productivity/pdf
 pypdf==6.19.0
 reportlab==5.0.1
 pdfplumber==0.11.10
-pymupdf==1.28.2
-pymupdf4llm==1.28.2
 pypdfium2==5.13.0
 
 # productivity/docx, productivity/powerpoint, productivity/xlsx

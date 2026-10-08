@@ -88,6 +88,18 @@ setup_file() {
     grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
 }
 
+@test "no AGPL-licensed Python package is installed" {
+    run grep -niE '^(pymupdf|pymupdf4llm|fitz)==' /repo/config/requirements.txt
+    [ "$status" -ne 0 ]
+}
+
+@test "no vendored skill duplicates one the base image bundles" {
+    # Hermes syncs its bundled skills into HERMES_HOME at boot; a seeded copy
+    # goes stale, and a manifest entry without a skill reads as user-deleted.
+    [ ! -e /repo/config/skills/.bundled_manifest ]
+    [ ! -d /repo/config/skills/productivity/pdf ]
+}
+
 @test "compose publishes the gateway port on loopback only" {
     grep -qE '"127\.0\.0\.1:8642:8642"' /repo/compose.yaml
     run grep -nE '^\s+- "8642:8642"' /repo/compose.yaml

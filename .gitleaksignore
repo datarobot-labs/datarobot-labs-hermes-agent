@@ -1,2 +1,3 @@
-# An md5 hash in the bundled skills manifest, not a key.
+# An md5 hash in a bundled skills manifest that is gone from the tree, not a key.
+# Drop this file when the history is squashed.
 44ebf3434044ae08c48696c5aa47df6e2977d0e6:config/skills/.bundled_manifest:generic-api-key:28
