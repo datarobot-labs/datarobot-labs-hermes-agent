@@ -123,16 +123,22 @@ if [ -z "${DATAROBOT_OTEL_ENDPOINT:-}" ] && [ -n "${DATAROBOT_ENDPOINT:-}" ]; th
     unset _dr_base
 fi
 
-# With the entity derivable from WORKLOAD_ID this is the normal path, not a
-# special case. It is skipped only when there is genuinely no entity to
-# attribute traces to (no DATAROBOT_ENTITY_ID and no WORKLOAD_ID).
-if [ -n "${DATAROBOT_ENTITY_ID:-}" ] && [ -f "$HERMES_HOME/hermes_otel.yaml.tmpl" ]; then
+# Enable export only when everything a successful upload needs is present: an
+# entity to attribute traces to, the API token the auth header carries, and an
+# endpoint. Export is on by default now (the entity derives from WORKLOAD_ID),
+# so guarding on the token matters -- without it every trace, metric and log
+# POST would 401 and flood the logs for every workload, not just one that had
+# opted in. DATAROBOT_API_TOKEN is platform-injected; see the Secrets section.
+if [ -n "${DATAROBOT_ENTITY_ID:-}" ] \
+    && [ -n "${DATAROBOT_API_TOKEN:-}" ] \
+    && [ -n "${DATAROBOT_OTEL_ENDPOINT:-}" ] \
+    && [ -f "$HERMES_HOME/hermes_otel.yaml.tmpl" ]; then
     export DATAROBOT_ENTITY_ID DATAROBOT_OTEL_ENDPOINT
     envsubst '${DATAROBOT_OTEL_ENDPOINT} ${DATAROBOT_ENTITY_ID} ${DATAROBOT_API_TOKEN}' \
         < "$HERMES_HOME/hermes_otel.yaml.tmpl" > "$HERMES_HOME/hermes_otel.yaml"
     echo "[entrypoint] hermes-otel export enabled: entity=${DATAROBOT_ENTITY_ID} endpoint=${DATAROBOT_OTEL_ENDPOINT}" >&2
 else
-    echo "[entrypoint] no DATAROBOT_ENTITY_ID and no WORKLOAD_ID; hermes-otel DataRobot export disabled" >&2
+    echo "[entrypoint] hermes-otel export disabled: need an entity (DATAROBOT_ENTITY_ID or WORKLOAD_ID), DATAROBOT_API_TOKEN, and an OTel endpoint (DATAROBOT_OTEL_ENDPOINT or DATAROBOT_ENDPOINT)" >&2
 fi
 
 # The gateway's api_server refuses to start without a usable API_SERVER_KEY,
