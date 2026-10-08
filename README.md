@@ -338,30 +338,45 @@ to `LLM_API_KEY`.
 
 The fix is the same shape as `dr-sync`'s and the LLM gateway's: bake a
 *template*, `config/hermes_otel.yaml.tmpl`, into the seed, and have
-`docker/entrypoint.sh` render it into the real
-`$HERMES_HOME/hermes_otel.yaml` on every boot via `envsubst`, once
-`DATAROBOT_API_TOKEN` exists as a real (injected) env var. If
-`DATAROBOT_ENTITY_ID` isn't set, rendering is skipped entirely and
-hermes-otel just stays unconfigured rather than exporting with empty auth
-headers.
+`docker/entrypoint.sh` render it into the real `$HERMES_HOME/hermes_otel.yaml`
+on every boot via `envsubst`. Export is **on by default**: the entrypoint
+renders the template whenever it has everything a successful upload needs — an
+entity (defaulted to `workload-${WORKLOAD_ID}`, see below), the
+`DATAROBOT_API_TOKEN` the auth header carries, and an endpoint. If any of the
+three is missing it skips rendering, so hermes-otel stays unconfigured rather
+than exporting with empty/anonymous headers that would 401 on every span.
 
 ### The telemetry target
 
-Traces land under a DataRobot **Use Case**, referenced by
-`DATAROBOT_ENTITY_ID=experiment_container-<use_case_id>` in
-`.datarobot.yaml`'s `environmentVars` (a literal, not a secret — the id alone
-grants nothing without `DATAROBOT_API_TOKEN`). `DATAROBOT_OTEL_ENDPOINT`
-defaults in the Dockerfile to `https://app.datarobot.com/otel`, mirroring
-`DATAROBOT_ENDPOINT`'s own default.
+By default a workload's traces land under **its own Tracing tab** (Console →
+Deployed workloads → the workload → Tracing). DataRobot's tracing ingest
+attributes each span to an entity by parsing its OTel `service.name` as
+`<entity_type>-<entity_id>`, so the entrypoint defaults the entity to the
+workload itself — `DATAROBOT_ENTITY_ID=workload-${WORKLOAD_ID}` (the platform
+injects `WORKLOAD_ID`) — and `config/hermes_otel.yaml.tmpl` sets
+`resource_attributes.service.name` to it. (hermes-otel otherwise hardcodes
+`service.name` to `hermes-agent`, which matches no entity, so spans would never
+appear.) No Use Case or manual wiring is required.
 
-To view traces:
+`DATAROBOT_OTEL_ENDPOINT` is derived at boot from `DATAROBOT_ENDPOINT` (trim
+trailing slashes, strip `/api/v2`, add `/otel`), so export follows whichever
+install the workload runs on — `app`, staging or on-prem — with no hardcoded
+host. Set `DATAROBOT_OTEL_ENDPOINT` explicitly only to override that.
+
+To target a **Use Case** instead of the workload, set
+`DATAROBOT_ENTITY_ID=experiment_container-<use_case_id>` explicitly in
+`.datarobot.yaml`'s `environmentVars` (a literal, not a secret — the id alone
+grants nothing without `DATAROBOT_API_TOKEN`); an explicit value wins over the
+`workload-` default, and traces then appear under that Use Case's Tracing tab.
+
+For a local live view of spans (independent of the DataRobot export):
 
 ```sh
 dr plugin install xp                                        # one-time
-dr xp --entity-id <use_case_id> --enable-logs --enable-metrics
+dr xp --entity-id <id> --enable-logs --enable-metrics
 ```
 
-then open `http://127.0.0.1:8090`. Use the bare Use Case id, not the
+then open `http://127.0.0.1:8090`. Use the bare id, not the `workload-` /
 `experiment_container-` prefixed form.
 
 ### Upgrading the plugin
