@@ -48,6 +48,8 @@ snapshot_dbs() {
            -o -path "$HERMES_HOME/plugins" -o -path "$HERMES_HOME/lazy-packages" \
            -o -path "$HERMES_HOME/cache" -o -path "$HERMES_HOME/logs" \) -prune \
         -o -type f -name '*.db' -print |
+    {
+    unprotected=0
     while IFS= read -r db; do
         snap="$DB_SNAPSHOTS/${db#"$HERMES_HOME"/}.snap"
         mkdir -p "$(dirname "$snap")"
@@ -57,9 +59,20 @@ snapshot_dbs() {
             mv -f "$snap.tmp" "$snap"
         else
             rm -f "$snap.tmp"
+            if [ ! -f "$snap" ]; then
+                # Live .db files are never uploaded, so with no earlier
+                # snapshot this generation would carry no copy of $db.
+                echo "[entrypoint] Error: snapshot of $db failed and no previous snapshot exists" >&2
+                unprotected=1
+                continue
+            fi
             echo "[entrypoint] Warning: snapshot of $db failed; keeping the previous snapshot" >&2
         fi
     done
+    # Non-zero aborts the upload so a generation without databases is never
+    # published as the latest.
+    [ "$unprotected" -eq 0 ]
+    }
 }
 
 # Put the downloaded snapshots back at their real paths. A -wal/-shm that
@@ -82,12 +95,14 @@ restore_dbs() {
 
 # One upload. The flock serialises the periodic loop against the final
 # shutdown upload, so they can't contend for dr-sync's lease. $1 is an
-# optional timeout (seconds) for the dr-sync call; 0/unset means none.
+# optional timeout (seconds) for the dr-sync call; 0/unset means none. The
+# lock wait is short and timeout escalates to SIGKILL so the shutdown upload
+# can't outlive the pod's termination grace period.
 sync_up() {
     (
-        flock -w 60 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
+        flock -w 5 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
         snapshot_dbs
-        timeout "${1:-0}" dr-sync upload "$HERMES_HOME" \
+        timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
             --keep-generations 144 \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'
     ) 9>/tmp/.dr-sync.lock
@@ -227,6 +242,8 @@ if [ -n "${DATAROBOT_ENTITY_ID:-}" ] \
     && [ -n "${DATAROBOT_OTEL_ENDPOINT:-}" ] \
     && [ -f "$HERMES_HOME/hermes_otel.yaml.tmpl" ]; then
     export DATAROBOT_ENTITY_ID DATAROBOT_OTEL_ENDPOINT
+    # envsubst needs the literal variable names, so the single quotes are intended.
+    # shellcheck disable=SC2016
     envsubst '${DATAROBOT_OTEL_ENDPOINT} ${DATAROBOT_ENTITY_ID} ${DATAROBOT_API_TOKEN}' \
         < "$HERMES_HOME/hermes_otel.yaml.tmpl" > "$HERMES_HOME/hermes_otel.yaml"
     echo "[entrypoint] hermes-otel export enabled: entity=${DATAROBOT_ENTITY_ID} endpoint=${DATAROBOT_OTEL_ENDPOINT}" >&2
