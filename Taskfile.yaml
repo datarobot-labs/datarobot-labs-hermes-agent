@@ -52,4 +52,4 @@ tasks:
     desc: Run hermes commands inside the docker image
     cmds:
       - |
-        docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent {{.CLI_ARGS}}
+        docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db {{.CLI_ARGS}}

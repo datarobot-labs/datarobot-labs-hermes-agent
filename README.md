@@ -3,7 +3,7 @@
 The `hermes setup` wizard was run once against a local data dir:
 
 ```sh
-docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent setup
+docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db setup
 ```
 
 Its output lives in `./config`. This repo bakes the durable half of that into an
@@ -512,7 +512,7 @@ platform constraints):
 
 ```sh
 docker run -it --rm -v ./config:/opt/data --env-file .env \
-  nousresearch/hermes-agent chat
+  nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db chat
 ```
 
 ## Operating it
