@@ -254,8 +254,8 @@ else
 fi
 
 # The gateway's api_server refuses to start without a usable API_SERVER_KEY,
-# and that server is what answers the platform's /health probe. It also
-# fronts terminal-capable agent routes, so the key is a real credential:
+# and that server is what answers the platform's /health probe. The key is
+# a real credential:
 # generate a fresh one per boot rather than persisting or injecting it.
 # Nothing outside the container needs it -- the probe path is unauthenticated.
 if [ -z "${API_SERVER_KEY:-}" ]; then

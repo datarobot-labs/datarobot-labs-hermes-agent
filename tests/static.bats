@@ -66,6 +66,19 @@ setup_file() {
     [ "$output" = 1 ]
 }
 
+@test "the dr CLI installer and version are pinned" {
+    grep -qE '^ARG DR_CLI_VERSION=v[0-9]+\.[0-9]+\.[0-9]+$' /repo/Dockerfile
+    grep -qE '^ARG DR_CLI_INSTALLER_REF=[0-9a-f]{40}$' /repo/Dockerfile
+    run grep -nE 'DR_CLI_VERSION=latest|datarobot-oss/cli/(main|master)/' /repo/Dockerfile
+    [ "$status" -ne 0 ]
+}
+
+@test "compose publishes the gateway port on loopback only" {
+    grep -qE '"127\.0\.0\.1:8642:8642"' /repo/compose.yaml
+    run grep -nE '^\s+- "8642:8642"' /repo/compose.yaml
+    [ "$status" -ne 0 ]
+}
+
 @test "the Taskfile and README use the same digest as the Dockerfile" {
     expected=$(grep -oE "$DIGEST_PATTERN" /repo/Dockerfile | sort -u)
     [ -n "$expected" ]

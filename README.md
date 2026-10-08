@@ -470,10 +470,9 @@ must be opened **with its trailing slash** (`dr workload endpoint <id>`
 already prints it that way); without it, the browser resolves those relative
 URLs one directory up and everything 404s.
 
-The WebUI's own login (`HERMES_WEBUI_PASSWORD`) is deliberately left unset.
-The DataRobot edge already requires a tenant login to reach the endpoint at
-all (see the next section) — an app-level login on top of that is redundant,
-and its cookies are prone to not round-tripping through the edge proxy.
+The WebUI's own login (`HERMES_WEBUI_PASSWORD`) is unset because the
+DataRobot edge already requires a login. Run this image only behind an
+authenticating proxy, and keep the container's port private otherwise.
 
 `API_SERVER_HOST`/`API_SERVER_PORT` moved the gateway's own API off the public
 port entirely, to `127.0.0.1:8643` — nginx is now the only thing bound to a
@@ -506,8 +505,7 @@ The workload logs, on every deploy:
 
 ```
 Running, not ready (possible probe failure)
-Readiness probe failing: HTTP 401 (10 consecutive failures,
-  probe_url=https://lrs.../protons/<id>/health)
+Readiness probe failing: HTTP 401 (10 consecutive failures)
 ```
 
 That is a *platform-side* check going through the DataRobot edge, and the edge is

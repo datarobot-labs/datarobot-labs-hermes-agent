@@ -22,7 +22,7 @@ services:
     # come from ./.env, which is gitignored and never enters the image.
     env_file: .env
     ports:
-      - "8642:8642"
+      - "127.0.0.1:8642:8642"
     healthcheck:
       # The same endpoint the workload's readinessProbe hits.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8642/health').read()"]

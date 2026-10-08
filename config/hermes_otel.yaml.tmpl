@@ -12,7 +12,7 @@
 # dr_otel_config.py template) -- not a hermes-otel convention.
 #
 # service.name decides which entity a trace is filed under: DataRobot's tracing
-# read parses it as "<entity_type>-<entity_id>" (public_api/otel/tracing). The
+# read parses it as "<entity_type>-<entity_id>". The
 # platform's own gateway spans use "workload-<id>", so the agent's spans must
 # use the same to appear in this workload's Tracing tab. hermes-otel hardcodes
 # service.name to "hermes-agent" (matches no entity -> spans never show), but

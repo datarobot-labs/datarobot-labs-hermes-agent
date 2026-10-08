@@ -142,12 +142,9 @@ RUN git clone --quiet --depth 1 --branch "${HERMES_WEBUI_REF}" \
 # HERMES_WEBUI_CHAT_BACKEND=gateway opts into that bridge (see
 # docs/advanced-chat-setup.md upstream). HERMES_WEBUI_GATEWAY_API_KEY is
 # deliberately unset: it falls back to API_SERVER_KEY, which the entrypoint
-# already generates and exports. App-level auth (HERMES_WEBUI_PASSWORD) is
-# deliberately left unset -- the DataRobot edge already gates the endpoint
-# behind a tenant login (see the workload skill's
-# web-uis-behind-the-edge.md), and an app-level login on top of that is
-# redundant at best and prone to cookies that don't round-trip through the
-# edge at worst.
+# already generates and exports. HERMES_WEBUI_PASSWORD is unset because the
+# DataRobot edge already requires a login; run this image behind an
+# authenticating proxy.
 ENV HERMES_WEBUI_HOST=127.0.0.1 \
     HERMES_WEBUI_PORT=8787 \
     HERMES_WEBUI_STATE_DIR=/tmp/hermes/webui \
@@ -263,11 +260,13 @@ COPY vendor/dr-sync/linux_${TARGETARCH}/dr-sync /usr/local/bin/dr-sync
 RUN chmod 0755 /usr/local/bin/dr-sync
 
 # The DataRobot CLI -- this project's own deploy tool, so an agent working in
-# here can redeploy, read logs and inspect workloads. Its installer resolves
-# the latest release; pass a tag to pin.
-ARG DR_CLI_VERSION=latest
+# here can redeploy, read logs and inspect workloads. Both the installer
+# (fetched at the commit of the release tag) and the version are pinned, since
+# the script runs as root at build time.
+ARG DR_CLI_VERSION=v0.12.0
+ARG DR_CLI_INSTALLER_REF=d3fdb737e570a619e1f3944848f8e74adb701009
 RUN curl -fsSL -o /tmp/install-dr.sh \
-        https://raw.githubusercontent.com/datarobot-oss/cli/main/install.sh \
+        "https://raw.githubusercontent.com/datarobot-oss/cli/${DR_CLI_INSTALLER_REF}/install.sh" \
     && INSTALL_DIR=/usr/local/bin sh /tmp/install-dr.sh "${DR_CLI_VERSION}" \
     && rm -f /tmp/install-dr.sh
 

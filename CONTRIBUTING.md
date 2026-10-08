@@ -22,15 +22,13 @@ Run `task test` (needs only Docker) before you open a pull request. See the "Tes
 
 - Do not open up a GitHub issue if the bug is a security
 vulnerability, instead email the maintainers directly or email
-oss-community-management@datarobot.com if they do not respond within
-seven days
+oss-community-management@datarobot.com
 - Ensure the bug was not already reported in the projects Issues section
 - Open an issue as described above
 
 ## Responding to issues and pull requests
 
-This project's maintainers will make every effort to respond to any
-open issues as soon as possible.
+This project is community maintained. Maintainers respond on a best-effort
+basis, with no response-time commitment.
 
-If you don't get a response within seven days of creating your issue or
-pull request, please send us an email at oss-community-management@datarobot.com
+If your issue or pull request gets no response, you can email oss-community-management@datarobot.com
