@@ -30,7 +30,9 @@ export HERMES_HOME=/tmp/hermes
 # SLACK_*_TOKEN, DATAROBOT_API_TOKEN). This is what confirms whether a given
 # environmentVars entry actually mounted anything, e.g. whether
 # `source: api-key` in .datarobot.yaml produces a DATAROBOT_API_TOKEN.
-echo "[entrypoint] environment variable names: $(env | cut -d= -f1 | sort | tr '\n' ' ')" >&2
+# NUL-delimited so a multi-line value (the GITHUB_PRIVATE_KEY PEM) stays one
+# record and only its name is printed.
+echo "[entrypoint] environment variable names: $(env -0 | cut -z -d= -f1 | sort -z | tr '\0' ' ')" >&2
 
 mkdir -p "$HERMES_HOME"
 
