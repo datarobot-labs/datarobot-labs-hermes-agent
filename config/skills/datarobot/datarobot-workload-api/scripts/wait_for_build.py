@@ -1,4 +1,4 @@
-# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
+# Copyright (c) 2026 DataRobot, Inc.
 # SPDX-License-Identifier: Apache-2.0
 """Poll a server-side artifact image build until the image is deployable.
 

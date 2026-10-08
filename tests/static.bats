@@ -36,7 +36,7 @@ setup_file() {
 
 @test "the open source files from the policy are present and filled in" {
     cd /repo
-    for f in LICENSE AUTHORS CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md .github/PULL_REQUEST_TEMPLATE.md .github/dependabot.yml .pre-commit-config.yaml; do
+    for f in LICENSE NOTICE .env.example AUTHORS CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md .github/PULL_REQUEST_TEMPLATE.md .github/dependabot.yml .pre-commit-config.yaml; do
         [ -s "$f" ]
     done
     grep -q 'Apache License' LICENSE
@@ -98,6 +98,34 @@ setup_file() {
     # goes stale, and a manifest entry without a skill reads as user-deleted.
     [ ! -e /repo/config/skills/.bundled_manifest ]
     [ ! -d /repo/config/skills/productivity/pdf ]
+}
+
+@test ".env.example lists the variables and holds no values for secrets" {
+    cd /repo
+    git check-ignore -q .env
+    run git check-ignore -q .env.example
+    [ "$status" -ne 0 ]
+    for var in LLM_API_KEY SLACK_BOT_TOKEN SLACK_APP_TOKEN DR_SYNC_CATALOG_ID; do
+        grep -qE "^#? ?${var}=$" .env.example
+    done
+    run grep -nE '^#? ?[A-Z_]*(KEY|TOKEN)=.+$' .env.example
+    [ "$status" -ne 0 ]
+}
+
+@test "the README states the project status and the Nous Research disclaimer" {
+    grep -q 'Experimental and community maintained' /repo/README.md
+    grep -q 'not affiliated with or endorsed by Nous Research' /repo/README.md
+}
+
+@test "the default persona carries no team branding" {
+    run grep -niE 'solutions labs|whimsical' /repo/config/SOUL.md
+    [ "$status" -ne 0 ]
+}
+
+@test "no file claims all rights reserved or needs an internal license" {
+    cd /repo
+    run git grep -nI 'All rights reserved' -- . ':!LICENSE' ':!tests/static.bats'
+    [ "$status" -ne 0 ]
 }
 
 @test "compose publishes the gateway port on loopback only" {

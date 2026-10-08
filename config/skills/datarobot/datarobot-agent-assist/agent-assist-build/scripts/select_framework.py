@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
+# Copyright (c) 2026 DataRobot, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
 """Save the chosen agentic framework for a DataRobot agent project.

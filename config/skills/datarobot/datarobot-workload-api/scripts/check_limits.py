@@ -1,4 +1,4 @@
-# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
+# Copyright (c) 2026 DataRobot, Inc.
 # SPDX-License-Identifier: Apache-2.0
 """Print the current user's effective DataRobot workload scaling limits.
 

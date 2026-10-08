@@ -1,4 +1,4 @@
-# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
+# Copyright (c) 2026 DataRobot, Inc.
 # SPDX-License-Identifier: Apache-2.0
 """Poll a workload's active artifact replacement until it completes or fails.
 

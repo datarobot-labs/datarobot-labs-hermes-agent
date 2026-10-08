@@ -1,0 +1,23 @@
+labs-hermes
+Copyright 2026 DataRobot, Inc.
+
+This product is licensed under the Apache License 2.0 (see LICENSE) and includes
+or installs the following third-party software. Each keeps its own license.
+
+- Hermes Agent, https://github.com/NousResearch/hermes-agent. MIT License.
+  The base image, and the skills under config/skills authored by "Hermes Agent".
+- hermes-webui, https://github.com/nesquena/hermes-webui. MIT License.
+  Fetched at build time by commit.
+- hermes-otel, https://github.com/briancaffey/hermes-otel. Apache License 2.0.
+  Fetched at build time by commit.
+- models.dev, https://github.com/anomalyco/models.dev. MIT License.
+  config/models_dev_cache.json is a snapshot of its model catalog.
+- Skills under config/skills from other authors keep the author named in each
+  SKILL.md, for example touchdesigner-mcp (kshitijk4poor) and blogwatcher
+  (JulienTant, a fork of Hyaxia/blogwatcher).
+- Build tools downloaded at image build time and verified against
+  docker/tool-checksums.txt: Go (BSD-3-Clause), GitHub CLI (MIT), GitLab CLI (MIT),
+  yq (MIT), Task (MIT), kubectl (Apache-2.0), Helm (Apache-2.0), Pulumi (Apache-2.0).
+- pandoc and poppler-utils are installed from Debian packages and run as separate
+  programs. Both are GPL-licensed, and this repository does not link against them.
+- Python packages listed in config/requirements.txt, each under its own license.
