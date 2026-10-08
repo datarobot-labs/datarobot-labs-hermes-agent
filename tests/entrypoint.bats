@@ -99,17 +99,32 @@ assert_absent() {
     assert_absent 'dr-sync' "$WORK/calls.log"
 }
 
-@test "downloads state once on boot when DR_SYNC_CATALOG_ID is set" {
+@test "downloads state before the gateway and uploads it once after the gateway exits" {
     run boot DR_SYNC_CATALOG_ID=catalog123
     [ "$status" -eq 0 ]
     [ "$(grep -c '^dr-sync download /tmp/hermes$' "$WORK/calls.log")" = 1 ]
-    assert_absent 'dr-sync upload' "$WORK/calls.log"
+    [ "$(grep -c '^dr-sync upload /tmp/hermes ' "$WORK/calls.log")" = 1 ]
+    grep -q -- '^dr-sync upload .*--exclude \*\.db --exclude \*\.db-wal --exclude \*\.db-shm' "$WORK/calls.log"
+    download_line=$(grep -n '^dr-sync download' "$WORK/calls.log" | cut -d: -f1)
+    gateway_line=$(grep -n '^hermes gateway run' "$WORK/calls.log" | cut -d: -f1)
+    upload_line=$(grep -n '^dr-sync upload' "$WORK/calls.log" | cut -d: -f1)
+    [ "$download_line" -lt "$gateway_line" ]
+    [ "$gateway_line" -lt "$upload_line" ]
+    grep -q 'running final dr-sync upload' "$WORK/err"
 }
 
-@test "a failed dr-sync download does not stop the boot" {
-    run boot DR_SYNC_CATALOG_ID=catalog123 STUB_DRSYNC_FAIL=1
+@test "a download that keeps failing is fatal and the gateway never starts" {
+    run boot DR_SYNC_CATALOG_ID=catalog123 STUB_DRSYNC_FAIL=1 DR_SYNC_DOWNLOAD_ATTEMPTS=1
+    [ "$status" -ne 0 ]
+    grep -q 'FATAL: dr-sync download failed after 1 attempts' "$WORK/err"
+    assert_absent '^hermes gateway run' "$WORK/calls.log"
+}
+
+@test "a failed download is retried and the boot goes on when a later attempt succeeds" {
+    run boot DR_SYNC_CATALOG_ID=catalog123 STUB_DRSYNC_FAIL_FIRST=1
     [ "$status" -eq 0 ]
-    grep -q 'dr-sync download failed; starting fresh' "$WORK/err"
+    [ "$(grep -c '^dr-sync download' "$WORK/calls.log")" = 2 ]
+    grep -q 'dr-sync download failed (attempt 1/5); retrying in 5s' "$WORK/err"
     grep -q '^hermes gateway run' "$WORK/calls.log"
 }
 

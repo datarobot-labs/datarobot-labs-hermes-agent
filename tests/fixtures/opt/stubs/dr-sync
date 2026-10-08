@@ -1,4 +1,9 @@
 #!/bin/sh
-# Records the call. Fails when STUB_DRSYNC_FAIL is set.
+# Records the call. Fails every call when STUB_DRSYNC_FAIL is set, and fails the
+# first STUB_DRSYNC_FAIL_FIRST download calls when that is set.
 echo "dr-sync $*" >> "$STUB_LOG"
-[ -z "${STUB_DRSYNC_FAIL:-}" ]
+[ -z "${STUB_DRSYNC_FAIL:-}" ] || exit 1
+if [ -n "${STUB_DRSYNC_FAIL_FIRST:-}" ] && [ "$1" = download ]; then
+    [ "$(grep -c '^dr-sync download' "$STUB_LOG")" -gt "$STUB_DRSYNC_FAIL_FIRST" ] || exit 1
+fi
+exit 0
