@@ -50,5 +50,6 @@ config/config.yaml.bak.*
 tests/
 .github/
 .hadolint.yaml
+.licenserc.yaml
 
 __pycache__/
