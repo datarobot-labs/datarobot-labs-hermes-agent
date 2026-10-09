@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 DataRobot, Inc.
+# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """Create a shell deployment in DataRobot for receiving external agent OTel telemetry.

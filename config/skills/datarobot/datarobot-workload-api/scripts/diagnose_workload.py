@@ -1,4 +1,4 @@
-# Copyright (c) 2026 DataRobot, Inc.
+# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 """Run the full 5-step debug flow against a DataRobot workload and print a
 structured diagnosis: status, lifecycle-event highlights, proton K8s detail,

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 DataRobot, Inc.
+# Copyright (c) 2026 DataRobot, Inc. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # Add secrets to GitHub repository using GitHub CLI

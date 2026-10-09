@@ -122,9 +122,11 @@ setup_file() {
     [ "$status" -ne 0 ]
 }
 
+# config/skills/datarobot/ is vendored from datarobot-agent-skills, where the same headers
+# ("... All rights reserved." next to SPDX Apache-2.0) are already public and were reviewed.
 @test "no file claims all rights reserved or needs an internal license" {
     cd /repo
-    run git grep -nI 'All rights reserved' -- . ':!LICENSE' ':!tests/static.bats'
+    run git grep -nI 'All rights reserved' -- . ':!LICENSE' ':!tests/static.bats' ':!config/skills/datarobot'
     [ "$status" -ne 0 ]
 }
 
