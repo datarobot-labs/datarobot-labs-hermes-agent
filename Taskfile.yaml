@@ -14,7 +14,211 @@
 
 version: "3"
 
+env:
+  # dr up to v0.12 hides `dr workload` (or its config and up subcommands)
+  # behind this client-side flag. v0.13 dropped the gate and ignores it.
+  DATAROBOT_CLI_FEATURE_WORKLOAD: "true"
+
+vars:
+  # The base image, pinned by digest. Keep it in step with the Dockerfile's
+  # FROM and README.md: `task test` fails if the three differ.
+  HERMES_IMAGE: nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db
+
 tasks:
+  # -------------------------------------------------------------------------
+  # Onboarding and deploying. Run these through `dr`: `dr start`, then
+  # `dr run deploy`. `dr task list --all` shows them all.
+  # -------------------------------------------------------------------------
+  start:
+    silent: true
+    desc: >-
+      Set up this clone, and safe to re-run: write .env (asking only for what
+      is missing), then the .datarobot.yaml deploy manifest. Run it as
+      `dr start`, which first checks your DataRobot login and tools.
+    aliases: [onboarding]
+    interactive: true
+    cmds:
+      - dr dotenv setup --if-needed
+      - task: _llm-gateway-url
+      - task: _manifest
+      - echo "Ready. Deploy with 'dr run deploy'."
+
+  deploy:
+    desc: >-
+      Deploy the workload, or roll out what changed since the last deploy,
+      with `dr workload up`. Extra arguments go to it, e.g.
+      `dr run deploy -- --dry-run`, or `dr run deploy -- --lock` to keep a
+      draft from being stopped after 8 hours.
+    aliases: [up]
+    interactive: true
+    preconditions:
+      - sh: test -f .datarobot.yaml
+        msg: "No .datarobot.yaml yet. Run 'dr start' first."
+      - sh: "! grep -q PLACEHOLDER .datarobot.yaml"
+        msg: >-
+          .datarobot.yaml still has a PLACEHOLDER credential, which the deploy
+          would refuse. See docs/TROUBLESHOOTING.md, "PLACEHOLDER credentials".
+    cmds:
+      - dr workload up {{.CLI_ARGS}}
+
+  env:
+    silent: true
+    desc: >-
+      Copy changes in .env into .datarobot.yaml, so the next `dr run deploy`
+      ships them. New variables become literals or credentials, the way
+      `dr start` wrote the first ones.
+    interactive: true
+    preconditions:
+      - sh: test -f .datarobot.yaml
+        msg: "No .datarobot.yaml yet. Run 'dr start' first."
+    cmds:
+      - |
+        # -e: the v0.8 fallback runs two commands, and a failed --import-env
+        # must not be hidden when the following --update-env succeeds.
+        set -e
+        if dr workload config --help 2>/dev/null | grep -q -- '--sync-env'; then
+          dr workload config --sync-env
+        else
+          # dr up to v0.8 splits the sync in two: --import-env adds the names
+          # the manifest lacks, --update-env re-sends the ones it has.
+          dr workload config --import-env
+          dr workload config --update-env
+        fi
+
+  install:*:
+    desc: >-
+      Add a skill to config/skills/ with `hermes skills install`, e.g.
+      `dr run install:official/creative/ascii-art` for one of Hermes' optional
+      skills, or `dr run install:<owner>/<repo>/<path>` for one on GitHub.
+      Needs Docker. Skills are baked into the image, so `dr run deploy` after.
+    interactive: true
+    vars:
+      SKILL: "{{index .MATCH 0}}"
+    preconditions:
+      - sh: docker info >/dev/null 2>&1
+        msg: "Installing a skill runs Hermes in Docker, and Docker isn't running."
+    cmds:
+      - docker run -it --rm -v ./config:/opt/data {{.HERMES_IMAGE}} skills install {{shellQuote .SKILL}}
+      - echo "Installed into config/skills/. Run 'dr run deploy' to ship it."
+
+  doctor:
+    silent: true
+    desc: >-
+      Check that everything is in place: tools, DataRobot login, .env, the
+      deploy manifest and, once deployed, the workload's status and /health.
+      Read-only.
+    aliases: [status]
+    cmds:
+      - |
+        set -u
+        failed=0
+        step() { printf '\n== %s\n' "$1"; }
+
+        step "Tools"
+        dr deps check || failed=1
+
+        step "DataRobot login"
+        dr auth check || failed=1
+
+        step ".env"
+        # Only the verdict: `dr dotenv validate` prints every value it checks,
+        # DATAROBOT_API_TOKEN included.
+        if dr dotenv validate >/dev/null 2>&1; then
+          echo "All required variables are set."
+        else
+          echo "Required variables are missing. Run 'dr start'."
+          failed=1
+        fi
+
+        step "Deploy manifest"
+        if [ ! -f .datarobot.yaml ]; then
+          echo "No .datarobot.yaml yet. Run 'dr start'."
+          exit 1
+        fi
+        if grep -q PLACEHOLDER .datarobot.yaml; then
+          echo "A credential is still PLACEHOLDER. See docs/TROUBLESHOOTING.md."
+          failed=1
+        else
+          echo ".datarobot.yaml is complete."
+        fi
+        if ! grep -q '^workloadId:' .datarobot.yaml; then
+          echo "Not deployed yet. Run 'dr run deploy'."
+          exit "$failed"
+        fi
+
+        step "Workload"
+        dr workload status || failed=1
+
+        step "Health"
+        endpoint=$(dr workload endpoint 2>/dev/null)
+        if [ -z "$endpoint" ]; then
+          echo "The workload has no endpoint yet."
+          failed=1
+        else
+          # The endpoint sits behind DataRobot's login, so the probe carries
+          # the CLI's own token. It goes in on stdin, not argv, so it never
+          # shows up in a process listing.
+          eval "$(dr auth export --shell bash)"
+          code=$(printf 'Authorization: Bearer %s\n' "$DATAROBOT_API_TOKEN" |
+            curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -H @- "${endpoint%/}/health" || true)
+          echo "GET ${endpoint%/}/health -> HTTP $code"
+          [ "$code" = 200 ] || failed=1
+        fi
+
+        if [ "$failed" -ne 0 ]; then
+          step "Recent workload logs"
+          dr workload logs --limit 40 || true
+          printf '\nSomething needs attention; see above and docs/TROUBLESHOOTING.md.\n'
+        else
+          printf '\nAll good.\n'
+        fi
+        exit "$failed"
+
+  # Not run directly; `start` calls these.
+  _llm-gateway-url:
+    silent: true
+    internal: true
+    # The Dockerfile defaults LLM_BASE_URL to app.datarobot.com's LLM gateway,
+    # which is the wrong one on any other install. Point it at the gateway of
+    # the install .env deploys to, unless .env already sets it.
+    status:
+      - grep -qE '^LLM_BASE_URL=' .env
+    cmds:
+      - |
+        endpoint=$(sed -nE 's/^DATAROBOT_ENDPOINT="?([^"]*)"?$/\1/p' .env | tail -n 1)
+        if [ -z "$endpoint" ]; then
+          echo ".env has no DATAROBOT_ENDPOINT. Run 'dr start' again." >&2
+          exit 1
+        fi
+        printf '\n# The LLM gateway on the same DataRobot install as DATAROBOT_ENDPOINT.\nLLM_BASE_URL="%s/genai/llmgw"\n' "${endpoint%/}" >> .env
+        echo "Set LLM_BASE_URL to ${endpoint%/}/genai/llmgw"
+
+  _manifest:
+    silent: true
+    internal: true
+    cmds:
+      - |
+        if [ ! -f .datarobot.yaml ]; then
+          # Secrets in .env become DataRobot credentials named
+          # <name>/<VARIABLE>; set WORKLOAD_NAME to deploy a second copy
+          # without colliding with the first one's.
+          dr workload config --yes --name "${WORKLOAD_NAME:-hermes-agent}" \
+            --type agent --health /health --cpu 1 --memory 2GB
+          exit
+        fi
+        echo ".datarobot.yaml already exists; leaving it as is."
+        missing=""
+        for name in $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' .env | sort -u); do
+          grep -qE "^[[:space:]]*- name: ${name}\$" .datarobot.yaml || missing="$missing $name"
+        done
+        if [ -n "$missing" ]; then
+          echo "In .env but not in .datarobot.yaml:$missing"
+          echo "Run 'dr run env' to add them."
+        fi
+
+  # -------------------------------------------------------------------------
+  # Developing this repo.
+  # -------------------------------------------------------------------------
   test:
     desc: >
       Run the static checks and the entrypoint tests in a pinned tools image.
@@ -39,8 +243,8 @@ tasks:
     desc: >
       Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync
       release. Private repo -- needs `gh` authenticated against the
-      datarobot org. See README.md "Why dr-sync is vendored instead of
-      downloaded".
+      datarobot org. See docs/ARCHITECTURE.md "Why dr-sync is vendored
+      instead of downloaded".
     cmds:
       - |
         set -euo pipefail
@@ -83,7 +287,9 @@ tasks:
         EOF
         echo "Synced datarobot-agent-skills into $dest"
   hermes:
-    desc: Run hermes commands inside the docker image
+    desc: >-
+      Run a hermes command in the pinned image against ./config, e.g.
+      `task hermes -- skills browse`
+    interactive: true
     cmds:
-      - |
-        docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db {{.CLI_ARGS}}
+      - docker run -it --rm -v ./config:/opt/data {{.HERMES_IMAGE}} {{.CLI_ARGS}}

@@ -1,0 +1,28 @@
+# Tools `dr start` checks for (and offers to install) before it runs the
+# Taskfile's `start` task. `dr deps check` runs the same checks on their own.
+#
+# This file is also what marks the repo as a `dr` project: without a
+# non-empty .datarobot/cli/, `dr run`, `dr start` and `dr dotenv` all refuse
+# to run here. It replaces dr's built-in defaults (Python, uv, Pulumi), none
+# of which deploying Hermes needs. Docker is left out on purpose: the image
+# builds server-side, so only local runs and `dr run install:*` need it, and
+# those tasks check for it themselves.
+dr:
+  name: DataRobot CLI
+  # Matches the dr the Dockerfile pins into the image (DR_CLI_VERSION), and
+  # brings `dr workload config --sync-env`, which `dr run env` uses.
+  minimum-version: 0.12.0
+  command: dr self version
+  url: https://github.com/datarobot-oss/cli
+  install:
+    macos: brew install datarobot-oss/taps/dr-cli
+    linux: curl -fsSL https://cli.datarobot.com/install | sh
+task:
+  name: Task
+  # Wildcard task names (`install:*`) and `aliases`.
+  minimum-version: 3.40.0
+  command: task --version
+  url: https://taskfile.dev/installation/
+  install:
+    macos: brew install go-task
+    linux: sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b ~/.local/bin

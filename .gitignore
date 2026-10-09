@@ -50,3 +50,7 @@ config/config.yaml.bak.*
 __pycache__/
 
 .datarobot.yaml*
+
+# `dr start`'s per-machine bookkeeping (when the last checks passed). The rest
+# of .datarobot/cli/ is the committed project setup.
+.datarobot/cli/state.yaml

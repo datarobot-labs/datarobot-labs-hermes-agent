@@ -54,7 +54,8 @@ setup_file() {
 
 @test "YAML and JSON files parse" {
     cd /repo
-    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml; do
+    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml \
+            .datarobot/cli/versions.yaml .datarobot/cli/prompts.yaml; do
         python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"
     done
     python3 -m json.tool config/slack-manifest.json > /dev/null
@@ -237,9 +238,16 @@ PY
     [ -z "$(grep -vE '\.env\.(example|template|sample)$' <<< "$output")" ]
 }
 
-@test "no secrets in the working tree" {
+@test "no secrets in the files git would commit" {
+    # Scan a copy of what git tracks or would add, not the working tree as is:
+    # `dr start` puts real tokens in the gitignored .env of every clone, and
+    # `gitleaks dir` does not read .gitignore.
     cd /repo
-    run gitleaks dir . --no-banner --redact
+    scratch=$(mktemp -d)
+    git ls-files -z --cached --others --exclude-standard |
+        tar --null --files-from=- --ignore-failed-read -cf - 2>/dev/null |
+        tar -xf - -C "$scratch"
+    run gitleaks dir "$scratch" --no-banner --redact
     [ "$status" -eq 0 ]
 }
 

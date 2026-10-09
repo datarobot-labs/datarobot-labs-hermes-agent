@@ -45,6 +45,9 @@ config/config.yaml.bak.*
 .datarobot/
 .claude/
 
+# Documentation for people, not the image.
+docs/
+
 # Tests and CI run on the developer machine and in GitHub, not in the image.
 # (.dockerignore already leaves them out of the build context.)
 tests/
