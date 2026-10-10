@@ -112,6 +112,30 @@ setup_file() {
     grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
 }
 
+@test "the OTel plugin is installed by commit" {
+    grep -qE '^ARG HERMES_OTEL_REF=[0-9a-f]{40}$' /repo/Dockerfile
+}
+
+@test "dr-sync never restores a file the image seed owns" {
+    for path in /config.yaml /SOUL.md /skills/ /plugins/ /hermes_otel.yaml; do
+        grep -qxF "$path" /repo/config/.drsyncignore
+    done
+}
+
+@test "every workflow declares its permissions" {
+    run grep -L '^permissions:' /repo/.github/workflows/*.y*ml
+    [ -z "$output" ]
+}
+
+@test "a pull_request_target workflow never checks out code" {
+    workflows=$(grep -l 'pull_request_target' /repo/.github/workflows/*.y*ml)
+    [ -n "$workflows" ]
+    for workflow in $workflows; do
+        run grep -nE '^\s+(- )?uses: actions/checkout' "$workflow"
+        [ "$status" -ne 0 ]
+    done
+}
+
 @test "no AGPL-licensed Python package is installed" {
     run grep -niE '^(pymupdf|pymupdf4llm|fitz)==' /repo/config/requirements.txt
     [ "$status" -ne 0 ]
