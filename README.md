@@ -279,9 +279,11 @@ container instead:
   from the upload. On boot the snapshots are copied back over the live
   paths.
 - **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
-  excludes what's baked from the image — `config.yaml`, `SOUL.md`, `skills/`
-  — so a stale download can never clobber what the current image just
-  shipped, plus pure caches and logs that aren't worth persisting.
+  excludes what's baked from the image — `config.yaml`, `SOUL.md`,
+  `slack-manifest.json`, `skills/`, `plugins/`, the optional browser-use
+  install and the file itself — so a stale download can never clobber what
+  the current image just shipped, plus pure caches and logs that aren't worth
+  persisting.
 - **Retention** is `--keep-generations 144` (about a day of 10-minute
   uploads), so a bad overwrite can be rolled back (see below).
 
