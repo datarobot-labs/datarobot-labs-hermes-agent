@@ -22,9 +22,19 @@ setup_file() {
     git config --global --add safe.directory /repo
 }
 
-@test "entrypoint passes shellcheck" {
-    run shellcheck -s sh -S warning /repo/docker/entrypoint.sh
+@test "entrypoint and its snippets pass shellcheck" {
+    run shellcheck -s sh -S warning -x -a -P SCRIPTDIR /repo/docker/entrypoint.sh
     [ "$status" -eq 0 ]
+}
+
+@test "the Dockerfile copies the entrypoint snippets and every sourced file exists" {
+    run grep -Eq '^COPY +docker/entrypoint\.d/ +/opt/hermes-workload/entrypoint\.d/$' /repo/Dockerfile
+    [ "$status" -eq 0 ]
+    names=$(sed -n 's|^\. "\$ENTRYPOINT_DIR/\(.*\)"$|\1|p' /repo/docker/entrypoint.sh)
+    [ -n "$names" ]
+    for name in $names; do
+        [ -f "/repo/docker/entrypoint.d/$name" ]
+    done
 }
 
 @test "test scripts and stubs pass shellcheck" {
