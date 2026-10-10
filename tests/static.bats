@@ -1,4 +1,18 @@
 #!/usr/bin/env bats
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Checks that need no running container: linters, file formats, the pinned
 # base image, what `dr workload up` would upload, and a secret scan.
 
@@ -28,15 +42,112 @@ setup_file() {
 
 @test "YAML and JSON files parse" {
     cd /repo
-    for f in config/config.yaml compose.yaml Taskfile.yaml .github/workflows/test.yml; do
+    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml; do
         python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"
     done
     python3 -m json.tool config/slack-manifest.json > /dev/null
 }
 
+@test "the open source files from the policy are present and filled in" {
+    cd /repo
+    for f in LICENSE NOTICE .env.example AUTHORS CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md .github/PULL_REQUEST_TEMPLATE.md .github/dependabot.yml .pre-commit-config.yaml; do
+        [ -s "$f" ]
+    done
+    grep -q 'Apache License' LICENSE
+    grep -q 'Copyright 20[0-9][0-9] DataRobot' LICENSE
+    run grep -nE '\[yyyy\]|Your Name|Your GitHub User URL' LICENSE CONTRIBUTING.md
+    [ "$status" -ne 0 ]
+    grep -qE '^[^#].*<.+@.+>' AUTHORS
+    grep -q 'This repository is public' .github/PULL_REQUEST_TEMPLATE.md
+    run grep -nE '^\* \?$' .github/CODEOWNERS
+    [ "$status" -ne 0 ]
+}
+
+@test "every Python requirement is pinned to an exact version" {
+    run grep -nE '^[A-Za-z0-9_.-]+([<>~!].*)?$' /repo/config/requirements.txt
+    [ "$status" -ne 0 ]
+}
+
+@test "third-party actions are pinned to a commit SHA" {
+    run grep -rnE '^\s+(- )?uses: [^./][^ ]+@[^ ]+' /repo/.github/workflows
+    [ "$status" -eq 0 ]
+    unpinned=$(grep -hE '^\s+(- )?uses: [^./][^ ]+@' /repo/.github/workflows/*.y*ml | grep -vE '@[0-9a-f]{40}( |$)' || true)
+    [ -z "$unpinned" ]
+}
+
 @test "the base image is pinned by digest" {
     run grep -Ec "^FROM nousresearch/${DIGEST_PATTERN}( |\$)" /repo/Dockerfile
     [ "$output" = 1 ]
+}
+
+@test "the dr CLI installer and version are pinned" {
+    grep -qE '^ARG DR_CLI_VERSION=v[0-9]+\.[0-9]+\.[0-9]+$' /repo/Dockerfile
+    grep -qE '^ARG DR_CLI_INSTALLER_REF=[0-9a-f]{40}$' /repo/Dockerfile
+    run grep -nE 'DR_CLI_VERSION=latest|datarobot-oss/cli/(main|master)/' /repo/Dockerfile
+    [ "$status" -ne 0 ]
+}
+
+@test "every pinned build tool has a checksum for both architectures" {
+    for tool in GO GH GLAB YQ TASK KUBECTL HELM PULUMI; do
+        version=$(sed -nE "s/^ARG ${tool}_VERSION=(.+)$/\\1/p" /repo/Dockerfile)
+        [ -n "$version" ]
+        name=$(echo "$tool" | tr 'A-Z' 'a-z')
+        for arch in amd64 arm64; do
+            grep -qE "^[0-9a-f]{64}  ${name}-${version}-${arch}$" /repo/docker/tool-checksums.txt
+        done
+    done
+}
+
+@test "the web UI is fetched by commit" {
+    grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
+}
+
+@test "no AGPL-licensed Python package is installed" {
+    run grep -niE '^(pymupdf|pymupdf4llm|fitz)==' /repo/config/requirements.txt
+    [ "$status" -ne 0 ]
+}
+
+@test "no vendored skill duplicates one the base image bundles" {
+    # Hermes syncs its bundled skills into HERMES_HOME at boot; a seeded copy
+    # goes stale, and a manifest entry without a skill reads as user-deleted.
+    [ ! -e /repo/config/skills/.bundled_manifest ]
+    [ ! -d /repo/config/skills/productivity/pdf ]
+}
+
+@test ".env.example lists the variables and holds no values for secrets" {
+    cd /repo
+    git check-ignore -q .env
+    run git check-ignore -q .env.example
+    [ "$status" -ne 0 ]
+    for var in LLM_API_KEY SLACK_BOT_TOKEN SLACK_APP_TOKEN DR_SYNC_CATALOG_ID; do
+        grep -qE "^#? ?${var}=$" .env.example
+    done
+    run grep -nE '^#? ?[A-Z_]*(KEY|TOKEN)=.+$' .env.example
+    [ "$status" -ne 0 ]
+}
+
+@test "the README states the project status and the Nous Research disclaimer" {
+    grep -q 'Experimental and community maintained' /repo/README.md
+    grep -q 'not affiliated with or endorsed by Nous Research' /repo/README.md
+}
+
+@test "the default persona carries no team branding" {
+    run grep -niE 'solutions labs|whimsical' /repo/config/SOUL.md
+    [ "$status" -ne 0 ]
+}
+
+# config/skills/datarobot/ is vendored from datarobot-agent-skills, where the same headers
+# ("... All rights reserved." next to SPDX Apache-2.0) are already public and were reviewed.
+@test "no file claims all rights reserved or needs an internal license" {
+    cd /repo
+    run git grep -nI 'All rights reserved' -- . ':!LICENSE' ':!tests/static.bats' ':!config/skills/datarobot'
+    [ "$status" -ne 0 ]
+}
+
+@test "compose publishes the gateway port on loopback only" {
+    grep -qE '"127\.0\.0\.1:8642:8642"' /repo/compose.yaml
+    run grep -nE '^\s+- "8642:8642"' /repo/compose.yaml
+    [ "$status" -ne 0 ]
 }
 
 @test "the Taskfile and README use the same digest as the Dockerfile" {
@@ -73,4 +184,12 @@ setup_file() {
     cd /repo
     run gitleaks dir . --no-banner --redact
     [ "$status" -eq 0 ]
+}
+
+@test "no secrets in the git history" {
+    cd /repo
+    run gitleaks git . --no-banner --no-color --redact
+    [ "$status" -eq 0 ]
+    # gitleaks exits 0 after zero commits when git cannot read the repository.
+    echo "$output" | grep -Eq '(^|[^0-9])[1-9][0-9]* commits scanned'
 }

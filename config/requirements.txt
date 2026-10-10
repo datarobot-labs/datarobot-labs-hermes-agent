@@ -18,38 +18,38 @@
 # running in a different environment) is the right tradeoff, not a multi-GB
 # default baked into every boot of this bot.
 
-ddgs
+# Pinned to the versions the 2026-10-08 image resolved. Bump them on purpose.
+
+ddgs==9.16.0
 
 # datarobot skills (datarobot-predictions, datarobot-data-preparation,
 # datarobot-model-training, datarobot-workload-api)
-datarobot
-datarobot-predict
-pandas
+datarobot==3.19.0
+datarobot-predict==1.13.5
+pandas==3.0.6
 
-# productivity/pdf + productivity/ocr-and-documents
-pypdf
-reportlab
-pdfplumber
-pymupdf
-pymupdf4llm
-pypdfium2
+# productivity/pdf
+pypdf==6.19.0
+reportlab==5.0.1
+pdfplumber==0.11.10
+pypdfium2==5.13.0
 
 # productivity/docx, productivity/powerpoint, productivity/xlsx
-python-docx
-python-pptx
-openpyxl
+python-docx==1.2.0
+python-pptx==1.0.2
+openpyxl==3.1.5
 
 # productivity/nano-pdf
-nano-pdf
+nano-pdf==0.2.1
 
 # creative/ascii-art
-pyfiglet
+pyfiglet==1.0.4
 
 # software-development/codebase-inspection
-pygount
+pygount==3.2.0
 
 # software-development/python-debugpy
-debugpy
+debugpy==1.8.22
 
 # research/arxiv
-arxiv
+arxiv==4.0.1

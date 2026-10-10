@@ -1,23 +1,35 @@
 # Hermes on DataRobot
 
-The `hermes setup` wizard was run once against a local data dir:
+> [!NOTE]
+> Experimental and community maintained. Not an officially supported DataRobot product, and provided as is with no support commitment.
+
+This repository packages [Hermes Agent](https://github.com/NousResearch/hermes-agent) as a container image and deploys it as a DataRobot workload, with Slack, state persistence and trace export wired up. The `./config` directory holds the durable half of a `hermes setup` data dir, and the Dockerfile bakes it into the image.
+
+Hermes Agent is a project of Nous Research. This repository is not affiliated with or endorsed by Nous Research.
+
+## Quick start
+
+You need Docker, a DataRobot account with Workloads enabled, and the [DataRobot CLI](https://github.com/datarobot-oss/cli) (`dr`) v0.12.0.
+
+Run it locally first. `.env.example` lists every variable:
 
 ```sh
-docker run -it --rm -v ./config:/opt/data nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db setup
+cp .env.example .env     # fill in LLM_API_KEY and, for Slack, the two Slack tokens
+docker compose up --build
+curl localhost:8642/health
 ```
-
-Its output lives in `./config`. This repo bakes the durable half of that into an
-image and deploys it as a DataRobot workload.
 
 ## Deploy
 
+The first deploy creates the credentials and the manifest. Later deploys only need the last command.
+
 ```sh
-dr workload up
+export DATAROBOT_CLI_FEATURE_WORKLOAD=true   # required by dr v0.12.0
+dr workload config --yes                     # reads .env, creates credentials and .datarobot.yaml
+dr workload up --yes --lock
 ```
 
-That is the whole thing. DataRobot builds `./Dockerfile` server-side, injects the
-secrets, and rolls the new version onto the existing workload without changing
-the endpoint. `dr workload up --dry-run` prints the plan and changes nothing.
+DataRobot builds `./Dockerfile` server-side, injects the secrets, and rolls the new version onto the existing workload without changing the endpoint. `dr workload up --dry-run` prints the plan and changes nothing.
 
 ## Where the config lives
 
@@ -470,10 +482,9 @@ must be opened **with its trailing slash** (`dr workload endpoint <id>`
 already prints it that way); without it, the browser resolves those relative
 URLs one directory up and everything 404s.
 
-The WebUI's own login (`HERMES_WEBUI_PASSWORD`) is deliberately left unset.
-The DataRobot edge already requires a tenant login to reach the endpoint at
-all (see the next section) — an app-level login on top of that is redundant,
-and its cookies are prone to not round-tripping through the edge proxy.
+The WebUI's own login (`HERMES_WEBUI_PASSWORD`) is unset because the
+DataRobot edge already requires a login. Run this image only behind an
+authenticating proxy, and keep the container's port private otherwise.
 
 `API_SERVER_HOST`/`API_SERVER_PORT` moved the gateway's own API off the public
 port entirely, to `127.0.0.1:8643` — nginx is now the only thing bound to a
@@ -506,8 +517,7 @@ The workload logs, on every deploy:
 
 ```
 Running, not ready (possible probe failure)
-Readiness probe failing: HTTP 401 (10 consecutive failures,
-  probe_url=https://lrs.../protons/<id>/health)
+Readiness probe failing: HTTP 401 (10 consecutive failures)
 ```
 
 That is a *platform-side* check going through the DataRobot edge, and the edge is
@@ -569,6 +579,10 @@ The suite runs in a tools image pinned by digest (`tests/Dockerfile`) as uid 100
 - `tests/entrypoint.bats`: runs `docker/entrypoint.sh` with stub `hermes`, `dr-sync`, `curl` and `nginx` (`tests/fixtures/opt/stubs`), and checks the boot sequence, that no secret value is ever logged, and `nginx -t`.
 
 When you change the entrypoint, add a test for the new behavior to `tests/entrypoint.bats`. When you bump the base image digest, change it in the Dockerfile, the Taskfile and the README together: the suite fails if they differ.
+
+## License and contributing
+
+Apache 2.0, see [LICENSE](LICENSE). Read [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md) before you open a pull request, and report security issues as described in [SECURITY.md](SECURITY.md).
 
 ## Operating it
 

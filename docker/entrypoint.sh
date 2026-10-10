@@ -1,4 +1,18 @@
 #!/bin/sh
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Entrypoint for the DataRobot Workload API, replacing the base image's
 # s6-overlay dispatcher.
 #
@@ -254,8 +268,8 @@ else
 fi
 
 # The gateway's api_server refuses to start without a usable API_SERVER_KEY,
-# and that server is what answers the platform's /health probe. It also
-# fronts terminal-capable agent routes, so the key is a real credential:
+# and that server is what answers the platform's /health probe. The key is
+# a real credential:
 # generate a fresh one per boot rather than persisting or injecting it.
 # Nothing outside the container needs it -- the probe path is unauthenticated.
 if [ -z "${API_SERVER_KEY:-}" ]; then
