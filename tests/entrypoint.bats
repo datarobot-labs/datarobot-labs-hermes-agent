@@ -109,6 +109,33 @@ assert_absent() {
     [ "$(tail -n 1 "$WORK/calls.log")" = "hermes gateway run --no-supervise" ]
 }
 
+@test "syncs the bundled skills before the gateway starts and logs the skill count" {
+    mkdir -p "$WORK/bundled" "$SEED/skills/one" "$SEED/skills/two"
+    touch "$SEED/skills/one/SKILL.md" "$SEED/skills/two/SKILL.md"
+    run boot HERMES_BUNDLED_SKILLS="$WORK/bundled"
+    [ "$status" -eq 0 ]
+    sync_line=$(grep -n '^python /opt/hermes/tools/skills_sync.py$' "$WORK/calls.log" | cut -d: -f1)
+    gateway_line=$(grep -n '^hermes gateway run' "$WORK/calls.log" | cut -d: -f1)
+    [ "$sync_line" -lt "$gateway_line" ]
+    grep -q 'skills in HERMES_HOME: 2$' "$WORK/err"
+}
+
+@test "a failing skills sync is logged and the boot goes on" {
+    mkdir -p "$WORK/bundled"
+    run boot HERMES_BUNDLED_SKILLS="$WORK/bundled" STUB_PYTHON_FAIL=1
+    [ "$status" -eq 0 ]
+    grep -q 'Warning: skills_sync.py failed; continuing' "$WORK/err"
+    grep -q '^hermes gateway run' "$WORK/calls.log"
+}
+
+@test "a missing bundled skills directory is logged and the boot goes on without a sync" {
+    run boot HERMES_BUNDLED_SKILLS="$WORK/missing"
+    [ "$status" -eq 0 ]
+    grep -q "Warning: bundled skills directory $WORK/missing not found; skipping the skills sync" "$WORK/err"
+    assert_absent '^python' "$WORK/calls.log"
+    grep -q '^hermes gateway run' "$WORK/calls.log"
+}
+
 @test "skips dr-sync with a notice when DR_SYNC_CATALOG_ID is unset" {
     run boot
     [ "$status" -eq 0 ]
@@ -143,6 +170,41 @@ assert_absent() {
     [ "$(grep -c '^dr-sync download' "$WORK/calls.log")" = 2 ]
     grep -q 'dr-sync download failed (attempt 1/5); retrying in 5s' "$WORK/err"
     grep -q '^hermes gateway run' "$WORK/calls.log"
+}
+
+@test "restores a downloaded database snapshot over its live path and drops the stale WAL" {
+    mkdir -p "$SEED/sessions" "$SEED/.dr-sync-snapshots/sessions"
+    echo live > "$SEED/sessions/chat.db"
+    echo stale > "$SEED/sessions/chat.db-wal"
+    echo snapshot > "$SEED/.dr-sync-snapshots/sessions/chat.db.snap"
+    run boot DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ "$(cat /tmp/hermes/sessions/chat.db)" = snapshot ]
+    [ ! -e /tmp/hermes/sessions/chat.db-wal ]
+    grep -q 'restored database sessions/chat.db.snap' "$WORK/err"
+}
+
+@test "the final upload takes a snapshot of every live database first" {
+    mkdir -p "$SEED/sessions"
+    echo live > "$SEED/sessions/chat.db"
+    run boot DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ "$(cat /tmp/hermes/.dr-sync-snapshots/sessions/chat.db.snap)" = live ]
+    backup_line=$(grep -n '^sqlite3 /tmp/hermes/sessions/chat.db .backup' "$WORK/calls.log" | cut -d: -f1)
+    upload_line=$(grep -n '^dr-sync upload' "$WORK/calls.log" | cut -d: -f1)
+    [ "$backup_line" -lt "$upload_line" ]
+}
+
+@test "a failed backup keeps the previous snapshot and the upload still runs" {
+    mkdir -p "$SEED/sessions" "$SEED/.dr-sync-snapshots/sessions"
+    echo live > "$SEED/sessions/chat.db"
+    echo previous > "$SEED/.dr-sync-snapshots/sessions/chat.db.snap"
+    run boot DR_SYNC_CATALOG_ID=catalog123 STUB_SQLITE_FAIL=1
+    [ "$status" -eq 0 ]
+    grep -q 'snapshot of /tmp/hermes/sessions/chat.db failed; keeping the previous snapshot' "$WORK/err"
+    [ "$(cat /tmp/hermes/.dr-sync-snapshots/sessions/chat.db.snap)" = previous ]
+    [ ! -e /tmp/hermes/.dr-sync-snapshots/sessions/chat.db.snap.tmp ]
+    grep -q '^dr-sync upload' "$WORK/calls.log"
 }
 
 @test "renders the OTel config from the API endpoint, trimming a trailing slash" {
