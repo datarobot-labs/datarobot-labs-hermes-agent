@@ -87,7 +87,8 @@ restore_dbs() {
 sync_up() {
     (
         flock -w 5 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
-        snapshot_dbs
+        # Explicit: set -e does not apply inside a function that runs in an || list.
+        snapshot_dbs || exit 1
         timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
             --keep-generations 144 \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'

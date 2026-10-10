@@ -207,6 +207,16 @@ assert_absent() {
     grep -q '^dr-sync upload' "$WORK/calls.log"
 }
 
+@test "a failed backup with no previous snapshot blocks the upload" {
+    mkdir -p "$SEED/sessions"
+    echo live > "$SEED/sessions/chat.db"
+    run boot DR_SYNC_CATALOG_ID=catalog123 STUB_SQLITE_FAIL=1
+    [ "$status" -eq 0 ]
+    grep -q 'snapshot of /tmp/hermes/sessions/chat.db failed and no previous snapshot exists' "$WORK/err"
+    grep -q 'Warning: final dr-sync upload failed' "$WORK/err"
+    assert_absent '^dr-sync upload' "$WORK/calls.log"
+}
+
 @test "renders the OTel config from the API endpoint, trimming a trailing slash" {
     run boot DATAROBOT_API_TOKEN=tok DATAROBOT_ENDPOINT=https://example.test/api/v2/ WORKLOAD_ID=abc
     [ "$status" -eq 0 ]
