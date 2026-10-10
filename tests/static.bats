@@ -134,12 +134,13 @@ setup_file() {
     [ -z "$output" ]
 }
 
-@test "a pull_request_target workflow never checks out code" {
+@test "a pull_request_target workflow never checks out code or runs a shell step" {
+    # Either one can execute the pull request's code with the target workflow's token and secrets.
     workflows=$(grep -l 'pull_request_target' /repo/.github/workflows/*.y*ml)
     [ -n "$workflows" ]
     for workflow in $workflows; do
-        run grep -nE '^\s+(- )?uses: actions/checkout' "$workflow"
-        [ "$status" -ne 0 ]
+        run grep -nE '^\s+(- )?(uses: actions/checkout|run:)' "$workflow"
+        [ "$status" -ne 0 ] || { echo "$workflow: $output"; return 1; }
     done
 }
 
