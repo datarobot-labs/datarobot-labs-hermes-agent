@@ -392,3 +392,23 @@ YAML
         [ ! -e "$PROJECT/.datarobot.yaml" ]
     done
 }
+
+@test "an unreadable .env stops the run before dr sees an empty one" {
+    configure write --yes
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    rm -f "$WORK/seen/env"
+    chmod 000 "$PROJECT/.env"
+    configure write --sync-env --yes
+    chmod 600 "$PROJECT/.env"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Couldn't read .env"* ]]
+    [ ! -e "$WORK/seen/env" ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+}
+
+@test "an .env holding only the token is fine: dr gets an empty one" {
+    printf 'DATAROBOT_API_TOKEN="%s"\n' "$CANARY" > "$PROJECT/.env"
+    configure noop --yes
+    [ "$status" -eq 0 ]
+    [ ! -s "$WORK/seen/env" ]
+}

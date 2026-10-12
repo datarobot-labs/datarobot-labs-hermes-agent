@@ -197,7 +197,15 @@ trap 'rm -rf "$work"; [ -z "$staged" ] || rm -f "$staged"' EXIT
 trap 'exit 130' INT TERM HUP
 
 cp Dockerfile "$work/"
-grep -v "^${token}=" .env > "$work/.env" || true
+# grep exits 1 when nothing is left (fine) and 2 when it can't read .env: an
+# unreadable .env must not pass for an empty one, which --sync-env would
+# take as every setting removed.
+status=0
+grep -v "^${token}=" .env > "$work/.env" || status=$?
+if [ "$status" -gt 1 ]; then
+    echo "Couldn't read .env, so nothing was changed." >&2
+    exit 1
+fi
 
 # Only the api-key entry is hidden from dr. Any other form, such as a
 # dr-credential an older manifest holds, stays visible, so --sync-env, which no
