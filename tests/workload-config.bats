@@ -412,3 +412,16 @@ YAML
     [ "$status" -eq 0 ]
     [ ! -s "$WORK/seen/env" ]
 }
+
+@test "--dry-run=true is a preview too, and --dry-run=false a normal write" {
+    credential_manifest
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    for flag in --dry-run=true --dry-run=1 --dry-run=TRUE; do
+        configure noop --sync-env "$flag"
+        [ "$status" -eq 0 ]
+        cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+    done
+    configure noop --sync-env --dry-run=false
+    [ "$status" -eq 0 ]
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+}

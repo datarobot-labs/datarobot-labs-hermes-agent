@@ -185,7 +185,12 @@ for arg in "$@"; do
             echo "$token out of the workload. Run it from the project root instead." >&2
             exit 2
             ;;
+        # Also --dry-run=<bool>: dr parses booleans Go's way, so only its
+        # false spellings mean a real run. Anything else is a preview, and
+        # a preview must not write the real manifest.
         --dry-run) dry_run=1 ;;
+        --dry-run=0 | --dry-run=f | --dry-run=F | --dry-run=false | --dry-run=FALSE | --dry-run=False) dry_run= ;;
+        --dry-run=*) dry_run=1 ;;
     esac
 done
 
