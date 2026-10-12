@@ -17,7 +17,9 @@
 # and an optional overrides/config/. Call it with a `uses:` line pinned to a
 # commit SHA. The calling repo needs a GitHub environment that holds the
 # DATAROBOT_API_TOKEN secret. While the upstream repository is not public, the
-# same environment also holds an UPSTREAM_TOKEN secret with read access to it.
+# same environment also holds a read credential for it: an UPSTREAM_DEPLOY_KEY
+# (a read-only deploy key, preferred) or an UPSTREAM_TOKEN (a token with read
+# access). GITHUB_TOKEN covers only the calling repo, so it cannot do this.
 
 name: deploy
 
@@ -129,6 +131,7 @@ jobs:
           repository: ${{ inputs.upstream-repository }}
           ref: ${{ steps.version.outputs.ref }}
           path: app
+          ssh-key: ${{ secrets.UPSTREAM_DEPLOY_KEY }}
           token: ${{ secrets.UPSTREAM_TOKEN || github.token }}
           persist-credentials: false
 
