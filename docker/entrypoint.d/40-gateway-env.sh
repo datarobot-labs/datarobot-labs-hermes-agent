@@ -38,10 +38,11 @@ fi
 #
 # url_origin URL prints scheme://host:port, lowercased, with the scheme's
 # default port filled in and any user@ dropped, so https://h and
-# https://h:443 compare equal. Prints nothing for a URL it can't read.
+# https://h:443 compare equal. The host may be a name, an IPv4 address or a
+# bracketed IPv6 literal. Prints nothing for a URL it can't read.
 url_origin() {
     printf '%s' "$1" | tr '[:upper:]' '[:lower:]' |
-        sed -nE 's#^(https?)://([^/?#@]*@)?([^/?#:@]+)(:([0-9]+))?([/?#].*)?$#\1 \3 \5#p' |
+        sed -nE 's#^(https?)://([^/?#@]*@)?(\[[0-9a-f:.]+\]|[^][/?#:@]+)(:([0-9]+))?([/?#].*)?$#\1 \3 \5#p' |
         awk 'NF >= 2 { port = ($3 != "") ? $3 : ($1 == "https" ? 443 : 80); print $1 "://" $2 ":" (port + 0) }'
 }
 if [ -z "${LLM_API_KEY:-}" ]; then

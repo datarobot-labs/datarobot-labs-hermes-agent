@@ -282,6 +282,22 @@ assert_absent() {
     grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
 }
 
+@test "an IPv6 install's own gateway gets the token, with or without the default port" {
+    run boot DATAROBOT_API_TOKEN=drtok \
+        DATAROBOT_ENDPOINT='https://[2001:db8::1]/api/v2' \
+        LLM_BASE_URL='https://[2001:DB8::1]:443/api/v2/genai/llmgw'
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "a different IPv6 host gets no token" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT='https://[2001:db8::1]/api/v2' \
+        LLM_BASE_URL='https://[2001:db8::2]/v1'
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
+}
+
 @test "a user@ prefix naming the install's host doesn't fool the origin check" {
     run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
         DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
