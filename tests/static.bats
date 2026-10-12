@@ -27,6 +27,11 @@ setup_file() {
     [ "$status" -eq 0 ]
 }
 
+@test "the deploy script passes shellcheck" {
+    run shellcheck -s bash -S style /repo/scripts/deploy.sh
+    [ "$status" -eq 0 ]
+}
+
 @test "test scripts and stubs pass shellcheck" {
     run shellcheck -s bash -S warning /repo/tests/run.sh
     [ "$status" -eq 0 ]
@@ -107,81 +112,16 @@ save = next(s for s in job["steps"] if s.get("name") == "Save the sync state")
 # A failed artifact upload must not discard the state of a successful deploy.
 assert "steps.up.outcome == 'success'" in save["if"]
 assert "always()" in save["if"]
+# The scripts come from the commit of the workflow itself, so the caller's pin covers them.
+scripts = next(s for s in job["steps"] if s.get("name") == "Check out the deploy scripts")
+assert scripts["with"]["ref"] == "${{ job.workflow_sha }}"
+assert scripts["with"]["repository"] == "${{ job.workflow_repository }}"
+assert scripts["with"]["sparse-checkout"] == "scripts"
 assert job["timeout-minutes"] >= 30
 assert job["permissions"] == {"contents": "read"}
 assert wf["permissions"] == {}
 PY
     [ "$status" -eq 0 ]
-}
-
-# Runs the deploy workflow's "Apply the overrides and the manifest" step in a
-# scratch directory. $1 lists the files to create under overrides/config.
-run_overrides_step() {
-    work=$(mktemp -d)
-    python3 - "$work/step.sh" <<'PY'
-import sys, yaml
-
-steps = yaml.safe_load(open("/repo/.github/workflows/deploy.yml"))["jobs"]["deploy"]["steps"]
-step = next(s for s in steps if s.get("name") == "Apply the overrides and the manifest")
-open(sys.argv[1], "w").write(step["run"])
-PY
-    mkdir -p "$work/app/config" "$work/deploy-config/deploy/environments/prod" "$work/deploy-config/deploy/overrides/config"
-    echo "workloadId: abc123" > "$work/deploy-config/deploy/environments/prod/.datarobot.yaml"
-    for f in $1; do
-        mkdir -p "$work/deploy-config/deploy/overrides/config/$(dirname "$f")"
-        echo x > "$work/deploy-config/deploy/overrides/config/$f"
-    done
-    cd "$work"
-    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
-}
-
-@test "the deploy workflow copies allowed overrides and the manifest into the checkout" {
-    run_overrides_step "SOUL.md skills/note/SKILL.md config.yaml requirements.txt"
-    [ "$status" -eq 0 ]
-    [ -f "$work/app/config/SOUL.md" ]
-    [ -f "$work/app/config/skills/note/SKILL.md" ]
-    grep -q 'workloadId: abc123' "$work/app/.datarobot.yaml"
-}
-
-@test "the deploy workflow refuses to override the Dockerfile, docker/ or .drsyncignore" {
-    for f in Dockerfile docker/entrypoint.sh .drsyncignore; do
-        run_overrides_step "$f"
-        [ "$status" -ne 0 ]
-        [[ "$output" == *"cannot be overridden"* ]]
-        [ ! -e "$work/app/.datarobot.yaml" ]
-    done
-}
-
-@test "the deploy workflow refuses a symlink in the overrides, even a dangling one" {
-    run_overrides_step "SOUL.md"
-    ln -s SOUL.md.missing "$work/deploy-config/deploy/overrides/config/.drsyncignore"
-    rm -f "$work/app/.datarobot.yaml"
-    cd "$work"
-    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"symbolic links"* ]]
-    [ ! -e "$work/app/.datarobot.yaml" ]
-}
-
-@test "the deploy workflow refuses a manifest that is a symlink" {
-    run_overrides_step "SOUL.md"
-    manifest="$work/deploy-config/deploy/environments/prod/.datarobot.yaml"
-    mv "$manifest" "$work/real.yaml"
-    ln -s "$work/real.yaml" "$manifest"
-    rm -f "$work/app/.datarobot.yaml"
-    cd "$work"
-    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"symbolic link"* ]]
-}
-
-@test "the deploy workflow fails when the manifest for the target is missing" {
-    run_overrides_step "SOUL.md"
-    rm "$work/deploy-config/deploy/environments/prod/.datarobot.yaml"
-    cd "$work"
-    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"is missing"* ]]
 }
 
 @test "no workflow interpolates an expression inside a run step" {

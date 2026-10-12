@@ -59,6 +59,7 @@ overrides/config/                    optional: SOUL.md, skills/, config.yaml, re
 - A first deploy writes `workloadId` into the manifest. The run uploads the file as the `manifest-<target>` artifact. Commit it, or the next run creates a second workload.
 - `overrides/config/` replaces files in `config/`. Any other path in it fails the run, because the Dockerfile, `docker/` and `.drsyncignore` carry the read-only filesystem and the state protection. A symbolic link in it, or as the manifest, also fails the run.
 - The workflow runs one apply per target at a time, and a newer pending apply replaces an older one, because each run deploys the full state of its commit. It keeps `.datarobot/workload/` in the Actions cache. It pins `dr` to the version in the Dockerfile.
+- The steps live in [scripts/deploy.sh](scripts/deploy.sh), which `tests/deploy.bats` covers. The workflow checks the script out at its own commit, so your `uses:` pin covers it.
 - While this repo isn't public, the workflow needs a read credential to check it out, because `GITHUB_TOKEN` covers only the calling repo. Add a read-only deploy key of this repo as the `UPSTREAM_DEPLOY_KEY` secret of the same environment, or a token with read access as `UPSTREAM_TOKEN`.
 
 ## Where the config lives

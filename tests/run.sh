@@ -27,4 +27,4 @@ exec docker run --rm \
     --user 1000:1000 --read-only --tmpfs /tmp:exec,mode=1777 \
     --env HOME=/tmp \
     --volume "$repo":/repo:ro --workdir /repo \
-    "$image" bats --print-output-on-failure "$@" /repo/tests/static.bats /repo/tests/entrypoint.bats
+    "$image" bats --print-output-on-failure "$@" /repo/tests/static.bats /repo/tests/deploy.bats /repo/tests/entrypoint.bats

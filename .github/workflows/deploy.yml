@@ -94,18 +94,20 @@ jobs:
       MODE: ${{ inputs.mode }}
       LOCK: ${{ inputs.lock }}
     steps:
+      # The scripts come from the commit of this workflow, so the caller's `uses:` pin covers them too.
+      - name: Check out the deploy scripts
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: workflow-src
+          sparse-checkout: scripts
+          ssh-key: ${{ secrets.UPSTREAM_DEPLOY_KEY }}
+          token: ${{ secrets.UPSTREAM_TOKEN || github.token }}
+          persist-credentials: false
+
       - name: Check the inputs
-        run: |
-          case "${MODE}" in
-            plan | apply) ;;
-            *) echo "::error::mode must be plan or apply"; exit 1 ;;
-          esac
-          case "${TARGET}" in
-            '' | *[!a-z0-9-]*) echo "::error::target must match [a-z0-9-]+"; exit 1 ;;
-          esac
-          case "${DEPLOY_DIR}" in
-            '' | /* | *..*) echo "::error::deploy-dir must be a relative path without .."; exit 1 ;;
-          esac
+        run: bash workflow-src/scripts/deploy.sh check_inputs
 
       - name: Check out the deploy config
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -115,18 +117,7 @@ jobs:
 
       - name: Read the version to deploy
         id: version
-        run: |
-          version_file="deploy-config/${DEPLOY_DIR}/VERSION"
-          if [ ! -f "${version_file}" ]; then
-            echo "::error::${DEPLOY_DIR}/VERSION is missing"
-            exit 1
-          fi
-          ref=$(tr -d '[:space:]' < "${version_file}")
-          if ! printf '%s' "${ref}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$|^[0-9a-f]{40}$'; then
-            echo "::error::VERSION must hold a vX.Y.Z tag or a 40 character commit SHA"
-            exit 1
-          fi
-          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+        run: bash workflow-src/scripts/deploy.sh read_version
 
       - name: Check out labs-hermes
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -139,43 +130,13 @@ jobs:
           persist-credentials: false
 
       - name: Apply the overrides and the manifest
-        run: |
-          overrides="deploy-config/${DEPLOY_DIR}/overrides/config"
-          if [ -d "${overrides}" ]; then
-            # A symlink can point at a protected path or outside the checkout, and `-e` skips a dangling one.
-            if [ -n "$(find "${overrides}" -type l -print -quit)" ]; then
-              echo "::error::overrides/config must not contain symbolic links"
-              exit 1
-            fi
-            # Only these paths are safe to replace. The Dockerfile, docker/, the OTel
-            # template and .drsyncignore carry the read-only filesystem and state protection.
-            for entry in "${overrides}"/* "${overrides}"/.[!.]*; do
-              [ -e "${entry}" ] || continue
-              case "$(basename "${entry}")" in
-                SOUL.md | skills | config.yaml | requirements.txt) ;;
-                *) echo "::error::overrides/config/$(basename "${entry}") cannot be overridden"; exit 1 ;;
-              esac
-            done
-            cp -R "${overrides}"/. app/config/
-          fi
-          manifest="deploy-config/${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml"
-          if [ ! -f "${manifest}" ]; then
-            echo "::error::${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml is missing"
-            exit 1
-          fi
-          if [ -L "${manifest}" ]; then
-            echo "::error::${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml must not be a symbolic link"
-            exit 1
-          fi
-          cp "${manifest}" app/.datarobot.yaml
+        run: bash workflow-src/scripts/deploy.sh apply_overrides
 
       - name: Install the dr CLI
         run: |
-          curl -fsSL -o "${RUNNER_TEMP}/install-dr.sh" \
-            "https://raw.githubusercontent.com/datarobot-oss/cli/${DR_CLI_INSTALLER_REF}/install.sh"
-          mkdir -p "${RUNNER_TEMP}/bin"
-          INSTALL_DIR="${RUNNER_TEMP}/bin" sh "${RUNNER_TEMP}/install-dr.sh" "${DR_CLI_VERSION}"
-          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+          export DR_BIN_DIR="${RUNNER_TEMP}/bin"
+          bash workflow-src/scripts/deploy.sh install_dr
+          echo "${DR_BIN_DIR}" >> "${GITHUB_PATH}"
 
       # Without the sync state, `up` uploads the code again and orphans the old catalog.
       - name: Restore the sync state
@@ -189,51 +150,20 @@ jobs:
         id: up
         env:
           DATAROBOT_API_TOKEN: ${{ secrets.DATAROBOT_API_TOKEN }}
-        run: |
-          if [ -z "${DATAROBOT_API_TOKEN}" ]; then
-            echo "::error::DATAROBOT_API_TOKEN is empty. Add it as a secret of the ${TARGET} environment."
-            exit 1
-          fi
-          args=(--yes --dir app)
-          if [ "${MODE}" = plan ]; then
-            args+=(--dry-run)
-          elif [ "${LOCK}" = true ]; then
-            args+=(--lock)
-          fi
-          dr --version
-          set +e
-          dr workload up "${args[@]}" 2>&1 | tee "${RUNNER_TEMP}/up.log"
-          status="${PIPESTATUS[0]}"
-          set -e
-          {
-            echo "### dr workload up (${MODE}, ${TARGET}, $(cat deploy-config/"${DEPLOY_DIR}"/VERSION))"
-            echo '```text'
-            tail -n 200 "${RUNNER_TEMP}/up.log"
-            echo '```'
-          } >> "${GITHUB_STEP_SUMMARY}"
-          workload_id=$(sed -nE 's/^workloadId: *([0-9a-f]+).*/\1/p' app/.datarobot.yaml | head -n 1)
-          echo "workload-id=${workload_id}" >> "${GITHUB_OUTPUT}"
-          exit "${status}"
+        run: bash workflow-src/scripts/deploy.sh run_up
 
-      # A first deploy writes workloadId into the manifest. Commit it, or the next run creates a second workload.
+      # A first deploy writes workloadId into the manifest. The artifact carries it back to the repo.
       - name: Keep the manifest if the run changed it
-        if: inputs.mode == 'apply' && always()
-        run: |
-          if ! cmp -s "deploy-config/${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml" app/.datarobot.yaml; then
-            cp app/.datarobot.yaml "${RUNNER_TEMP}/manifest-${TARGET}.yaml"
-            {
-              echo "> [!IMPORTANT]"
-              echo "> The run changed the manifest. Commit the \`manifest-${TARGET}\` artifact to \`${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml\`, or the next deploy creates another workload."
-            } >> "${GITHUB_STEP_SUMMARY}"
-            echo "changed=true" >> "${GITHUB_ENV}"
-          fi
+        id: keep
+        if: inputs.mode == 'apply' && always() && steps.up.outcome != 'skipped'
+        run: bash workflow-src/scripts/deploy.sh keep_manifest
 
       - name: Upload the changed manifest
-        if: inputs.mode == 'apply' && always() && env.changed == 'true'
+        if: inputs.mode == 'apply' && always() && steps.keep.outputs.manifest-changed == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: manifest-${{ inputs.target }}
-          path: ${{ runner.temp }}/manifest-${{ inputs.target }}.yaml
+          path: ${{ steps.keep.outputs.manifest-path }}
           if-no-files-found: error
 
       # Gate on the deploy alone, so a failed artifact upload cannot discard the state of a successful deploy.
