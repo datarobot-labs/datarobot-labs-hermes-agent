@@ -94,13 +94,19 @@ setup_file() {
     grep -qE "^      DR_CLI_INSTALLER_REF: ${dockerfile_ref}\$" /repo/.github/workflows/deploy.yml
 }
 
-@test "the deploy workflow queues deploys, never cancels one and has a timeout" {
+@test "the deploy workflow runs one apply per target, never cancels one and has a timeout" {
     run python3 - <<'PY'
 import sys, yaml
 
 wf = yaml.safe_load(open("/repo/.github/workflows/deploy.yml"))
 job = wf["jobs"]["deploy"]
 assert job["concurrency"]["cancel-in-progress"] is False
+# A plan must not share a group with an apply, or it could replace a pending apply.
+assert "inputs.mode" in job["concurrency"]["group"]
+save = next(s for s in job["steps"] if s.get("name") == "Save the sync state")
+# A failed artifact upload must not discard the state of a successful deploy.
+assert "steps.up.outcome == 'success'" in save["if"]
+assert "always()" in save["if"]
 assert job["timeout-minutes"] >= 30
 assert job["permissions"] == {"contents": "read"}
 assert wf["permissions"] == {}
@@ -144,6 +150,29 @@ PY
         [[ "$output" == *"cannot be overridden"* ]]
         [ ! -e "$work/app/.datarobot.yaml" ]
     done
+}
+
+@test "the deploy workflow refuses a symlink in the overrides, even a dangling one" {
+    run_overrides_step "SOUL.md"
+    ln -s SOUL.md.missing "$work/deploy-config/deploy/overrides/config/.drsyncignore"
+    rm -f "$work/app/.datarobot.yaml"
+    cd "$work"
+    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"symbolic links"* ]]
+    [ ! -e "$work/app/.datarobot.yaml" ]
+}
+
+@test "the deploy workflow refuses a manifest that is a symlink" {
+    run_overrides_step "SOUL.md"
+    manifest="$work/deploy-config/deploy/environments/prod/.datarobot.yaml"
+    mv "$manifest" "$work/real.yaml"
+    ln -s "$work/real.yaml" "$manifest"
+    rm -f "$work/app/.datarobot.yaml"
+    cd "$work"
+    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"symbolic link"* ]]
 }
 
 @test "the deploy workflow fails when the manifest for the target is missing" {

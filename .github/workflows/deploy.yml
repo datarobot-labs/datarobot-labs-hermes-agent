@@ -67,9 +67,12 @@ jobs:
     # A deploy takes about 10 minutes even for a small app.
     timeout-minutes: 30
     environment: ${{ inputs.environment }}
-    # A second `up` during a roll fails with HTTP 422, so deploys queue and never cancel.
+    # A second `up` during a roll fails with HTTP 422, so applies run one at a time
+    # and never cancel the running one. A newer pending apply replaces an older
+    # pending one, which is fine: each run deploys the full state of its commit.
+    # Plans have their own group, so a plan never replaces a pending apply.
     concurrency:
-      group: deploy-${{ github.repository }}-${{ inputs.deploy-dir }}-${{ inputs.target }}
+      group: deploy-${{ github.repository }}-${{ inputs.deploy-dir }}-${{ inputs.target }}-${{ inputs.mode }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -139,6 +142,11 @@ jobs:
         run: |
           overrides="deploy-config/${DEPLOY_DIR}/overrides/config"
           if [ -d "${overrides}" ]; then
+            # A symlink can point at a protected path or outside the checkout, and `-e` skips a dangling one.
+            if [ -n "$(find "${overrides}" -type l -print -quit)" ]; then
+              echo "::error::overrides/config must not contain symbolic links"
+              exit 1
+            fi
             # Only these paths are safe to replace. The Dockerfile, docker/, the OTel
             # template and .drsyncignore carry the read-only filesystem and state protection.
             for entry in "${overrides}"/* "${overrides}"/.[!.]*; do
@@ -153,6 +161,10 @@ jobs:
           manifest="deploy-config/${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml"
           if [ ! -f "${manifest}" ]; then
             echo "::error::${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml is missing"
+            exit 1
+          fi
+          if [ -L "${manifest}" ]; then
+            echo "::error::${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml must not be a symbolic link"
             exit 1
           fi
           cp "${manifest}" app/.datarobot.yaml
@@ -224,8 +236,9 @@ jobs:
           path: ${{ runner.temp }}/manifest-${{ inputs.target }}.yaml
           if-no-files-found: error
 
+      # Gate on the deploy alone, so a failed artifact upload cannot discard the state of a successful deploy.
       - name: Save the sync state
-        if: inputs.mode == 'apply' && success()
+        if: inputs.mode == 'apply' && always() && steps.up.outcome == 'success'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: app/.datarobot/workload
