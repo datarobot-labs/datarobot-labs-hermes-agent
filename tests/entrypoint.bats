@@ -274,6 +274,22 @@ assert_absent() {
     assert_absent 'LLM gateway self-test' "$WORK/err"
 }
 
+@test "an explicit default port is the same origin, so the token still applies" {
+    run boot DATAROBOT_API_TOKEN=drtok \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://dr.example.com:443/api/v2/genai/llmgw
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "a user@ prefix naming the install's host doesn't fool the origin check" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://dr.example.com@evil.test/v1
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
+}
+
 @test "a lookalike host that merely starts with the install's host gets no token" {
     run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
         DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \

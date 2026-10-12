@@ -35,9 +35,18 @@ fi
 # Only for a gateway on the DataRobot install's own origin, though: the token
 # is a DataRobot credential, and an LLM_BASE_URL anywhere else would receive
 # it as a bearer token on every call. Another gateway needs its own key.
+#
+# url_origin URL prints scheme://host:port, lowercased, with the scheme's
+# default port filled in and any user@ dropped, so https://h and
+# https://h:443 compare equal. Prints nothing for a URL it can't read.
+url_origin() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' |
+        sed -nE 's#^(https?)://([^/?#@]*@)?([^/?#:@]+)(:([0-9]+))?([/?#].*)?$#\1 \3 \5#p' |
+        awk 'NF >= 2 { port = ($3 != "") ? $3 : ($1 == "https" ? 443 : 80); print $1 "://" $2 ":" (port + 0) }'
+}
 if [ -z "${LLM_API_KEY:-}" ]; then
-    dr_origin=$(printf '%s' "${DATAROBOT_ENDPOINT:-}" | sed -nE 's#^(https?://[^/?#]+).*#\1#p' | tr '[:upper:]' '[:lower:]')
-    llm_origin=$(printf '%s' "${LLM_BASE_URL:-}" | sed -nE 's#^(https?://[^/?#]+).*#\1#p' | tr '[:upper:]' '[:lower:]')
+    dr_origin=$(url_origin "${DATAROBOT_ENDPOINT:-}")
+    llm_origin=$(url_origin "${LLM_BASE_URL:-}")
     if [ -n "$dr_origin" ] && [ "$dr_origin" = "$llm_origin" ]; then
         LLM_API_KEY=${DATAROBOT_API_TOKEN:-}
     elif [ -n "${LLM_BASE_URL:-}" ]; then
