@@ -18,9 +18,23 @@
 
 setup() {
     WORK=$(mktemp -d)
-    mkdir -p "$WORK/project/config/skills" "$WORK/bin"
-    printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "$DOCKER_ARGS"\n' > "$WORK/bin/docker"
-    chmod +x "$WORK/bin/docker"
+    mkdir -p "$WORK/project/config/skills" "$WORK/bin" "$WORK/data"
+    # docker records its arguments; with RUN_INNER set it also runs the
+    # container's script here, against $WORK/data instead of /opt/data.
+    cat > "$WORK/bin/docker" <<'STUB'
+#!/bin/sh
+printf '%s\n' "$@" > "$DOCKER_ARGS"
+[ -n "${RUN_INNER:-}" ] || exit 0
+while [ "$#" -gt 0 ] && [ "$1" != -c ]; do shift; done
+shift
+script=$1
+shift
+exec sh -c "$script" "$@"
+STUB
+    # chown to the image's hermes user can't happen here; ownership is not
+    # what these tests check.
+    printf '#!/bin/sh\nexit 0\n' > "$WORK/bin/chown"
+    chmod +x "$WORK/bin/docker" "$WORK/bin/chown"
 }
 
 teardown() {
@@ -59,4 +73,55 @@ install_skill() {
     install_skill official/creative/ascii-art
     [ "$status" -ne 0 ]
     [ ! -e "$WORK/args" ]
+}
+
+# An upgrade, as hermes would do it: drops old.py from the skill and adds
+# new.py. With HERMES_FAIL set, it fails instead.
+fake_hermes() {
+    cat > "$WORK/bin/hermes" <<'STUB'
+#!/bin/sh
+[ -z "${HERMES_FAIL:-}" ] || exit 1
+rm -f "$HERMES_DATA_DIR/skills/cat/demo/old.py"
+echo new > "$HERMES_DATA_DIR/skills/cat/demo/new.py"
+STUB
+    chmod +x "$WORK/bin/hermes"
+    mkdir -p "$WORK/project/config/skills/cat/demo" "$WORK/project/config/skills/other"
+    echo old > "$WORK/project/config/skills/cat/demo/old.py"
+    echo keep > "$WORK/project/config/skills/other/SKILL.md"
+}
+
+run_inner() {
+    cd "$WORK/project"
+    PATH="$WORK/bin:$PATH" DOCKER_ARGS="$WORK/args" RUN_INNER=1 \
+        HOST_CONFIG_DIR="$WORK/project/config" HERMES_DATA_DIR="$WORK/data" \
+        HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
+        run sh /repo/scripts/install-skill.sh registry.example.com/hermes@sha256:abc cat/demo
+}
+
+@test "an upgrade that drops a file drops it from config/skills too" {
+    fake_hermes
+    run_inner
+    [ "$status" -eq 0 ]
+    [ ! -e "$WORK/project/config/skills/cat/demo/old.py" ]
+    [ "$(cat "$WORK/project/config/skills/cat/demo/new.py")" = new ]
+    [ "$(cat "$WORK/project/config/skills/other/SKILL.md")" = keep ]
+    [ -z "$(find "$WORK/project/config" -maxdepth 1 -name '.skills.*')" ]
+}
+
+@test "skills already in the image's data dir don't end up in config/skills" {
+    fake_hermes
+    mkdir -p "$WORK/data/skills/bundled-by-image"
+    echo bundled > "$WORK/data/skills/bundled-by-image/SKILL.md"
+    run_inner
+    [ "$status" -eq 0 ]
+    [ ! -e "$WORK/project/config/skills/bundled-by-image" ]
+}
+
+@test "a failed install leaves config/skills exactly as it was" {
+    fake_hermes
+    cp -a "$WORK/project/config/skills" "$WORK/before"
+    HERMES_FAIL=1 run_inner
+    [ "$status" -ne 0 ]
+    diff -r "$WORK/before" "$WORK/project/config/skills"
+    [ -z "$(find "$WORK/project/config" -maxdepth 1 -name '.skills.*')" ]
 }

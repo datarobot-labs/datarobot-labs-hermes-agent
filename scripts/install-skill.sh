@@ -20,8 +20,8 @@
 # uid. Writing straight into a bind-mounted ./config would then need that
 # uid to own the checkout, which a normal Linux clone (owned by the user,
 # mode 0755) doesn't. So the container starts as root, copies ./config to the
-# image's own /opt/data for Hermes to work in, and copies the result back
-# into ./config/skills owned by the invoking user's uid and gid.
+# image's own /opt/data for Hermes to work in, and replaces ./config/skills
+# with the result, owned by the invoking user's uid and gid.
 #
 # Usage: scripts/install-skill.sh <image> <skill>
 
@@ -39,15 +39,34 @@ config=$(pwd)/config
 tty_flag=
 [ ! -t 0 ] || tty_flag=-t
 
+# Runs inside the container, as root. It builds the complete new skills tree
+# next to the old one and swaps it in by rename, so an upgrade that removed
+# or renamed a skill's files drops the old ones instead of keeping them. If
+# the run stops between the two renames, the trap puts the old tree back.
+# The image's own /opt/data/skills is emptied first, so the result is this
+# project's skills plus the install, never skills the image ships with.
+# HOST_CONFIG_DIR and HERMES_DATA_DIR are only there so tests can run this
+# outside the image.
 # shellcheck disable=SC2016 # expanded by the container's shell, not this one
+inner='
+set -eu
+src=${HOST_CONFIG_DIR:-/host-config}
+data=${HERMES_DATA_DIR:-/opt/data}
+new="$src/.skills.new"
+old="$src/.skills.old"
+trap "rm -rf \"\$new\"; [ -d \"\$src/skills\" ] || mv \"\$old\" \"\$src/skills\" 2>/dev/null || true; rm -rf \"\$old\"" EXIT
+trap "exit 130" INT TERM HUP
+rm -rf "$new" "$old" "$data/skills"
+cp -a "$src/." "$data/"
+chown -R hermes:hermes "$data"
+hermes skills install "$1"
+cp -a "$data/skills" "$new"
+chown -R "$HOST_UID:$HOST_GID" "$new"
+mv "$src/skills" "$old"
+mv "$new" "$src/skills"
+'
+
 docker run -i $tty_flag --rm --user 0:0 \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
     -v "$config:/host-config" \
-    --entrypoint /bin/sh "$image" -c '
-        set -eu
-        cp -a /host-config/. /opt/data/
-        chown -R hermes:hermes /opt/data
-        hermes skills install "$1"
-        cp -a /opt/data/skills/. /host-config/skills/
-        chown -R "$HOST_UID:$HOST_GID" /host-config/skills
-    ' sh "$skill"
+    --entrypoint /bin/sh "$image" -c "$inner" sh "$skill"
