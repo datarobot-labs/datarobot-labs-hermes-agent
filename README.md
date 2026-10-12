@@ -173,7 +173,7 @@ To use the original setup dir interactively instead (a full Hermes home, no
 platform constraints):
 
 ```sh
-docker run -it --rm -v ./config:/opt/data --env-file .env \
+docker run -it --rm -v "$PWD/config:/opt/data" --env-file .env \
   nousresearch/hermes-agent:latest@sha256:d4da4a40cd7a28aba983775d9fd31d94cbf153eeb0cb9e844d6d0f612b7c24db chat
 ```
 
