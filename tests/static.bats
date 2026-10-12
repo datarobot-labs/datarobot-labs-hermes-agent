@@ -271,15 +271,20 @@ PY
     # Not the working tree as is: `dr start` puts real tokens in the .env of
     # every clone, which neither git nor dr takes. Everything either of them
     # does take is scanned, gitignored files that dr uploads included.
+    #
+    # Two snapshots, since they can differ: the index, as the bytes the next
+    # commit records (a secret staged, then removed from the file, is still
+    # in it), and the working-tree files dr uploads or git would add.
     cd /repo
     scratch=$(mktemp -d)
-    mkdir "$scratch/files"
+    mkdir -p "$scratch/scan/index" "$scratch/scan/tree"
+    git checkout-index --all --prefix="$scratch/scan/index/"
     upload_set "$scratch/upload"
-    { git ls-files --cached --others --exclude-standard; cat "$scratch/upload"; } |
+    { git ls-files --others --exclude-standard; cat "$scratch/upload"; } |
         sort -u | tr '\n' '\0' |
         tar --null --files-from=- --ignore-failed-read -cf - 2>/dev/null |
-        tar -xf - -C "$scratch/files"
-    run gitleaks dir "$scratch/files" --no-banner --redact
+        tar -xf - -C "$scratch/scan/tree"
+    run gitleaks dir "$scratch/scan" --no-banner --redact
     [ "$status" -eq 0 ]
 }
 
