@@ -161,11 +161,20 @@ tasks:
           # The endpoint sits behind DataRobot's login, so the probe carries
           # the CLI's own token. It goes in on stdin, not argv, so it never
           # shows up in a process listing.
-          eval "$(dr auth export --shell bash)"
-          code=$(printf 'Authorization: Bearer %s\n' "$DATAROBOT_API_TOKEN" |
-            curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -H @- "${endpoint%/}/health" || true)
-          echo "GET ${endpoint%/}/health -> HTTP $code"
-          [ "$code" = 200 ] || failed=1
+          DATAROBOT_API_TOKEN=
+          if creds=$(dr auth export --shell bash 2>/dev/null); then
+            eval "$creds"
+          fi
+          if [ -z "${DATAROBOT_API_TOKEN:-}" ]; then
+            echo "Skipped: no DataRobot login to call ${endpoint%/}/health with."
+            echo "Run 'dr auth login'."
+            failed=1
+          else
+            code=$(printf 'Authorization: Bearer %s\n' "$DATAROBOT_API_TOKEN" |
+              curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -H @- "${endpoint%/}/health" || true)
+            echo "GET ${endpoint%/}/health -> HTTP $code"
+            [ "$code" = 200 ] || failed=1
+          fi
         fi
 
         if [ "$failed" -ne 0 ]; then
