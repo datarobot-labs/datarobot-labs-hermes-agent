@@ -228,6 +228,15 @@ PY
     [ "$status" -ne 0 ]
 }
 
+@test "the Taskfile shell-quotes the checkout path wherever it uses it" {
+    # Double quotes still run a $(...) that a checkout path like
+    # /tmp/repo$(cmd) brings into the command line; only shellQuote doesn't.
+    run grep -nE '\.ROOT_DIR' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -nE '\.ROOT_DIR' /repo/Taskfile.yaml
+    [ -z "$(grep -v 'shellQuote (print \.ROOT_DIR' <<< "$output")" ]
+}
+
 @test "the Taskfile and README use the same digest as the Dockerfile" {
     expected=$(grep -oE "$DIGEST_PATTERN" /repo/Dockerfile | sort -u)
     [ -n "$expected" ]

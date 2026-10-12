@@ -107,7 +107,7 @@ tasks:
       - sh: docker info >/dev/null 2>&1
         msg: "Installing a skill runs Hermes in Docker, and Docker isn't running."
     cmds:
-      - docker run -it --rm -v "{{.ROOT_DIR}}/config:/opt/data" {{.HERMES_IMAGE}} skills install {{shellQuote .SKILL}}
+      - docker run -it --rm -v {{shellQuote (print .ROOT_DIR "/config:/opt/data")}} {{.HERMES_IMAGE}} skills install {{shellQuote .SKILL}}
       - echo "Installed into config/skills/. Run 'dr run deploy' to ship it."
 
   doctor:
@@ -307,4 +307,4 @@ tasks:
       `task hermes -- skills browse`
     interactive: true
     cmds:
-      - docker run -it --rm -v "{{.ROOT_DIR}}/config:/opt/data" {{.HERMES_IMAGE}} {{.CLI_ARGS}}
+      - docker run -it --rm -v {{shellQuote (print .ROOT_DIR "/config:/opt/data")}} {{.HERMES_IMAGE}} {{.CLI_ARGS}}
