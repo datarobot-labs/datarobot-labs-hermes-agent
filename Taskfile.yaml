@@ -107,7 +107,9 @@ tasks:
       - sh: docker info >/dev/null 2>&1
         msg: "Installing a skill runs Hermes in Docker, and Docker isn't running."
     cmds:
-      - docker run -it --rm -v {{shellQuote (print .ROOT_DIR "/config:/opt/data")}} {{.HERMES_IMAGE}} skills install {{shellQuote .SKILL}}
+      # Through a script: the image writes as its own uid, which a normal
+      # Linux checkout doesn't let write into ./config directly.
+      - scripts/install-skill.sh {{shellQuote .HERMES_IMAGE}} {{shellQuote .SKILL}}
       - echo "Installed into config/skills/. Run 'dr run deploy' to ship it."
 
   doctor:
