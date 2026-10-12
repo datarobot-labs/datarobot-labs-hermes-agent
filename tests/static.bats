@@ -22,6 +22,21 @@ setup_file() {
     git config --global --add safe.directory /repo
 }
 
+# upload_set FILE: writes to FILE what `dr workload up` would upload, one path
+# per line. That is every file in the working tree, tracked or not, minus what
+# .drignore (or the older .wapiignore) excludes. dr reads only that file, so a
+# gitignored file such as .datarobot.yaml is uploaded unless it is listed there.
+upload_set() {
+    local ignore_file=.drignore scratch
+    [ -f "$ignore_file" ] || ignore_file=.wapiignore
+    scratch=$(mktemp -d)
+    git -C "$scratch" init -q
+    cp "$ignore_file" "$scratch/.gitignore"
+    find . -path ./.git -prune -o -type f -print | sed 's|^\./||' | sort > "$scratch/all"
+    git -C "$scratch" check-ignore --no-index --stdin < "$scratch/all" | sort > "$scratch/ignored" || true
+    comm -23 "$scratch/all" "$scratch/ignored" > "$1"
+}
+
 @test "entrypoint and its snippets pass shellcheck" {
     run shellcheck -s sh -S warning -x -a -P SCRIPTDIR /repo/docker/entrypoint.sh
     [ "$status" -eq 0 ]
@@ -227,15 +242,8 @@ PY
 
 @test "the upload set stays under the 1000 file limit and holds no secret files" {
     cd /repo
-    ignore_file=.drignore
-    [ -f "$ignore_file" ] || ignore_file=.wapiignore
     scratch=$(mktemp -d)
-    git -C "$scratch" init -q
-    cp "$ignore_file" "$scratch/.gitignore"
-    git ls-files | git -C "$scratch" check-ignore --no-index --stdin > "$scratch/ignored" || true
-    git ls-files | sort > "$scratch/tracked"
-    sort "$scratch/ignored" > "$scratch/ignored.sorted"
-    comm -23 "$scratch/tracked" "$scratch/ignored.sorted" > "$scratch/upload"
+    upload_set "$scratch/upload"
     count=$(wc -l < "$scratch/upload")
     echo "upload set: $count files (limit 1000)"
     [ "$count" -lt 1000 ]
@@ -243,16 +251,19 @@ PY
     [ -z "$(grep -vE '\.env\.(example|template|sample)$' <<< "$output")" ]
 }
 
-@test "no secrets in the files git would commit" {
-    # Scan a copy of what git tracks or would add, not the working tree as is:
-    # `dr start` puts real tokens in the gitignored .env of every clone, and
-    # `gitleaks dir` does not read .gitignore.
+@test "no secrets in what git would commit or dr workload up would upload" {
+    # Not the working tree as is: `dr start` puts real tokens in the .env of
+    # every clone, which neither git nor dr takes. Everything either of them
+    # does take is scanned, gitignored files that dr uploads included.
     cd /repo
     scratch=$(mktemp -d)
-    git ls-files -z --cached --others --exclude-standard |
+    mkdir "$scratch/files"
+    upload_set "$scratch/upload"
+    { git ls-files --cached --others --exclude-standard; cat "$scratch/upload"; } |
+        sort -u | tr '\n' '\0' |
         tar --null --files-from=- --ignore-failed-read -cf - 2>/dev/null |
-        tar -xf - -C "$scratch"
-    run gitleaks dir "$scratch" --no-banner --redact
+        tar -xf - -C "$scratch/files"
+    run gitleaks dir "$scratch/files" --no-banner --redact
     [ "$status" -eq 0 ]
 }
 
