@@ -172,9 +172,11 @@ for arg in "$@"; do
     [ "$arg" != --dry-run ] || dry_run=1
 done
 
-# The scratch copy holds .env's other secrets: removed however this ends.
+# The scratch copy holds .env's other secrets, and the manifest is written
+# through a temp file next to it: both are removed however this ends.
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+staged=
+trap 'rm -rf "$work"; [ -z "$staged" ] || rm -f "$staged"' EXIT
 trap 'exit 130' INT TERM HUP
 
 cp Dockerfile "$work/"
@@ -222,7 +224,19 @@ was_user_token=
 if [ -f "$manifest" ] && ! is_workload_key "$manifest"; then
     was_user_token=1
 fi
-cp "$work/$manifest.new" "$manifest"
+# Swapped in by rename, so an interruption or a full disk leaves either the
+# old manifest or the new one, never a truncated file. It keeps the old
+# file's permissions, or gets the umask's for a new one.
+staged=$(mktemp "./$manifest.XXXXXX")
+cat "$work/$manifest.new" > "$staged"
+if [ -f "$manifest" ]; then
+    mode=$(stat -c %a "$manifest" 2>/dev/null || stat -f %Lp "$manifest")
+else
+    mode=$(printf '%o' $((0666 & ~0$(umask))))
+fi
+chmod "$mode" "$staged"
+mv -f "$staged" "$manifest"
+staged=
 echo "Updated ./$manifest. (Paths under $work above are the scratch copy dr ran in.)"
 if [ -n "$was_user_token" ]; then
     echo "$token is now the workload's own key, in place of a token from .env."

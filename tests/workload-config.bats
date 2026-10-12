@@ -272,3 +272,26 @@ YAML
     configure noop --check
     [ "$status" -eq 0 ]
 }
+
+@test "an updated manifest keeps its permissions" {
+    configure write --yes
+    chmod 600 "$PROJECT/.datarobot.yaml"
+    printf 'NEW_SETTING="x"\n' >> "$PROJECT/.env"
+    configure write --sync-env --yes
+    [ "$status" -eq 0 ]
+    grep -q 'name: NEW_SETTING' "$PROJECT/.datarobot.yaml"
+    [ "$(stat -c %a "$PROJECT/.datarobot.yaml")" = 600 ]
+}
+
+@test "a write that fails halfway leaves the old manifest whole and no temp file" {
+    configure write --yes
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    printf 'NEW_SETTING="x"\n' >> "$PROJECT/.env"
+    # A cat that writes part of the file and fails, as on a full disk.
+    printf '#!/bin/sh\nhead -c 20 "$@"\nexit 1\n' > "$WORK/bin/cat"
+    chmod +x "$WORK/bin/cat"
+    configure write --sync-env --yes
+    [ "$status" -ne 0 ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+    [ -z "$(find "$PROJECT" -name '.datarobot.yaml.*')" ]
+}
