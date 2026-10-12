@@ -48,9 +48,10 @@ config/config.yaml.bak.*
 # Documentation for people, not the image.
 docs/
 
-# Tests and CI run on the developer machine and in GitHub, not in the image.
-# (.dockerignore already leaves them out of the build context.)
+# Tests, CI and dev scripts run on the developer machine and in GitHub, not in
+# the image. (.dockerignore already leaves them out of the build context.)
 tests/
+scripts/
 .github/
 .hadolint.yaml
 .licenserc.yaml

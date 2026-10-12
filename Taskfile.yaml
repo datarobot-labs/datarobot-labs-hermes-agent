@@ -71,19 +71,12 @@ tasks:
     preconditions:
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
+      - sh: dr workload config --help 2>/dev/null | grep -q -- '--sync-env'
+        msg: "This needs dr v0.12 or later. Run 'dr self update'."
     cmds:
-      - |
-        # -e: the v0.8 fallback runs two commands, and a failed --import-env
-        # must not be hidden when the following --update-env succeeds.
-        set -e
-        if dr workload config --help 2>/dev/null | grep -q -- '--sync-env'; then
-          dr workload config --sync-env
-        else
-          # dr up to v0.8 splits the sync in two: --import-env adds the names
-          # the manifest lacks, --update-env re-sends the ones it has.
-          dr workload config --import-env
-          dr workload config --update-env
-        fi
+      # Not `dr workload config --sync-env` directly: that would put your own
+      # DATAROBOT_API_TOKEN in the workload. See scripts/workload-config.sh.
+      - scripts/workload-config.sh --sync-env
 
   install:*:
     desc: >-
@@ -137,6 +130,12 @@ tasks:
         fi
         if grep -q PLACEHOLDER .datarobot.yaml; then
           echo "A credential is still PLACEHOLDER. See docs/TROUBLESHOOTING.md."
+          failed=1
+        elif ! grep -A1 -E '^[[:space:]]*- name: DATAROBOT_API_TOKEN[[:space:]]*$' .datarobot.yaml |
+            grep -qE '^[[:space:]]*source: api-key[[:space:]]*$'; then
+          echo "DATAROBOT_API_TOKEN isn't the workload's own key (source: api-key),"
+          echo "so the agent may be running with your token. Run 'dr run env', then"
+          echo "'dr run deploy'. See docs/TROUBLESHOOTING.md."
           failed=1
         else
           echo ".datarobot.yaml is complete."
@@ -202,13 +201,14 @@ tasks:
           # Secrets in .env become DataRobot credentials named
           # <name>/<VARIABLE>; set WORKLOAD_NAME to deploy a second copy
           # without colliding with the first one's.
-          dr workload config --yes --name "${WORKLOAD_NAME:-hermes-agent}" \
+          scripts/workload-config.sh --yes --name "${WORKLOAD_NAME:-hermes-agent}" \
             --type agent --health /health --cpu 1 --memory 2GB
           exit
         fi
         echo ".datarobot.yaml already exists; leaving it as is."
         missing=""
-        for name in $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' .env | sort -u); do
+        # DATAROBOT_API_TOKEN is the workload's own key there, not .env's.
+        for name in $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' .env | grep -vx DATAROBOT_API_TOKEN | sort -u); do
           grep -qE "^[[:space:]]*- name: ${name}\$" .datarobot.yaml || missing="$missing $name"
         done
         if [ -n "$missing" ]; then
@@ -239,6 +239,7 @@ tasks:
     desc: Lint the repo's own shell scripts with shellcheck (synced skills are excluded)
     cmds:
       - shellcheck -s sh -S warning -x -a -P SCRIPTDIR docker/entrypoint.sh
+      - shellcheck scripts/*.sh
   vendor:dr-sync:
     desc: >
       Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync

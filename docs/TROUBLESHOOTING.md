@@ -60,6 +60,37 @@ previous deployment with the same name. Re-cloning changes nothing.
 3. **Use another name.** Delete `.datarobot.yaml` and run
    `WORKLOAD_NAME=hermes-<something> dr start`.
 
+## `doctor` says `DATAROBOT_API_TOKEN` isn't the workload's own key
+
+The manifest passes a token from `.env` to the workload, usually your own,
+instead of declaring the workload's key (`source: api-key`). Manifests written
+before `dr start` existed, or by `dr workload config` run directly, look like
+this. Fix it with:
+
+```sh
+dr run env
+dr run deploy
+```
+
+`dr run env` lists `DATAROBOT_API_TOKEN` as removed and then puts the
+workload's key in its place. The credential that held your token stays in
+DataRobot; delete it from the Credentials page.
+
+## `dr workload up` says `.env` gives `DATAROBOT_API_TOKEN` a different value
+
+Every deploy prints:
+
+```
+.env gives 1 declared variable a different value from the manifest, and the
+manifest is what deploys: DATAROBOT_API_TOKEN.
+  Apply it with 'dr workload up --sync-env'.
+```
+
+That difference is intended: `.env` holds your token, the manifest declares
+the workload's own key. **Don't apply it**: `--sync-env` would replace the
+workload's key with your token. To bring other `.env` changes over, use
+`dr run env`.
+
 ## HTTP 502 right after a deploy
 
 The gateway is still booting. It takes a minute or two after `dr run deploy`

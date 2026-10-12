@@ -46,6 +46,11 @@ setup_file() {
     [ "$status" -eq 0 ]
 }
 
+@test "the repo's own scripts pass shellcheck" {
+    run shellcheck -s sh -S warning /repo/scripts/*.sh
+    [ "$status" -eq 0 ]
+}
+
 @test "Dockerfiles pass hadolint" {
     cd /repo
     run hadolint Dockerfile tests/Dockerfile

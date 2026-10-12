@@ -3,8 +3,10 @@
 #
 # DATAROBOT_ENDPOINT and DATAROBOT_API_TOKEN are not listed: dr always writes
 # them itself, from the install you are logged in to with `dr auth login`.
+# The token stays local (dr itself and `docker compose` use it): the deployed
+# workload gets its own key instead, see scripts/workload-config.sh.
 #
-# Everything in .env becomes a workload environment variable when
+# Everything else in .env becomes a workload environment variable when
 # `dr workload config` writes .datarobot.yaml, so only runtime settings
 # belong here.
 #

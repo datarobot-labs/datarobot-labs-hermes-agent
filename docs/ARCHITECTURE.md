@@ -80,8 +80,25 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
 `.datarobot.yaml`. `dr start` runs that for the first manifest, and
 `dr run env` re-runs it when `.env` changes.
 
-- **Secrets** (`DATAROBOT_API_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, and
-  `LLM_API_KEY` if you set one) become DataRobot credentials named
+- **`DATAROBOT_API_TOKEN`** is the exception. In `.env` it is the token of
+  whoever ran `dr start`, which `dr` itself and a local `docker compose up`
+  use. The workload must not run with it: this agent has a terminal, so
+  anything that steers it (a prompt injection, a skill) could read the token
+  and act with that person's permissions. The manifest declares the workload's
+  own key instead, which the platform fills in:
+
+  ```yaml
+  - name: DATAROBOT_API_TOKEN
+    source: api-key
+  ```
+
+  `dr workload config` can't be told to skip one name, and `--sync-env` drops
+  any entry `.env` doesn't name, so `dr start` and `dr run env` call it through
+  `scripts/workload-config.sh`, which shows it a copy of the project without
+  the token and puts this entry back afterwards. `dr run doctor` flags a
+  manifest that still passes the token on.
+- **Secrets** (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, and `LLM_API_KEY` if you
+  set one) become DataRobot credentials named
   `<workload name>/<VARIABLE>`, referenced by id:
   `value: dr-credential:<id>/apiToken`. The values are in DataRobot's credential
   store; the manifest holds only the id.

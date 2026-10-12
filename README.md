@@ -34,8 +34,9 @@ dr run deploy
 - writes `.env`, asking only for what's missing: whether to connect Slack, and
   if so its tokens. Your DataRobot URL and API token come from your `dr` login;
 - writes `.datarobot.yaml`, the deploy manifest: built from the Dockerfile,
-  1 CPU / 2 GB, a readiness probe on `/health`, and every secret in `.env`
-  stored as a DataRobot credential rather than in the file.
+  1 CPU / 2 GB, a readiness probe on `/health`, and the secrets in `.env`
+  stored as DataRobot credentials rather than in the file. Your own API token
+  isn't one of them: the workload gets a key of its own from the platform.
 
 **`dr run deploy`** runs `dr workload up`: it uploads the repo, DataRobot builds
 the image (a few minutes the first time) and starts the workload, and later
@@ -119,6 +120,11 @@ deploy:
 dr run env
 dr run deploy
 ```
+
+Use `dr run env` rather than `dr workload config --sync-env` or
+`dr workload up --sync-env`: those copy every name in `.env` into the
+workload, your own `DATAROBOT_API_TOKEN` included, in place of the workload's
+own key.
 
 Settings you might change:
 

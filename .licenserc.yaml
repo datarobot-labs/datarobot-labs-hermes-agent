@@ -30,6 +30,7 @@ header:
     - "Taskfile.yaml"
     - "compose.yaml"
     - "docker/**"
+    - "scripts/**"
     - "tests/**"
     - ".github/workflows/*.yml"
     - ".github/workflows/*.yaml"
