@@ -87,6 +87,90 @@ setup_file() {
     [ "$status" -ne 0 ]
 }
 
+@test "the deploy workflow pins the same dr CLI as the Dockerfile" {
+    dockerfile_version=$(sed -nE 's/^ARG DR_CLI_VERSION=(.+)$/\1/p' /repo/Dockerfile)
+    dockerfile_ref=$(sed -nE 's/^ARG DR_CLI_INSTALLER_REF=(.+)$/\1/p' /repo/Dockerfile)
+    grep -qE "^      DR_CLI_VERSION: ${dockerfile_version}\$" /repo/.github/workflows/deploy.yml
+    grep -qE "^      DR_CLI_INSTALLER_REF: ${dockerfile_ref}\$" /repo/.github/workflows/deploy.yml
+}
+
+@test "the deploy workflow queues deploys, never cancels one and has a timeout" {
+    run python3 - <<'PY'
+import sys, yaml
+
+wf = yaml.safe_load(open("/repo/.github/workflows/deploy.yml"))
+job = wf["jobs"]["deploy"]
+assert job["concurrency"]["cancel-in-progress"] is False
+assert job["timeout-minutes"] >= 30
+assert job["permissions"] == {"contents": "read"}
+assert wf["permissions"] == {}
+PY
+    [ "$status" -eq 0 ]
+}
+
+# Runs the deploy workflow's "Apply the overrides and the manifest" step in a
+# scratch directory. $1 lists the files to create under overrides/config.
+run_overrides_step() {
+    work=$(mktemp -d)
+    python3 - "$work/step.sh" <<'PY'
+import sys, yaml
+
+steps = yaml.safe_load(open("/repo/.github/workflows/deploy.yml"))["jobs"]["deploy"]["steps"]
+step = next(s for s in steps if s.get("name") == "Apply the overrides and the manifest")
+open(sys.argv[1], "w").write(step["run"])
+PY
+    mkdir -p "$work/app/config" "$work/deploy-config/deploy/environments/prod" "$work/deploy-config/deploy/overrides/config"
+    echo "workloadId: abc123" > "$work/deploy-config/deploy/environments/prod/.datarobot.yaml"
+    for f in $1; do
+        mkdir -p "$work/deploy-config/deploy/overrides/config/$(dirname "$f")"
+        echo x > "$work/deploy-config/deploy/overrides/config/$f"
+    done
+    cd "$work"
+    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
+}
+
+@test "the deploy workflow copies allowed overrides and the manifest into the checkout" {
+    run_overrides_step "SOUL.md skills/note/SKILL.md config.yaml requirements.txt"
+    [ "$status" -eq 0 ]
+    [ -f "$work/app/config/SOUL.md" ]
+    [ -f "$work/app/config/skills/note/SKILL.md" ]
+    grep -q 'workloadId: abc123' "$work/app/.datarobot.yaml"
+}
+
+@test "the deploy workflow refuses to override the Dockerfile, docker/ or .drsyncignore" {
+    for f in Dockerfile docker/entrypoint.sh .drsyncignore; do
+        run_overrides_step "$f"
+        [ "$status" -ne 0 ]
+        [[ "$output" == *"cannot be overridden"* ]]
+        [ ! -e "$work/app/.datarobot.yaml" ]
+    done
+}
+
+@test "the deploy workflow fails when the manifest for the target is missing" {
+    run_overrides_step "SOUL.md"
+    rm "$work/deploy-config/deploy/environments/prod/.datarobot.yaml"
+    cd "$work"
+    DEPLOY_DIR=deploy TARGET=prod run bash -e step.sh
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"is missing"* ]]
+}
+
+@test "no workflow interpolates an expression inside a run step" {
+    run python3 - <<'PY'
+import glob, sys, yaml
+
+bad = []
+for path in glob.glob("/repo/.github/workflows/*.y*ml"):
+    for name, job in (yaml.safe_load(open(path)).get("jobs") or {}).items():
+        for step in job.get("steps") or []:
+            if "${{" in step.get("run", ""):
+                bad.append(f"{path}: {name}: {step.get('name')}")
+print("\n".join(bad))
+sys.exit(1 if bad else 0)
+PY
+    [ "$status" -eq 0 ]
+}
+
 @test "every pinned build tool has a checksum for both architectures" {
     for tool in GO GH GLAB YQ TASK KUBECTL HELM PULUMI; do
         version=$(sed -nE "s/^ARG ${tool}_VERSION=(.+)$/\\1/p" /repo/Dockerfile)

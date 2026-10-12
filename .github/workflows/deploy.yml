@@ -1,0 +1,229 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Reusable workflow: deploys labs-hermes to a DataRobot workload from a
+# deploy repo or folder that holds VERSION, environments/<target>/.datarobot.yaml
+# and an optional overrides/config/. Call it with a `uses:` line pinned to a
+# commit SHA. The calling repo needs a GitHub environment that holds the
+# DATAROBOT_API_TOKEN secret. While the upstream repository is not public, the
+# same environment also holds an UPSTREAM_TOKEN secret with read access to it.
+
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment of the calling repo that holds DATAROBOT_API_TOKEN.
+        type: string
+        required: true
+      target:
+        description: Folder under environments/ that holds the manifest, for example staging.
+        type: string
+        required: true
+      deploy-dir:
+        description: Directory of the calling repo that holds VERSION, environments/ and overrides/.
+        type: string
+        default: .
+      mode:
+        description: plan prints the plan and changes nothing. apply deploys.
+        type: string
+        default: plan
+      lock:
+        description: Lock the artifact version on apply. Locking is one-way.
+        type: boolean
+        default: true
+      upstream-repository:
+        description: Repository that holds the labs-hermes source.
+        type: string
+        default: datarobot-labs/labs-hermes
+      datarobot-endpoint:
+        description: DataRobot API endpoint.
+        type: string
+        default: https://app.datarobot.com/api/v2
+    outputs:
+      workload-id:
+        description: Id of the workload that the manifest points to after the run.
+        value: ${{ jobs.deploy.outputs.workload-id }}
+
+permissions: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    # A deploy takes about 10 minutes even for a small app.
+    timeout-minutes: 30
+    environment: ${{ inputs.environment }}
+    # A second `up` during a roll fails with HTTP 422, so deploys queue and never cancel.
+    concurrency:
+      group: deploy-${{ github.repository }}-${{ inputs.deploy-dir }}-${{ inputs.target }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      workload-id: ${{ steps.up.outputs.workload-id }}
+    env:
+      # Keep in step with the ARGs in the Dockerfile. tests/static.bats checks it.
+      DR_CLI_VERSION: v0.12.0
+      DR_CLI_INSTALLER_REF: d3fdb737e570a619e1f3944848f8e74adb701009
+      DATAROBOT_CLI_FEATURE_WORKLOAD: "true"
+      DATAROBOT_CLI_NON_INTERACTIVE: "true"
+      DATAROBOT_ENDPOINT: ${{ inputs.datarobot-endpoint }}
+      NO_COLOR: "1"
+      DEPLOY_DIR: ${{ inputs.deploy-dir }}
+      TARGET: ${{ inputs.target }}
+      MODE: ${{ inputs.mode }}
+      LOCK: ${{ inputs.lock }}
+    steps:
+      - name: Check the inputs
+        run: |
+          case "${MODE}" in
+            plan | apply) ;;
+            *) echo "::error::mode must be plan or apply"; exit 1 ;;
+          esac
+          case "${TARGET}" in
+            '' | *[!a-z0-9-]*) echo "::error::target must match [a-z0-9-]+"; exit 1 ;;
+          esac
+          case "${DEPLOY_DIR}" in
+            '' | /* | *..*) echo "::error::deploy-dir must be a relative path without .."; exit 1 ;;
+          esac
+
+      - name: Check out the deploy config
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: deploy-config
+          persist-credentials: false
+
+      - name: Read the version to deploy
+        id: version
+        run: |
+          version_file="deploy-config/${DEPLOY_DIR}/VERSION"
+          if [ ! -f "${version_file}" ]; then
+            echo "::error::${DEPLOY_DIR}/VERSION is missing"
+            exit 1
+          fi
+          ref=$(tr -d '[:space:]' < "${version_file}")
+          if ! printf '%s' "${ref}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$|^[0-9a-f]{40}$'; then
+            echo "::error::VERSION must hold a vX.Y.Z tag or a 40 character commit SHA"
+            exit 1
+          fi
+          echo "ref=${ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Check out labs-hermes
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.upstream-repository }}
+          ref: ${{ steps.version.outputs.ref }}
+          path: app
+          token: ${{ secrets.UPSTREAM_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Apply the overrides and the manifest
+        run: |
+          overrides="deploy-config/${DEPLOY_DIR}/overrides/config"
+          if [ -d "${overrides}" ]; then
+            # Only these paths are safe to replace. The Dockerfile, docker/, the OTel
+            # template and .drsyncignore carry the read-only filesystem and state protection.
+            for entry in "${overrides}"/* "${overrides}"/.[!.]*; do
+              [ -e "${entry}" ] || continue
+              case "$(basename "${entry}")" in
+                SOUL.md | skills | config.yaml | requirements.txt) ;;
+                *) echo "::error::overrides/config/$(basename "${entry}") cannot be overridden"; exit 1 ;;
+              esac
+            done
+            cp -R "${overrides}"/. app/config/
+          fi
+          manifest="deploy-config/${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml"
+          if [ ! -f "${manifest}" ]; then
+            echo "::error::${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml is missing"
+            exit 1
+          fi
+          cp "${manifest}" app/.datarobot.yaml
+
+      - name: Install the dr CLI
+        run: |
+          curl -fsSL -o "${RUNNER_TEMP}/install-dr.sh" \
+            "https://raw.githubusercontent.com/datarobot-oss/cli/${DR_CLI_INSTALLER_REF}/install.sh"
+          mkdir -p "${RUNNER_TEMP}/bin"
+          INSTALL_DIR="${RUNNER_TEMP}/bin" sh "${RUNNER_TEMP}/install-dr.sh" "${DR_CLI_VERSION}"
+          echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
+
+      # Without the sync state, `up` uploads the code again and orphans the old catalog.
+      - name: Restore the sync state
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/.datarobot/workload
+          key: dr-state-${{ github.repository }}-${{ inputs.deploy-dir }}-${{ inputs.target }}-${{ github.run_id }}
+          restore-keys: dr-state-${{ github.repository }}-${{ inputs.deploy-dir }}-${{ inputs.target }}-
+
+      - name: Run dr workload up
+        id: up
+        env:
+          DATAROBOT_API_TOKEN: ${{ secrets.DATAROBOT_API_TOKEN }}
+        run: |
+          if [ -z "${DATAROBOT_API_TOKEN}" ]; then
+            echo "::error::DATAROBOT_API_TOKEN is empty. Add it as a secret of the ${TARGET} environment."
+            exit 1
+          fi
+          args=(--yes --dir app)
+          if [ "${MODE}" = plan ]; then
+            args+=(--dry-run)
+          elif [ "${LOCK}" = true ]; then
+            args+=(--lock)
+          fi
+          dr --version
+          set +e
+          dr workload up "${args[@]}" 2>&1 | tee "${RUNNER_TEMP}/up.log"
+          status="${PIPESTATUS[0]}"
+          set -e
+          {
+            echo "### dr workload up (${MODE}, ${TARGET}, $(cat deploy-config/"${DEPLOY_DIR}"/VERSION))"
+            echo '```text'
+            tail -n 200 "${RUNNER_TEMP}/up.log"
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          workload_id=$(sed -nE 's/^workloadId: *([0-9a-f]+).*/\1/p' app/.datarobot.yaml | head -n 1)
+          echo "workload-id=${workload_id}" >> "${GITHUB_OUTPUT}"
+          exit "${status}"
+
+      # A first deploy writes workloadId into the manifest. Commit it, or the next run creates a second workload.
+      - name: Keep the manifest if the run changed it
+        if: inputs.mode == 'apply' && always()
+        run: |
+          if ! cmp -s "deploy-config/${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml" app/.datarobot.yaml; then
+            cp app/.datarobot.yaml "${RUNNER_TEMP}/manifest-${TARGET}.yaml"
+            {
+              echo "> [!IMPORTANT]"
+              echo "> The run changed the manifest. Commit the \`manifest-${TARGET}\` artifact to \`${DEPLOY_DIR}/environments/${TARGET}/.datarobot.yaml\`, or the next deploy creates another workload."
+            } >> "${GITHUB_STEP_SUMMARY}"
+            echo "changed=true" >> "${GITHUB_ENV}"
+          fi
+
+      - name: Upload the changed manifest
+        if: inputs.mode == 'apply' && always() && env.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: manifest-${{ inputs.target }}
+          path: ${{ runner.temp }}/manifest-${{ inputs.target }}.yaml
+          if-no-files-found: error
+
+      - name: Save the sync state
+        if: inputs.mode == 'apply' && success()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: app/.datarobot/workload
+          key: dr-state-${{ github.repository }}-${{ inputs.deploy-dir }}-${{ inputs.target }}-${{ github.run_id }}

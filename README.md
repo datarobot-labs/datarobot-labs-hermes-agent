@@ -31,6 +31,36 @@ dr workload up --yes --lock
 
 DataRobot builds `./Dockerfile` server-side, injects the secrets, and rolls the new version onto the existing workload without changing the endpoint. `dr workload up --dry-run` prints the plan and changes nothing.
 
+### Deploy from GitHub Actions
+
+The reusable workflow [deploy.yml](.github/workflows/deploy.yml) deploys a tag of this repo from a separate repo that holds your manifests, so you don't fork. Call it from that repo and pin the `uses:` line to a commit SHA of this one:
+
+```yaml
+jobs:
+  staging:
+    permissions:
+      contents: read
+    uses: datarobot-labs/labs-hermes/.github/workflows/deploy.yml@<commit SHA>
+    with:
+      environment: staging   # GitHub environment that holds DATAROBOT_API_TOKEN
+      target: staging        # folder under environments/
+      mode: apply            # plan prints the plan and changes nothing
+```
+
+The calling repo holds this layout, in its root or in a folder that you pass as `deploy-dir`:
+
+```text
+VERSION                              the tag of this repo to deploy, for example v1.2.0
+environments/<target>/.datarobot.yaml
+overrides/config/                    optional: SOUL.md, skills/, config.yaml, requirements.txt
+```
+
+- Commit the manifest. `dr workload up` finds the workload through the `workloadId` in it.
+- A first deploy writes `workloadId` into the manifest. The run uploads the file as the `manifest-<target>` artifact. Commit it, or the next run creates a second workload.
+- `overrides/config/` replaces files in `config/`. Any other path in it fails the run, because the Dockerfile, `docker/` and `.drsyncignore` carry the read-only filesystem and the state protection.
+- The workflow runs one deploy per environment at a time and keeps `.datarobot/workload/` in the Actions cache. It pins `dr` to the version in the Dockerfile.
+- While this repo isn't public, add a read token for it as the `UPSTREAM_TOKEN` secret of the same environment, so the workflow can check it out.
+
 ## Where the config lives
 
 `HERMES_HOME` is where Hermes reads `config.yaml`, `SOUL.md` and `skills/` — in
