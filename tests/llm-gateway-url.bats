@@ -102,3 +102,12 @@ no_leftovers() {
     no_leftovers
     cmp "$WORK/before" "$ENV"
 }
+
+@test "under dr run env, the move is reported without the 'run dr run env' hint" {
+    gateway
+    sed -i 's#^DATAROBOT_ENDPOINT=.*#DATAROBOT_ENDPOINT="https://two.example.com/api/v2"#' "$ENV"
+    LLM_GATEWAY_SYNCING=1 run sh /repo/scripts/llm-gateway-url.sh "$ENV"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"now follows DATAROBOT_ENDPOINT"* ]]
+    [[ "$output" != *"Run 'dr run env'"* ]]
+}

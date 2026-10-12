@@ -69,7 +69,9 @@ case $status in
         chmod "$mode" "$tmp"
         mv -f "$tmp" "$env_file"
         echo "LLM_BASE_URL now follows DATAROBOT_ENDPOINT: $want"
-        echo "Run 'dr run env' to bring the change into .datarobot.yaml."
+        # `dr run env` sets LLM_GATEWAY_SYNCING: it carries the change over next.
+        [ -n "${LLM_GATEWAY_SYNCING:-}" ] ||
+            echo "Run 'dr run env' to bring the change into .datarobot.yaml."
         ;;
     *) exit "$status" ;;
 esac
