@@ -43,10 +43,12 @@ the image (a few minutes the first time) and starts the workload, and later
 deploys roll out only what changed. Add `-- --dry-run` to preview a deploy.
 
 The first deploy is a draft, which DataRobot stops after 8 hours. Once it
-works, keep it running (on `dr` v0.12 the flag is `--lock`):
+works, keep it running. The flag depends on your `dr` version
+(`dr --version`):
 
 ```sh
-dr run deploy -- --promote
+dr run deploy -- --promote   # dr v0.13 and later
+dr run deploy -- --lock      # dr v0.12
 ```
 
 To open the web UI, open the URL `dr workload endpoint` prints, with its
