@@ -124,7 +124,7 @@ dr run deploy
 Use `dr run env` rather than `dr workload config --sync-env` or
 `dr workload up --sync-env`: those copy every name in `.env` into the
 workload, your own `DATAROBOT_API_TOKEN` included, in place of the workload's
-own key.
+own key. `dr run deploy` refuses `--sync-env` for that reason.
 
 Settings you might change:
 

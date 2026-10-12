@@ -63,6 +63,17 @@ tasks:
           .datarobot.yaml would give the workload a token from .env, usually
           your own, instead of its own key. Run 'dr run env' first. See
           docs/TROUBLESHOOTING.md.
+      # `dr workload up --sync-env` would copy .env's DATAROBOT_API_TOKEN, your
+      # own, over the workload's key after the check above has passed. The
+      # shell splits CLI_ARGS here exactly as for the command below.
+      - sh: |
+          set -- {{.CLI_ARGS}}
+          for arg in "$@"; do
+            case $arg in --sync-env | --sync-env=*) exit 1 ;; esac
+          done
+        msg: >-
+          --sync-env would replace the workload's own key with your token from
+          .env. Run 'dr run env' to bring .env changes over, then 'dr run deploy'.
     cmds:
       - dr workload up {{.CLI_ARGS}}
 
