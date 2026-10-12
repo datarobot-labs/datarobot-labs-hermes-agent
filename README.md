@@ -167,7 +167,9 @@ docker compose logs -f
 
 Settings come from `./.env` via `env_file`, the same values the workload gets
 from the credential store. If you haven't run `dr start`, copy `.env.example`
-to `.env` and fill it in; it lists every variable. It builds `linux/amd64` to match the workload, which
+to `.env` and fill it in; it lists every variable. Changing
+`DATAROBOT_ENDPOINT` is enough to switch installs: the LLM gateway follows it
+unless you set `LLM_BASE_URL`. It builds `linux/amd64` to match the workload, which
 is emulated on Apple Silicon — comment out the `platform:` line for a faster
 native loop once you trust the image.
 

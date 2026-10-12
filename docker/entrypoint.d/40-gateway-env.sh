@@ -26,6 +26,15 @@ if [ -z "${API_SERVER_KEY:-}" ]; then
     export API_SERVER_KEY
 fi
 
+# Unless set explicitly, LLM_BASE_URL is the LLM gateway of the install
+# DATAROBOT_ENDPOINT names, the same derivation 30-otel.sh does for the OTel
+# endpoint. A local run whose .env changes only DATAROBOT_ENDPOINT thus talks
+# to that install's gateway rather than app's.
+if [ -z "${LLM_BASE_URL:-}" ] && [ -n "${DATAROBOT_ENDPOINT:-}" ]; then
+    LLM_BASE_URL="$(printf '%s' "$DATAROBOT_ENDPOINT" | sed 's#/*$##')/genai/llmgw"
+fi
+export LLM_BASE_URL="${LLM_BASE_URL:-}"
+
 # Default LLM_API_KEY to the platform-injected DATAROBOT_API_TOKEN (`source:
 # api-key` in .datarobot.yaml) rather than requiring a separately managed
 # dr-credential: LLM_BASE_URL's default is the DataRobot LLM gateway itself,

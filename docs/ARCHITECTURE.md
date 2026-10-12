@@ -49,9 +49,10 @@ Keep the two in step.
 
 `config/config.yaml`'s `model:` block is `${LLM_MODEL}` / `${LLM_PROVIDER}` /
 `${LLM_BASE_URL}` / `${LLM_API_KEY}` / `${LLM_API_MODE}` — env vars Hermes
-substitutes at load time. `LLM_MODEL`, `LLM_PROVIDER`, `LLM_BASE_URL`, and
-`LLM_API_MODE` default in the Dockerfile to the DataRobot LLM gateway on
-`app.datarobot.com`.
+substitutes at load time. `LLM_MODEL`, `LLM_PROVIDER` and `LLM_API_MODE`
+default in the Dockerfile. `LLM_BASE_URL`, unless set, is derived at boot from
+`DATAROBOT_ENDPOINT` (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so any run, a local
+`docker compose up` included, uses the gateway of the install it points at.
 
 - **`LLM_BASE_URL`** is set by `dr start` to the gateway of the install `.env`
   points at (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so a deployment on staging or

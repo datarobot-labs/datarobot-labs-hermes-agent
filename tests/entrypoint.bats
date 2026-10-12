@@ -263,6 +263,14 @@ assert_absent() {
     grep -q '^NVIDIA_API_KEY=drtok$' "$WORK/gateway.env"
 }
 
+@test "without LLM_BASE_URL, the gateway follows DATAROBOT_ENDPOINT and gets the token" {
+    run boot DATAROBOT_API_TOKEN=drtok \
+        DATAROBOT_ENDPOINT=https://staging.example.com/api/v2/
+    [ "$status" -eq 0 ]
+    grep -q '^hermes config set custom_providers.0.base_url https://staging.example.com/api/v2/genai/llmgw$' "$WORK/calls.log"
+    grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
 @test "DATAROBOT_API_TOKEN is never sent to a gateway on another host" {
     run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
         DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \

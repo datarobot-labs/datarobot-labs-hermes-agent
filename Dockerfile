@@ -46,11 +46,13 @@ ENV HERMES_SEED=/opt/hermes-seed
 
 # Defaults for config.yaml's ${LLM_*} substitutions -- swap in a different
 # chat_completions gateway by overriding these at the workload level instead
-# of editing config.yaml. LLM_API_KEY has no default here; it's a secret and
-# comes solely from the workload's injected credential (.datarobot.yaml).
+# of editing config.yaml. LLM_API_KEY has no default here; it's a secret, and
+# docker/entrypoint.sh falls back to DATAROBOT_API_TOKEN only for the
+# install's own gateway. LLM_BASE_URL is deliberately not set here either:
+# the entrypoint derives it from DATAROBOT_ENDPOINT at boot, like the OTel
+# endpoint below, so a run against any install uses that install's gateway.
 ENV LLM_MODEL=anthropic/claude-opus-4-8 \
     LLM_PROVIDER=custom \
-    LLM_BASE_URL=https://app.datarobot.com/api/v2/genai/llmgw \
     LLM_API_MODE=chat_completions
 
 # dr-sync's endpoint (see the vendor/dr-sync COPY below); non-secret, so it
