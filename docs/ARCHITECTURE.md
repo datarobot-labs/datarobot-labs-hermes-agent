@@ -55,7 +55,9 @@ substitutes at load time. `LLM_MODEL`, `LLM_PROVIDER`, `LLM_BASE_URL`, and
 
 - **`LLM_BASE_URL`** is set by `dr start` to the gateway of the install `.env`
   points at (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so a deployment on staging or
-  on-prem talks to its own gateway.
+  on-prem talks to its own gateway. A marker comment above the line in `.env`
+  tells `dr start` the value is its own, and it recomputes it whenever
+  `DATAROBOT_ENDPOINT` changes; delete the marker to set a value by hand.
 - **`LLM_API_KEY`** is optional. The entrypoint defaults it to
   `DATAROBOT_API_TOKEN`, because the DataRobot LLM gateway accepts a normal
   DataRobot API token. Set it only to use a gateway that needs its own key.
