@@ -190,45 +190,10 @@ tasks:
   _llm-gateway-url:
     silent: true
     internal: true
-    # The Dockerfile defaults LLM_BASE_URL to app.datarobot.com's LLM gateway,
-    # which is the wrong one on any other install. Keep it on the gateway of
-    # the install DATAROBOT_ENDPOINT names, also after that changes. The
-    # marker line tells the value this task wrote from one set by hand, which
-    # is left alone.
-    vars:
-      MARKER: "# Follows DATAROBOT_ENDPOINT (set by dr start). Delete this line to set your own."
+    # A script rather than inline: it needs signal traps, which Task's own
+    # shell doesn't support. See scripts/llm-gateway-url.sh.
     cmds:
-      - |
-        set -e
-        endpoint=$(sed -nE 's/^DATAROBOT_ENDPOINT="?([^"]*)"?$/\1/p' .env | tail -n 1)
-        if [ -z "$endpoint" ]; then
-          echo ".env has no DATAROBOT_ENDPOINT. Run 'dr start' again." >&2
-          exit 1
-        fi
-        want="${endpoint%/}/genai/llmgw"
-        marker='{{.MARKER}}'
-        if ! grep -qE '^LLM_BASE_URL=' .env; then
-          printf '\n%s\nLLM_BASE_URL="%s"\n' "$marker" "$want" >> .env
-          echo "Set LLM_BASE_URL to $want"
-          exit 0
-        fi
-        # Rewrites the value under the marker, and reports whether it moved.
-        awk -v marker="$marker" -v want="$want" '
-          prev == marker && /^LLM_BASE_URL=/ {
-            line = "LLM_BASE_URL=\"" want "\""
-            if ($0 != line) moved = 1
-            $0 = line
-          }
-          { print; prev = $0 }
-          END { exit moved ? 10 : 0 }
-        ' .env > .env.llm-gateway-url && status=0 || status=$?
-        if [ "$status" -eq 10 ]; then
-          cat .env.llm-gateway-url > .env
-          echo "LLM_BASE_URL now follows DATAROBOT_ENDPOINT: $want"
-          echo "Run 'dr run env' to bring the change into .datarobot.yaml."
-        fi
-        rm -f .env.llm-gateway-url
-        [ "$status" -eq 0 ] || [ "$status" -eq 10 ]
+      - scripts/llm-gateway-url.sh
 
   _manifest:
     silent: true
