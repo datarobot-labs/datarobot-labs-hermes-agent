@@ -46,13 +46,16 @@ config/config.yaml.bak.*
 .claude/
 
 # Documentation for people, not the image.
-docs/
+/docs/
 
 # Tests, CI and dev scripts run on the developer machine and in GitHub, not in
 # the image. (.dockerignore already leaves them out of the build context.)
-tests/
-scripts/
-.github/
+# Anchored with a leading /: unanchored, `scripts/` or `tests/` would also
+# match the directories of that name inside skills under config/skills/,
+# which the image build needs.
+/tests/
+/scripts/
+/.github/
 .hadolint.yaml
 .licenserc.yaml
 

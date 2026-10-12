@@ -256,6 +256,13 @@ PY
     count=$(wc -l < "$scratch/upload")
     echo "upload set: $count files (limit 1000)"
     [ "$count" -lt 1000 ]
+    # Everything under config/skills/ goes up, since the server-side build
+    # copies all of it, including skills' own scripts/ and tests/ folders.
+    missing=$(git ls-files config/skills | sort | comm -23 - "$scratch/upload")
+    [ -z "$missing" ] || { echo "not uploaded: $missing"; false; }
+    # The repo's own docs, tests and helper scripts don't.
+    run grep -nE '^(docs|tests|scripts)/' "$scratch/upload"
+    [ "$status" -ne 0 ]
     run grep -nE '(^|/)(\.env(\..*)?|.*\.(pem|key|p12|pfx)|id_rsa|id_ed25519|auth\.json)$' "$scratch/upload"
     [ -z "$(grep -vE '\.env\.(example|template|sample)$' <<< "$output")" ]
 }
