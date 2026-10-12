@@ -380,3 +380,15 @@ YAML
     python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$PROJECT/.datarobot.yaml"
     [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
 }
+
+@test "a caller's --dir is refused before dr runs, in either form" {
+    for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
+        rm -f "$WORK/seen/env"
+        # shellcheck disable=SC2086
+        configure write $args
+        [ "$status" -eq 2 ]
+        [[ "$output" == *"--dir isn't accepted"* ]]
+        [ ! -e "$WORK/seen/env" ]
+        [ ! -e "$PROJECT/.datarobot.yaml" ]
+    done
+}

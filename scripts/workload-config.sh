@@ -175,9 +175,18 @@ fi
 
 [ -f .env ] || { echo "No .env here. Run 'dr start' first." >&2; exit 1; }
 
+# --dir is this script's to set: a second one would point dr at the real
+# project, and its .env with the user's token, instead of the scratch copy.
 dry_run=
 for arg in "$@"; do
-    [ "$arg" != --dry-run ] || dry_run=1
+    case $arg in
+        --dir | --dir=*)
+            echo "--dir isn't accepted: this script chooses the directory dr reads, to keep" >&2
+            echo "$token out of the workload. Run it from the project root instead." >&2
+            exit 2
+            ;;
+        --dry-run) dry_run=1 ;;
+    esac
 done
 
 # The scratch copy holds .env's other secrets, and the manifest is written
