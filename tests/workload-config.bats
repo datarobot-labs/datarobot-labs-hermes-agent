@@ -187,3 +187,58 @@ YAML
     configure noop --check
     [ "$status" -ne 0 ]
 }
+
+# Two containers under artifact, the sidecar first, and runtime's own list.
+two_container_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - name: default
+        containers:
+          - name: sidecar
+            environmentVars:
+              - name: SIDE
+                value: x
+          - name: primary
+            primary: true
+            environmentVars:
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+runtime:
+  containerGroups:
+    - name: default
+      containers:
+        - name: primary
+          resourceAllocation: {cpu: 1, memory: 2GB}
+YAML
+}
+
+@test "the key goes to the primary container, not the first one listed" {
+    two_container_manifest
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run sed -n '/- name: sidecar/,/- name: primary/p' "$PROJECT/.datarobot.yaml"
+    [[ "$output" != *DATAROBOT_API_TOKEN* ]]
+    run sed -n '/- name: primary/,/^runtime:/p' "$PROJECT/.datarobot.yaml"
+    [[ "$output" == *"- name: DATAROBOT_API_TOKEN"* ]]
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "--check fails when the key sits in a sidecar instead of the primary container" {
+    two_container_manifest
+    sed -i 's#^\( *\)- name: SIDE$#\1- name: DATAROBOT_API_TOKEN\n\1  source: api-key\n&#' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}
+
+@test "with no way to tell the primary container, nothing is written" {
+    two_container_manifest
+    sed -i '/primary: true/d' "$PROJECT/.datarobot.yaml"
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    configure noop --sync-env
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"primary: true"* ]]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+}

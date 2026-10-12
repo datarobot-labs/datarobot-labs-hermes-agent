@@ -46,11 +46,70 @@ names_token() {
     grep -cE "(^|[{,[:space:]])name:[[:space:]]*[\"']?${token}[\"']?[[:space:]]*([,}#]|\$)" "$1" || true
 }
 
-# True when the manifest's only entry for the token is `source: api-key`.
+# Finds the primary container's environmentVars: the container under
+# `artifact:` marked `primary: true`, or the only one there. Prints
+# "<line of the environmentVars key> <its column> <1 if it holds the api-key
+# entry, else 0>". Exits 2 when there is no single primary container, and 3
+# when it has no environmentVars key. A line-based reading of the block style
+# dr writes, kept to the keys that matter here.
+primary_env() {
+    awk -v name="$token" '
+        function ind(s) { match(s, /^ */); return RLENGTH }
+        function finish() {
+            if (!initem) return
+            items++
+            if (isprim) { prims++; p_env = env; p_col = envcol; p_pair = pair }
+            if (items == 1) { f_env = env; f_col = envcol; f_pair = pair }
+            initem = 0; inenv = 0
+        }
+        /^[[:space:]]*(#.*)?$/ { next }
+        { i = ind($0) }
+        i == 0 { finish(); incont = 0; section = $0; sub(/:.*/, "", section) }
+        incont && (i < icol || (i == icol && $0 !~ /^ *- /) || (itemcol >= 0 && i < itemcol)) {
+            finish(); incont = 0
+        }
+        incont {
+            first = 0
+            if ($0 ~ /^ *- / && (itemcol < 0 || i == itemcol)) {
+                finish()
+                initem = 1; itemcol = i; isprim = 0; env = 0; envcol = 0; pair = 0; held = 0
+                match($0, /^ *- +/); keycol = RLENGTH; first = 1
+            }
+            if (inenv && !first) {
+                if (i > keycol || (i == keycol && $0 ~ /^ *- /)) {
+                    if (held && $0 ~ /^ *source: *api-key *(#.*)?$/) pair = 1
+                    held = ($0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$"))
+                    next
+                }
+                inenv = 0; held = 0
+            }
+            if (first || i == keycol) {
+                kv = substr($0, keycol + 1)
+                if (kv ~ /^primary: *true *(#.*)?$/) isprim = 1
+                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1 }
+            }
+            next
+        }
+        section == "artifact" && /^ *(- +)?containers: *(#.*)?$/ {
+            incont = 1; match($0, /^ *(- +)?/); icol = RLENGTH; itemcol = -1
+        }
+        END {
+            finish()
+            if (prims == 1) { e = p_env; c = p_col; p = p_pair }
+            else if (prims == 0 && items == 1) { e = f_env; c = f_col; p = f_pair }
+            else exit 2
+            if (!e) exit 3
+            print e, c, p
+        }
+    ' "$1"
+}
+
+# True when the manifest's only entry for the token is `source: api-key`, in
+# the primary container.
 is_workload_key() {
-    [ "$(names_token "$1")" = 1 ] &&
-        grep -A1 -E "^[[:space:]]*- name:[[:space:]]*${token}[[:space:]]*\$" "$1" |
-            grep -qE '^[[:space:]]*source:[[:space:]]*api-key[[:space:]]*$'
+    [ "$(names_token "$1")" = 1 ] || return 1
+    loc=$(primary_env "$1") || return 1
+    [ "${loc##* }" = 1 ]
 }
 
 # Drops every entry for the token: a `- name:` block with the lines indented
@@ -69,22 +128,17 @@ remove_token_entries() {
     ' "$1"
 }
 
-# Puts the api-key entry first in the primary container's environmentVars.
+# Puts the api-key entry first in the primary container's environmentVars,
+# and nowhere else.
 add_api_key_entry() {
-    awk -v name="$token" '
-        # `environmentVars:` on its own line, as dr writes it, or as the
-        # first key of a list item (`- environmentVars:`).
-        !done && /^[[:space:]]*(-[[:space:]]+)?environmentVars:[[:space:]]*$/ {
-            print
-            match($0, /^[[:space:]]*(-[[:space:]]+)?/)
-            indent = sprintf("%" RLENGTH "s", "")
-            print indent "  - name: " name
-            print indent "    source: api-key"
-            done = 1
-            next
-        }
+    loc=$(primary_env "$1") || return
+    awk -v name="$token" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f2)" '
         { print }
-        END { if (!done) exit 3 }
+        NR == at {
+            pad = sprintf("%" col "s", "")
+            print pad "  - name: " name
+            print pad "    source: api-key"
+        }
     ' "$1"
 }
 
@@ -128,10 +182,14 @@ dr workload config --dir "$work" "$@"
 
 # Whatever dr kept, the result names the token once, as the workload's key.
 remove_token_entries "$work/$manifest" > "$work/without-token"
-if ! add_api_key_entry "$work/without-token" > "$work/$manifest.new"; then
-    echo "$manifest has no environmentVars block to add $token to." >&2
-    exit 1
-fi
+add_api_key_entry "$work/without-token" > "$work/$manifest.new" || case $? in
+    2) echo "Can't tell which container in $manifest is the primary one, so $token" >&2
+       echo "wasn't added anywhere. Mark it with 'primary: true'." >&2
+       exit 1 ;;
+    *) echo "The primary container in $manifest has no environmentVars block to add" >&2
+       echo "$token to." >&2
+       exit 1 ;;
+esac
 if ! is_workload_key "$work/$manifest.new"; then
     echo "Couldn't reduce $token in $manifest to the workload's own key, so the" >&2
     echo "file was left as it was. Fix that entry by hand; see docs/TROUBLESHOOTING.md." >&2
