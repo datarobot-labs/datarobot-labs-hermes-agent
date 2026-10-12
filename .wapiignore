@@ -64,3 +64,4 @@ __pycache__/
 # scripts/install-skill.sh stages the new skills tree here; gone once it ends.
 config/.skills.new/
 config/.skills.old/
+config/.skills.lock/

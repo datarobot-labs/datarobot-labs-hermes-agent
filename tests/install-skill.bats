@@ -125,3 +125,27 @@ run_inner() {
     diff -r "$WORK/before" "$WORK/project/config/skills"
     [ -z "$(find "$WORK/project/config" -maxdepth 1 -name '.skills.*')" ]
 }
+
+@test "a second install refuses to start and leaves the first one's staging alone" {
+    fake_hermes
+    mkdir "$WORK/project/config/.skills.lock" "$WORK/project/config/.skills.old"
+    echo backup > "$WORK/project/config/.skills.old/marker"
+    cp -a "$WORK/project/config/skills" "$WORK/before"
+    run_inner
+    [ "$status" -eq 75 ]
+    [[ "$output" == *"Another skill install is running"* ]]
+    diff -r "$WORK/before" "$WORK/project/config/skills"
+    # The other run's backup and lock are left alone.
+    [ "$(cat "$WORK/project/config/.skills.old/marker")" = backup ]
+    [ -d "$WORK/project/config/.skills.lock" ]
+}
+
+@test "the lock is released after an install, whether it worked or not" {
+    fake_hermes
+    run_inner
+    [ "$status" -eq 0 ]
+    [ ! -e "$WORK/project/config/.skills.lock" ]
+    HERMES_FAIL=1 run_inner
+    [ "$status" -ne 0 ]
+    [ ! -e "$WORK/project/config/.skills.lock" ]
+}

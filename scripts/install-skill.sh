@@ -43,6 +43,9 @@ tty_flag=
 # next to the old one and swaps it in by rename, so an upgrade that removed
 # or renamed a skill's files drops the old ones instead of keeping them. If
 # the run stops between the two renames, the trap puts the old tree back.
+# A lock directory (mkdir is atomic, also on a bind mount) keeps a second
+# install from clearing the staging paths while this one owns them. It is
+# taken before any cleanup and released last.
 # The image's own /opt/data/skills is emptied first, so the result is this
 # project's skills plus the install, never skills the image ships with.
 # HOST_CONFIG_DIR and HERMES_DATA_DIR are only there so tests can run this
@@ -54,7 +57,13 @@ src=${HOST_CONFIG_DIR:-/host-config}
 data=${HERMES_DATA_DIR:-/opt/data}
 new="$src/.skills.new"
 old="$src/.skills.old"
-trap "rm -rf \"\$new\"; [ -d \"\$src/skills\" ] || mv \"\$old\" \"\$src/skills\" 2>/dev/null || true; rm -rf \"\$old\"" EXIT
+lock="$src/.skills.lock"
+if ! mkdir "$lock" 2>/dev/null; then
+    echo "Another skill install is running (config/.skills.lock exists). If none is," >&2
+    echo "remove that directory and try again." >&2
+    exit 75
+fi
+trap "rm -rf \"\$new\"; [ -d \"\$src/skills\" ] || mv \"\$old\" \"\$src/skills\" 2>/dev/null || true; rm -rf \"\$old\"; rmdir \"\$lock\"" EXIT
 trap "exit 130" INT TERM HUP
 rm -rf "$new" "$old" "$data/skills"
 cp -a "$src/." "$data/"
