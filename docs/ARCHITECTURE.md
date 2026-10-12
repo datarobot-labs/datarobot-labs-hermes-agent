@@ -58,17 +58,19 @@ substitutes at load time. `LLM_MODEL`, `LLM_PROVIDER`, `LLM_BASE_URL`, and
   on-prem talks to its own gateway. A marker comment above the line in `.env`
   tells `dr start` the value is its own, and it recomputes it whenever
   `DATAROBOT_ENDPOINT` changes; delete the marker to set a value by hand.
-- **`LLM_API_KEY`** is optional. The entrypoint defaults it to
-  `DATAROBOT_API_TOKEN`, because the DataRobot LLM gateway accepts a normal
-  DataRobot API token. Set it only to use a gateway that needs its own key.
+- **`LLM_API_KEY`** is optional for the DataRobot LLM gateway: when
+  `LLM_BASE_URL` is on the same host as `DATAROBOT_ENDPOINT`, the entrypoint
+  defaults it to `DATAROBOT_API_TOKEN`, which that gateway accepts. Any other
+  gateway needs its own `LLM_API_KEY`: the entrypoint never sends the
+  DataRobot token to another host, and logs that a key is missing instead.
 - **`custom_providers[0].base_url` and `model.default`** don't follow the
   `${...}` substitution in the conversation loop (verified 2026-08-24), so the
   entrypoint sets both from `LLM_BASE_URL` and `LLM_MODEL` with
   `hermes config set` on every boot.
 
 To point at a different `chat_completions` gateway, set the relevant vars in
-`.env`, then `dr run env` and `dr run deploy` — no edits to `config.yaml`
-needed.
+`.env`, `LLM_API_KEY` included, then `dr run env` and `dr run deploy` — no
+edits to `config.yaml` needed.
 
 One URL is still a literal: the `datarobot` MCP server in `config/config.yaml`
 (`https://app.datarobot.com/api/v2/genai/globalmcp/mcp`). On another install,

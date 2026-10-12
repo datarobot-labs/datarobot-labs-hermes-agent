@@ -31,8 +31,20 @@ fi
 # dr-credential: LLM_BASE_URL's default is the DataRobot LLM gateway itself,
 # which accepts a normal DataRobot API token, and this one is rotated by the
 # platform instead of going stale in a credential nobody remembers to renew.
-: "${LLM_API_KEY:=${DATAROBOT_API_TOKEN:-}}"
-export LLM_API_KEY
+#
+# Only for a gateway on the DataRobot install's own origin, though: the token
+# is a DataRobot credential, and an LLM_BASE_URL anywhere else would receive
+# it as a bearer token on every call. Another gateway needs its own key.
+if [ -z "${LLM_API_KEY:-}" ]; then
+    dr_origin=$(printf '%s' "${DATAROBOT_ENDPOINT:-}" | sed -nE 's#^(https?://[^/?#]+).*#\1#p' | tr '[:upper:]' '[:lower:]')
+    llm_origin=$(printf '%s' "${LLM_BASE_URL:-}" | sed -nE 's#^(https?://[^/?#]+).*#\1#p' | tr '[:upper:]' '[:lower:]')
+    if [ -n "$dr_origin" ] && [ "$dr_origin" = "$llm_origin" ]; then
+        LLM_API_KEY=${DATAROBOT_API_TOKEN:-}
+    elif [ -n "${LLM_BASE_URL:-}" ]; then
+        echo "[entrypoint] LLM_BASE_URL is not on DATAROBOT_ENDPOINT's host, so DATAROBOT_API_TOKEN is not sent to it; set LLM_API_KEY for that gateway" >&2
+    fi
+fi
+export LLM_API_KEY="${LLM_API_KEY:-}"
 
 # Some Hermes provider names (e.g. "NVIDIA") are also recognized as
 # built-in providers with their own credential lookup by convention --

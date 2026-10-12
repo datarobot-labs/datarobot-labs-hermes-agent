@@ -255,10 +255,31 @@ assert_absent() {
 }
 
 @test "LLM_API_KEY defaults to DATAROBOT_API_TOKEN and is aliased to the provider key" {
-    run boot DATAROBOT_API_TOKEN=drtok LLM_PROVIDER=NVIDIA
+    run boot DATAROBOT_API_TOKEN=drtok LLM_PROVIDER=NVIDIA \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://DR.example.com/api/v2/genai/llmgw
     [ "$status" -eq 0 ]
     grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
     grep -q '^NVIDIA_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "DATAROBOT_API_TOKEN is never sent to a gateway on another host" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://llm.example.org/v1
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
+    grep -q 'set LLM_API_KEY for that gateway' "$WORK/err"
+    # No self-test either: it would carry the key as a bearer token.
+    assert_absent 'LLM gateway self-test' "$WORK/err"
+}
+
+@test "a lookalike host that merely starts with the install's host gets no token" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://dr.example.com.evil.test/v1
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
 }
 
 @test "an explicit LLM_API_KEY is not replaced" {
