@@ -295,3 +295,51 @@ YAML
     cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
     [ -z "$(find "$PROJECT" -name '.datarobot.yaml.*')" ]
 }
+
+# Two container groups, each with its own primary; Hermes' container is the
+# one built from this repo's Dockerfile, in the second group.
+two_group_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - name: tools
+        containers:
+          - name: proxy
+            primary: true
+            imageUri: registry.example.com/proxy:1
+            environmentVars:
+              - name: PROXY_MODE
+                value: strict
+      - name: default
+        containers:
+          - name: primary
+            primary: true
+            port: 8642
+            imageBuildConfig:
+              dockerfile:
+                source: provided
+            environmentVars:
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+}
+
+@test "with several container groups, the key goes to the container built from ./Dockerfile" {
+    two_group_manifest
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run sed -n '/- name: tools/,/- name: default/p' "$PROJECT/.datarobot.yaml"
+    [[ "$output" != *DATAROBOT_API_TOKEN* ]]
+    run sed -n '/- name: default/,$p' "$PROJECT/.datarobot.yaml"
+    [[ "$output" == *"- name: DATAROBOT_API_TOKEN"* ]]
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "--check fails when the key sits in another group's primary container" {
+    two_group_manifest
+    sed -i 's#^\( *\)- name: PROXY_MODE$#\1- name: DATAROBOT_API_TOKEN\n\1  source: api-key\n&#' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}

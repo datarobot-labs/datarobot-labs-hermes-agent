@@ -46,12 +46,14 @@ names_token() {
     grep -cE "(^|[{,[:space:]])name:[[:space:]]*[\"']?${token}[\"']?[[:space:]]*([,}#]|\$)" "$1" || true
 }
 
-# Finds the primary container's environmentVars: the container under
-# `artifact:` marked `primary: true`, or the only one there. Prints
+# Finds the environmentVars of Hermes' container under `artifact:`: the one
+# built from this repo's Dockerfile (`dockerfile: source: provided`; only one
+# container can be), else the single one marked `primary: true` (each
+# container group has its own primary), else the only container. Prints
 # "<line of the environmentVars key> <its column> <1 if it holds the api-key
 # entry, else 0>". The api-key entry counts only when `source: api-key` is its
-# one key besides name: no value, no other source. Exits 2 when there is no
-# single primary container, and 3 when it has no environmentVars key. A
+# one key besides name: no value, no other source. Exits 2 when none of those
+# rules picks one container, and 3 when it has no environmentVars key. A
 # line-based reading of the block style dr writes, kept to the keys that
 # matter here.
 primary_env() {
@@ -67,6 +69,7 @@ primary_env() {
             closetok()
             if (!initem) return
             items++
+            if (built) { builts++; b_env = env; b_col = envcol; b_pair = pair }
             if (isprim) { prims++; p_env = env; p_col = envcol; p_pair = pair }
             if (items == 1) { f_env = env; f_col = envcol; f_pair = pair }
             initem = 0; inenv = 0
@@ -81,7 +84,7 @@ primary_env() {
             first = 0
             if ($0 ~ /^ *- / && (itemcol < 0 || i == itemcol)) {
                 finish()
-                initem = 1; itemcol = i; isprim = 0; env = 0; envcol = 0; pair = 0; intok = 0
+                initem = 1; itemcol = i; isprim = 0; built = 0; env = 0; envcol = 0; pair = 0; intok = 0
                 match($0, /^ *- +/); keycol = RLENGTH; first = 1
             }
             if (inenv && !first) {
@@ -99,6 +102,7 @@ primary_env() {
                 }
                 closetok(); inenv = 0
             }
+            if ($0 ~ /^ *source: *provided *(#.*)?$/) built = 1
             if (first || i == keycol) {
                 kv = substr($0, keycol + 1)
                 if (kv ~ /^primary: *true *(#.*)?$/) isprim = 1
@@ -111,7 +115,8 @@ primary_env() {
         }
         END {
             finish()
-            if (prims == 1) { e = p_env; c = p_col; p = p_pair }
+            if (builts == 1) { e = b_env; c = b_col; p = b_pair }
+            else if (prims == 1) { e = p_env; c = p_col; p = p_pair }
             else if (prims == 0 && items == 1) { e = f_env; c = f_col; p = f_pair }
             else exit 2
             if (!e) exit 3
@@ -201,8 +206,9 @@ dr workload config --dir "$work" "$@"
 # Whatever dr kept, the result names the token once, as the workload's key.
 remove_token_entries "$work/$manifest" > "$work/without-token"
 add_api_key_entry "$work/without-token" > "$work/$manifest.new" || case $? in
-    2) echo "Can't tell which container in $manifest is the primary one, so $token" >&2
-       echo "wasn't added anywhere. Mark it with 'primary: true'." >&2
+    2) echo "Can't tell which container in $manifest is Hermes', so $token wasn't" >&2
+       echo "added anywhere. It is the one built from ./Dockerfile; with no build" >&2
+       echo "config, mark it as the only 'primary: true'." >&2
        exit 1 ;;
     *) echo "The primary container in $manifest has no environmentVars block to add" >&2
        echo "$token to." >&2
