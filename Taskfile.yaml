@@ -47,8 +47,8 @@ tasks:
     desc: >-
       Deploy the workload, or roll out what changed since the last deploy,
       with `dr workload up`. Extra arguments go to it, e.g.
-      `dr run deploy -- --dry-run`, or `dr run deploy -- --lock` to keep a
-      draft from being stopped after 8 hours.
+      `dr run deploy -- --dry-run`, or `dr run deploy -- --promote`
+      (`--lock` on dr v0.12) to keep a draft from being stopped after 8 hours.
     aliases: [up]
     interactive: true
     preconditions:

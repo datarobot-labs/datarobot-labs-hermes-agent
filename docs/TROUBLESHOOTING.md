@@ -98,11 +98,11 @@ reports the endpoint; `dr run doctor` shows when `/health` turns 200.
 
 ## The workload stopped after 8 hours
 
-A deploy that isn't locked is a draft, and DataRobot stops drafts after 8
-hours. Once it works, keep it with:
+A deploy that isn't promoted is a draft, and DataRobot stops drafts after 8
+hours. Once it works, keep it with (on `dr` v0.12 the flag is `--lock`):
 
 ```sh
-dr run deploy -- --lock
+dr run deploy -- --promote
 ```
 
 ## `Readiness probe failing: HTTP 401` in the logs
