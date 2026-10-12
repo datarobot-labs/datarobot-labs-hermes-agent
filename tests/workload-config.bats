@@ -343,3 +343,40 @@ YAML
     configure noop --check
     [ "$status" -ne 0 ]
 }
+
+# The api-key entry, or a credential, with a blank line inside the entry.
+blank_line_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<YAML
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+              - name: DATAROBOT_API_TOKEN
+
+                $1
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+}
+
+@test "an api-key entry with a blank line inside is hidden from dr whole" {
+    blank_line_manifest 'source: api-key'
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -cE 'source: api-key|DATAROBOT_API_TOKEN' "$WORK/seen/manifest"
+    [ "$output" = 0 ]
+    python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$WORK/seen/manifest"
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "a credential entry with a blank line inside is replaced whole" {
+    blank_line_manifest 'value: dr-credential:0123456789abcdef01234567/apiToken'
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$PROJECT/.datarobot.yaml"
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+}

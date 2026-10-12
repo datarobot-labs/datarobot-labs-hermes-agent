@@ -139,7 +139,10 @@ is_workload_key() {
 remove_token_entries() {
     awk -v name="$token" '
         function indent(s) { match(s, /^[[:space:]]*/); return RLENGTH }
-        skipping && $0 !~ /^[[:space:]]*$/ && indent($0) > entry { next }
+        # Inside an entry being dropped, blank lines and anything indented
+        # under its `- name:` go with it; the next line at or above that
+        # indentation ends it.
+        skipping && ($0 ~ /^[[:space:]]*$/ || indent($0) > entry) { next }
         { skipping = 0 }
         $0 ~ "^[[:space:]]*- name:[[:space:]]*[\"'\'']?" name "[\"'\'']?[[:space:]]*(#.*)?$" {
             skipping = 1; entry = indent($0); next
