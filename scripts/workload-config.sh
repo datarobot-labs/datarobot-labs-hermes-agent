@@ -49,13 +49,22 @@ names_token() {
 # Finds the primary container's environmentVars: the container under
 # `artifact:` marked `primary: true`, or the only one there. Prints
 # "<line of the environmentVars key> <its column> <1 if it holds the api-key
-# entry, else 0>". Exits 2 when there is no single primary container, and 3
-# when it has no environmentVars key. A line-based reading of the block style
-# dr writes, kept to the keys that matter here.
+# entry, else 0>". The api-key entry counts only when `source: api-key` is its
+# one key besides name: no value, no other source. Exits 2 when there is no
+# single primary container, and 3 when it has no environmentVars key. A
+# line-based reading of the block style dr writes, kept to the keys that
+# matter here.
 primary_env() {
     awk -v name="$token" '
         function ind(s) { match(s, /^ */); return RLENGTH }
+        # Settles the token entry being read: the workload key only if it says
+        # `source: api-key` and nothing else.
+        function closetok() {
+            if (intok) pair = (tsrc && !tother)
+            intok = 0
+        }
         function finish() {
+            closetok()
             if (!initem) return
             items++
             if (isprim) { prims++; p_env = env; p_col = envcol; p_pair = pair }
@@ -72,16 +81,23 @@ primary_env() {
             first = 0
             if ($0 ~ /^ *- / && (itemcol < 0 || i == itemcol)) {
                 finish()
-                initem = 1; itemcol = i; isprim = 0; env = 0; envcol = 0; pair = 0; held = 0
+                initem = 1; itemcol = i; isprim = 0; env = 0; envcol = 0; pair = 0; intok = 0
                 match($0, /^ *- +/); keycol = RLENGTH; first = 1
             }
             if (inenv && !first) {
                 if (i > keycol || (i == keycol && $0 ~ /^ *- /)) {
-                    if (held && $0 ~ /^ *source: *api-key *(#.*)?$/) pair = 1
-                    held = ($0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$"))
+                    if (intok && i > tokcol) {
+                        if ($0 ~ /^ *source: *api-key *(#.*)?$/) tsrc = 1
+                        else if ($0 ~ /^ *[A-Za-z_][A-Za-z0-9_]*:/) tother = 1
+                        next
+                    }
+                    closetok()
+                    if ($0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                        intok = 1; tokcol = i; tsrc = 0; tother = 0
+                    }
                     next
                 }
-                inenv = 0; held = 0
+                closetok(); inenv = 0
             }
             if (first || i == keycol) {
                 kv = substr($0, keycol + 1)

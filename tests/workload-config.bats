@@ -242,3 +242,33 @@ YAML
     [[ "$output" == *"primary: true"* ]]
     cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
 }
+
+@test "--check fails when the token's api-key entry also carries a value or another source" {
+    configure write --yes
+    cp "$PROJECT/.datarobot.yaml" "$WORK/good"
+    sed -i 's#^\( *\)source: api-key$#&\n\1value: dr-credential:0123456789abcdef01234567/apiToken#' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+
+    cp "$WORK/good" "$PROJECT/.datarobot.yaml"
+    sed -i 's#^\( *\)source: api-key$#\1drCredentialId: 0123456789abcdef01234567\n&#' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+
+    # A comment under the entry is not a key.
+    cp "$WORK/good" "$PROJECT/.datarobot.yaml"
+    sed -i 's#^\( *\)source: api-key$#&\n\1\# the platform fills this in#' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "a sync replaces an api-key entry that also carries a value" {
+    configure write --yes
+    sed -i 's#^\( *\)source: api-key$#&\n\1value: dr-credential:0123456789abcdef01234567/apiToken#' "$PROJECT/.datarobot.yaml"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
