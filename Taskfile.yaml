@@ -58,6 +58,11 @@ tasks:
         msg: >-
           .datarobot.yaml still has a PLACEHOLDER credential, which the deploy
           would refuse. See docs/TROUBLESHOOTING.md, "PLACEHOLDER credentials".
+      - sh: scripts/workload-config.sh --check
+        msg: >-
+          .datarobot.yaml would give the workload a token from .env, usually
+          your own, instead of its own key. Run 'dr run env' first. See
+          docs/TROUBLESHOOTING.md.
     cmds:
       - dr workload up {{.CLI_ARGS}}
 
@@ -131,8 +136,7 @@ tasks:
         if grep -q PLACEHOLDER .datarobot.yaml; then
           echo "A credential is still PLACEHOLDER. See docs/TROUBLESHOOTING.md."
           failed=1
-        elif ! grep -A1 -E '^[[:space:]]*- name: DATAROBOT_API_TOKEN[[:space:]]*$' .datarobot.yaml |
-            grep -qE '^[[:space:]]*source: api-key[[:space:]]*$'; then
+        elif ! scripts/workload-config.sh --check 2>/dev/null; then
           echo "DATAROBOT_API_TOKEN isn't the workload's own key (source: api-key),"
           echo "so the agent may be running with your token. Run 'dr run env', then"
           echo "'dr run deploy'. See docs/TROUBLESHOOTING.md."

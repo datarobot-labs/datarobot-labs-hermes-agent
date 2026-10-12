@@ -137,3 +137,53 @@ EOF
     [ "$output" = 0 ]
     [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
 }
+
+# A manifest that hands the workload a token from .env as a credential.
+credential_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+              - name: DATAROBOT_API_TOKEN
+                value: dr-credential:0123456789abcdef01234567/apiToken
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+}
+
+@test "a credential dr keeps, say because the removal was declined, is still replaced" {
+    credential_manifest
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -q 'name: SLACK_HOME_CHANNEL' "$PROJECT/.datarobot.yaml"
+}
+
+@test "a dry run writes nothing, even to a manifest that needs fixing" {
+    credential_manifest
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    configure noop --sync-env --dry-run
+    [ "$status" -eq 0 ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+}
+
+@test "--check passes only when the workload's own key is the sole token entry" {
+    configure write --yes
+    configure noop --check
+    [ "$status" -eq 0 ]
+
+    credential_manifest
+    configure noop --check
+    [ "$status" -ne 0 ]
+
+    # The api-key entry plus a second, flow-style one carrying a credential.
+    configure write --yes
+    sed -i 's#^\( *\)- name: SLACK_HOME_CHANNEL$#\1- {name: DATAROBOT_API_TOKEN, value: "dr-credential:0123456789abcdef01234567/apiToken"}\n&#' \
+        "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}

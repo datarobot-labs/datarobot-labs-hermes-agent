@@ -60,7 +60,7 @@ previous deployment with the same name. Re-cloning changes nothing.
 3. **Use another name.** Delete `.datarobot.yaml` and run
    `WORKLOAD_NAME=hermes-<something> dr start`.
 
-## `doctor` says `DATAROBOT_API_TOKEN` isn't the workload's own key
+## `deploy` refuses, or `doctor` says `DATAROBOT_API_TOKEN` isn't the workload's own key
 
 The manifest passes a token from `.env` to the workload, usually your own,
 instead of declaring the workload's key (`source: api-key`). Manifests written
@@ -73,7 +73,7 @@ dr run deploy
 ```
 
 `dr run env` lists `DATAROBOT_API_TOKEN` as removed and then puts the
-workload's key in its place. The credential that held your token stays in
+workload's key in its place, also if you decline that removal. The credential that held your token stays in
 DataRobot; delete it from the Credentials page.
 
 ## `dr workload up` says `.env` gives `DATAROBOT_API_TOKEN` a different value

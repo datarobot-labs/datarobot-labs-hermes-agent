@@ -97,8 +97,9 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
   `dr workload config` can't be told to skip one name, and `--sync-env` drops
   any entry `.env` doesn't name, so `dr start` and `dr run env` call it through
   `scripts/workload-config.sh`, which shows it a copy of the project without
-  the token and puts this entry back afterwards. `dr run doctor` flags a
-  manifest that still passes the token on.
+  the token and makes this the token's only entry afterwards, whatever `dr`
+  kept. `dr run deploy` refuses, and `dr run doctor` flags, a manifest that
+  still passes a token from `.env` on.
 - **Secrets** (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, and `LLM_API_KEY` if you
   set one) become DataRobot credentials named
   `<workload name>/<VARIABLE>`, referenced by id:
