@@ -19,6 +19,18 @@
 # default baked into every boot of this bot.
 
 # Pinned to the versions the 2026-10-08 image resolved. Bump them on purpose.
+#
+# Only pin a release that is more than 14 days old. The Dockerfile runs
+# `uv pip install` in the base image's /opt/hermes, and the Hermes
+# pyproject.toml there sets `[tool.uv] exclude-newer = "14 days"`. That hold
+# keeps freshly published releases, the usual window for a hijacked package,
+# out of the venv that holds the workload's Slack, GitHub and DataRobot
+# secrets. uv applies it to these pins and everything they pull in, so a pin
+# younger than 14 days fails the image build with "there is no version of
+# <package>==<version>", even though PyPI has it. A release becomes installable
+# 14 days after its upload time on PyPI ("Release history" on its pypi.org
+# page). Dependabot waits the same 14 days (.github/dependabot.yml). If a base
+# image bump changes the window, change both.
 
 ddgs==9.16.0
 
@@ -32,7 +44,9 @@ pandas==3.0.6
 pypdf==6.19.0
 reportlab==5.0.1
 pdfplumber==0.11.10
-pypdfium2==5.14.0
+# 5.14.0 (uploaded 2026-10-04 15:18 UTC) is still inside the 14-day hold and
+# broke the build. It can be pinned from 2026-10-18 15:18 UTC on.
+pypdfium2==5.13.0
 
 # productivity/docx, productivity/powerpoint, productivity/xlsx
 python-docx==1.2.0
