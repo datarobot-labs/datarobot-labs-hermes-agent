@@ -6,8 +6,15 @@
 # overwrite the version the current image just shipped.
 /config.yaml
 /SOUL.md
+/slack-manifest.json
 /skills/
 /plugins/
+/.drsyncignore
+
+# Only present in an image built with WITH_BROWSER_USE=1: a restored uv tool
+# venv from an older image must not replace the one baked into this one.
+/bin/
+/.local/share/uv/tools/
 
 # Regenerated from a template every boot (see docker/entrypoint.sh); a
 # restored copy would carry a stale DATAROBOT_API_TOKEN from a previous boot.

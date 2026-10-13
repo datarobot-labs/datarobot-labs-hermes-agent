@@ -22,9 +22,19 @@ setup_file() {
     git config --global --add safe.directory /repo
 }
 
-@test "entrypoint passes shellcheck" {
-    run shellcheck -s sh -S warning /repo/docker/entrypoint.sh
+@test "entrypoint and its snippets pass shellcheck" {
+    run shellcheck -s sh -S warning -x -a -P SCRIPTDIR /repo/docker/entrypoint.sh
     [ "$status" -eq 0 ]
+}
+
+@test "the Dockerfile copies the entrypoint snippets and every sourced file exists" {
+    run grep -Eq '^COPY +docker/entrypoint\.d/ +/opt/hermes-workload/entrypoint\.d/$' /repo/Dockerfile
+    [ "$status" -eq 0 ]
+    names=$(sed -n 's|^\. "\$ENTRYPOINT_DIR/\(.*\)"$|\1|p' /repo/docker/entrypoint.sh)
+    [ -n "$names" ]
+    for name in $names; do
+        [ -f "/repo/docker/entrypoint.d/$name" ]
+    done
 }
 
 @test "test scripts and stubs pass shellcheck" {
@@ -100,6 +110,38 @@ setup_file() {
 
 @test "the web UI is fetched by commit" {
     grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
+}
+
+@test "the OTel plugin is installed by commit" {
+    grep -qE '^ARG HERMES_OTEL_REF=[0-9a-f]{40}$' /repo/Dockerfile
+}
+
+@test "dr-sync never restores a file the image seed owns" {
+    # Every COPY into the seed, plus the seed paths that are not a COPY: the plugin
+    # install, the rendered OTel config and the optional browser-use install.
+    expected=$(grep -cE '^COPY .*HERMES_SEED' /repo/Dockerfile)
+    copied=$(grep '^COPY ' /repo/Dockerfile | grep -oE '\$\{HERMES_SEED\}/[^ ]+$' | sed 's|^\${HERMES_SEED}||')
+    set -- $copied
+    [ "$#" -gt 0 ]
+    [ "$#" -eq "$expected" ] || { echo "parsed $# of $expected COPY lines into the seed"; return 1; }
+    for path in "$@" /plugins/ /hermes_otel.yaml /bin/ /.local/share/uv/tools/; do
+        grep -qxF "$path" /repo/config/.drsyncignore || { echo "not in .drsyncignore: $path"; return 1; }
+    done
+}
+
+@test "every workflow declares its permissions" {
+    run grep -L '^permissions:' /repo/.github/workflows/*.y*ml
+    [ -z "$output" ]
+}
+
+@test "a pull_request_target workflow never checks out code or runs a shell step" {
+    # Either one can execute the pull request's code with the target workflow's token and secrets.
+    workflows=$(grep -l 'pull_request_target' /repo/.github/workflows/*.y*ml)
+    [ -n "$workflows" ]
+    for workflow in $workflows; do
+        run grep -nE '^\s+(- )?(uses: actions/checkout|run:)' "$workflow"
+        [ "$status" -ne 0 ] || { echo "$workflow: $output"; return 1; }
+    done
 }
 
 @test "no AGPL-licensed Python package is installed" {

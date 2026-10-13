@@ -1,0 +1,5 @@
+#!/bin/sh
+# Records the call. Fails when STUB_PYTHON_FAIL is set. The entrypoint only runs
+# Hermes' skills_sync.py through it.
+echo "python $*" >> "$STUB_LOG"
+[ -z "${STUB_PYTHON_FAIL:-}" ] || exit 1

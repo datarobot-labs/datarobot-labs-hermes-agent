@@ -1,0 +1,8 @@
+#!/bin/sh
+# Records the call. `.backup '<path>'` copies the database to <path>, or fails
+# when STUB_SQLITE_FAIL is set.
+echo "sqlite3 $*" >> "$STUB_LOG"
+[ -z "${STUB_SQLITE_FAIL:-}" ] || exit 1
+dest=${2#".backup '"}
+dest=${dest%"'"}
+cp "$1" "$dest"

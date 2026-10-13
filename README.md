@@ -233,7 +233,11 @@ Three changes fix it:
    create the directories Hermes expects, generate an `API_SERVER_KEY`, sync
    bundled skills, then run `hermes gateway run --no-supervise` and wait on it,
    so the gateway's exit is the container's exit (the shell stays PID 1 to
-   flush state on SIGTERM — see "Persisting state across restarts").
+   flush state on SIGTERM — see "Persisting state across restarts"). The boot
+   steps live in `docker/entrypoint.d/`, one file per concern: `10-seed.sh`,
+   `20-state-sync.sh`, `30-otel.sh`, `40-gateway-env.sh`, `50-skills.sh` and
+   `60-services.sh`. `entrypoint.sh` sources them in that order into one shell
+   and keeps the gateway start, the SIGTERM trap and the final upload.
 
 > **State is per-boot.** `/tmp` is the only writable path and it is not a
 > volume, so sessions, memories and `state.db` do not survive a restart on
@@ -275,9 +279,11 @@ container instead:
   from the upload. On boot the snapshots are copied back over the live
   paths.
 - **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
-  excludes what's baked from the image — `config.yaml`, `SOUL.md`, `skills/`
-  — so a stale download can never clobber what the current image just
-  shipped, plus pure caches and logs that aren't worth persisting.
+  excludes what's baked from the image — `config.yaml`, `SOUL.md`,
+  `slack-manifest.json`, `skills/`, `plugins/`, the optional browser-use
+  install and the file itself — so a stale download can never clobber what
+  the current image just shipped, plus pure caches and logs that aren't worth
+  persisting.
 - **Retention** is `--keep-generations 144` (about a day of 10-minute
   uploads), so a bad overwrite can be rolled back (see below).
 
@@ -576,7 +582,8 @@ task test -- --filter dr-sync   # extra arguments go to bats
 The suite runs in a tools image pinned by digest (`tests/Dockerfile`) as uid 1000 on a read-only root, like the workload. CI runs the same command on every pull request (`.github/workflows/test.yml`).
 
 - `tests/static.bats`: shellcheck, hadolint, YAML and JSON validity, the base image pinned by digest in the Dockerfile, Taskfile and README, the `dr workload up` upload set (under 1,000 files, no secret files), and a gitleaks scan.
-- `tests/entrypoint.bats`: runs `docker/entrypoint.sh` with stub `hermes`, `dr-sync`, `curl` and `nginx` (`tests/fixtures/opt/stubs`), and checks the boot sequence, that no secret value is ever logged, and `nginx -t`.
+- `tests/entrypoint.bats`: runs `docker/entrypoint.sh` with stub `hermes`, `dr-sync`, `curl`, `nginx`, `python` and `sqlite3` (`tests/fixtures/opt/stubs`), and checks the boot sequence, that no secret value is ever logged, and `nginx -t`.
+- `tests/nginx.bats`: runs `docker/nginx.conf` in front of two stand-in upstreams and checks which one answers `/health`, `/v1`, `/api/jobs` and everything else. The platform's readiness probe hits `/health`, so it must reach the gateway and never the web UI.
 
 When you change the entrypoint, add a test for the new behavior to `tests/entrypoint.bats`. When you bump the base image digest, change it in the Dockerfile, the Taskfile and the README together: the suite fails if they differ.
 

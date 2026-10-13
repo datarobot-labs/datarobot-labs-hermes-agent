@@ -121,6 +121,7 @@ RUN uv pip install --python /opt/hermes/.venv/bin/python3 \
     && rm -f /tmp/requirements.txt
 
 COPY --chown=1000:1000 docker/entrypoint.sh /opt/hermes-workload/entrypoint.sh
+COPY docker/entrypoint.d/ /opt/hermes-workload/entrypoint.d/
 RUN chmod 0755 /opt/hermes-workload/entrypoint.sh
 
 # Hermes' own gateway API (OpenAI-compatible /v1, plus /health/detailed) now

@@ -13,6 +13,9 @@ Run `task test` (needs only Docker) before you open a pull request. See the "Tes
 
 The files listed under `paths` in `.licenserc.yaml` start with the Apache 2.0 header. CI checks it with [SkyWalking Eyes](https://github.com/apache/skywalking-eyes). To run it locally, install it with `go install github.com/apache/skywalking-eyes/cmd/license-eye@v0.9.0`, then run `license-eye -c .licenserc.yaml header fix` to add a missing header.
 
+## Changing the entrypoint
+
+`docker/entrypoint.sh` sources the files in `docker/entrypoint.d/` in order, so they share one shell. To add a boot step, add a file there, then add its `# shellcheck source=` line and `.` line to `entrypoint.sh` in the right place. The Dockerfile copies the whole directory. A snippet must not end on a failing `cmd && cmd` list, because `set -e` then exits the whole shell. Add a test to `tests/entrypoint.bats`, and run `task lint` for shellcheck over the chain.
 
 ## Opening new issues
 
