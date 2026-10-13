@@ -22,6 +22,15 @@ tasks:
       `task test -- --filter dr-sync`.
     cmds:
       - tests/run.sh {{.CLI_ARGS}}
+  test:image:
+    desc: >
+      Build the workload image and boot it the way DataRobot runs it (uid
+      1000, read-only root, no network), with canary secrets that must never
+      reach the log. Needs Docker and about 4 GB of disk, and the first build
+      is slow. `SMOKE_IMAGE=<tag> task test:image` tests an image you already built.
+    aliases: [smoke]
+    cmds:
+      - tests/smoke.sh
   lint:
     desc: Lint the repo's own shell scripts with shellcheck (synced skills are excluded)
     cmds:

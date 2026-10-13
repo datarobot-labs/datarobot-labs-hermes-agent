@@ -42,6 +42,8 @@ setup_file() {
     [ "$status" -eq 0 ]
     run shellcheck -s sh -S warning /repo/tests/fixtures/opt/stubs/*
     [ "$status" -eq 0 ]
+    run shellcheck -s sh -S warning /repo/tests/smoke.sh
+    [ "$status" -eq 0 ]
 }
 
 @test "Dockerfiles pass hadolint" {
