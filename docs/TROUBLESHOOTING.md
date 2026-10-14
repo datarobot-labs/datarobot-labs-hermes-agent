@@ -171,4 +171,6 @@ rm .datarobot.yaml
 dr start
 ```
 
-`--purge` also removes the credentials the project created, its draft artifact, and the local sync state in `.datarobot/workload/`. Without it, the next deploy under the same name gets `PLACEHOLDER` credentials. A promoted artifact and a credential that another project created stay in place, and `dr` names them. Delete a remaining credential on the DataRobot Credentials page, and a remaining artifact with `dr artifact delete ARTIFACT_ID --yes`.
+`--purge` also removes the credentials the project created, its draft artifact, and the local sync state in `.datarobot/workload/`. Without it, the next deploy under the same name gets `PLACEHOLDER` credentials.
+
+A promoted artifact is locked, and DataRobot refuses to delete a locked artifact. `--purge` keeps it, keeps the credentials it uses, and `dr` names them. A credential that another project created also stays. After a purge that kept credentials, the next deploy under the same name gets `PLACEHOLDER` credentials too. Fix it as described in [PLACEHOLDER credentials](#placeholder-credentials), or deploy under another name with `WORKLOAD_NAME=hermes-<something> dr start`.
