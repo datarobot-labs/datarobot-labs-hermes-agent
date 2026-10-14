@@ -102,7 +102,7 @@ smoke() {
     [[ "$output" == *" --mount type=volume,target=/opt/data,readonly "* ]]
     [[ "$output" == *" labs-hermes:test" ]]
     ! grep -q '^docker build ' "$STUB_LOG"
-    grep -q '^docker rm --force ' "$STUB_LOG"
+    grep -q '^docker rm --force --volumes ' "$STUB_LOG"
 }
 
 @test "without SMOKE_IMAGE it builds the image for linux/amd64 first" {
@@ -248,5 +248,5 @@ smoke() {
     STUB_UID=0 smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"gateway: boom"* ]]
-    grep -q '^docker rm --force ' "$STUB_LOG"
+    grep -q '^docker rm --force --volumes ' "$STUB_LOG"
 }

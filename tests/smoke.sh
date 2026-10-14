@@ -51,7 +51,7 @@ export GITHUB_PRIVATE_KEY SLACK_BOT_TOKEN SLACK_APP_TOKEN DATAROBOT_API_TOKEN LL
 canaries='CANARYPEMBODY CANARYSLACKBOT CANARYSLACKAPP CANARYDRTOKEN CANARYLLMKEY'
 
 cleanup() {
-    docker rm --force "$container" > /dev/null 2>&1 || true
+    docker rm --force --volumes "$container" > /dev/null 2>&1 || true
     rm -f "$logs"
 }
 trap cleanup EXIT
