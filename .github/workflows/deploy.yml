@@ -42,6 +42,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      # The same check `dr run deploy` makes: the workload keeps its own API
+      # key, never the token of whoever wrote the manifest.
+      - name: Check that the workload keeps its own API key
+        if: ${{ hashFiles('.datarobot.yaml') != '' }}
+        run: scripts/workload-config.sh --check
       - uses: datarobot-oss/workload-deploy-github@11f728fce23b7121f1e5dd8866961204ff6b4d95  # v2.0.0
         with:
           datarobot_endpoint: ${{ secrets.DATAROBOT_ENDPOINT }}

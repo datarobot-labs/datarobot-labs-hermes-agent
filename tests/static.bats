@@ -319,3 +319,11 @@ PY
     run grep -E "^    environment: datarobot\$" /repo/.github/workflows/deploy.yml
     [ "$status" -eq 0 ]
 }
+
+@test "the deploy workflow checks the workload's own API key before it deploys" {
+    check=$(grep -n 'scripts/workload-config.sh --check' /repo/.github/workflows/deploy.yml | head -n 1 | cut -d: -f1)
+    deploy=$(grep -n 'uses: datarobot-oss/workload-deploy-github@' /repo/.github/workflows/deploy.yml | head -n 1 | cut -d: -f1)
+    [ -n "$check" ]
+    [ -n "$deploy" ]
+    [ "$check" -lt "$deploy" ]
+}

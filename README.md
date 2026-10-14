@@ -82,7 +82,7 @@ CI never creates a workload. The first deploy runs on your machine, and the mani
 
 The `.env` file stays on your machine. To change a setting, run `dr run env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment in the repository settings.
 
-GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it. A run that fails with `No workloadId found` means the commit has no manifest with a workload ID. Run the first deploy, then commit the manifest with `git add -f`, because git ignores it by default.
+GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it. A run that fails with `No workloadId found` means the commit has no manifest with a workload ID. Run the first deploy, then commit the manifest with `git add -f`, because git ignores it by default. A run that fails with `doesn't declare DATAROBOT_API_TOKEN as the workload's own key` means the manifest gives the workload the token of whoever wrote it. Run `dr run env` to fix the manifest, then commit it.
 
 ## Connecting Slack
 
