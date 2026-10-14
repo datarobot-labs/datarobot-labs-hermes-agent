@@ -24,14 +24,13 @@ setup_file() {
 
 # upload_set FILE: writes to FILE what `dr workload up` would upload, one path
 # per line. That is every file in the working tree, tracked or not, minus what
-# .drignore (or the older .wapiignore) excludes. dr reads only that file, so a
-# gitignored file such as .datarobot.yaml is uploaded unless it is listed there.
+# .drignore excludes. dr reads only that file, so a gitignored file such as
+# .datarobot.yaml is uploaded unless it is listed there.
 upload_set() {
-    local ignore_file=.drignore scratch
-    [ -f "$ignore_file" ] || ignore_file=.wapiignore
+    local scratch
     scratch=$(mktemp -d)
     git -C "$scratch" init -q
-    cp "$ignore_file" "$scratch/.gitignore"
+    cp .drignore "$scratch/.gitignore"
     find . -path ./.git -prune -o -type f -print | sed 's|^\./||' | sort > "$scratch/all"
     git -C "$scratch" check-ignore --no-index --stdin < "$scratch/all" | sort > "$scratch/ignored" || true
     comm -23 "$scratch/all" "$scratch/ignored" > "$1"
@@ -297,8 +296,23 @@ PY
     echo "$output" | grep -Eq '(^|[^0-9])[1-9][0-9]* commits scanned'
 }
 
+@test "the upload exclusions live in .drignore, the name dr v0.14.1 reads without a warning" {
+    cd /repo
+    [ -f .drignore ]
+    [ ! -e .wapiignore ]
+}
+
+@test "the deploy and env tasks refuse a dr older than the minimum" {
+    run awk '
+        /^  [a-z_:*-]+:$/ { task = $1 }
+        /scripts\/check-dr-version.sh/ { seen[task] = 1 }
+        END { exit !(seen["deploy:"] && seen["env:"]) }
+    ' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+}
+
 @test "the dr pinned in the image is at least the minimum that dr start enforces" {
-    min=$(awk '/^dr:/ { found = 1; next } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
+    min=$(awk '/^dr:/ { found = 1; next } found && /^[^[:space:]#]/ { exit } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
     pin=$(sed -nE 's/^ARG DR_CLI_VERSION=v([0-9.]+)$/\1/p' /repo/Dockerfile)
     [ -n "$min" ]
     [ -n "$pin" ]

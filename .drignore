@@ -1,6 +1,6 @@
 # What `dr workload up` uploads to the artifact. Gitignore syntax.
 #
-# This is a SEPARATE mechanism from .dockerignore: .wapiignore decides what
+# This is a SEPARATE mechanism from .dockerignore: .drignore decides what
 # leaves this machine, .dockerignore decides what the (server-side) docker
 # build sees. Keep the two in step.
 

@@ -16,20 +16,11 @@ lines of the workload's logs.
 find `.datarobot/cli/`. Run them from there. If you are at the root, pull: the
 folder was added with the `dr start` onboarding.
 
-## `dr workload`: unknown command
+## The Workload API isn't enabled
 
-`dr` up to v0.12 hides `dr workload`, or its `config` and `up` subcommands,
-until the client-side feature flag is set; v0.13 dropped the gate.
-The repo's tasks set it themselves; to run `dr workload ...` directly, export
-it first:
+If `dr workload list` returns HTTP 403 or "not enabled", the DataRobot install doesn't have the Workload API enabled, and no workload can run there. An administrator of the install sets `ENABLE_WORKLOAD_API_CONTAINERS=true`.
 
-```sh
-export DATAROBOT_CLI_FEATURE_WORKLOAD=true
-```
-
-Your DataRobot install must also have the Workload API enabled
-(`ENABLE_WORKLOAD_API_CONTAINERS=true`, set by whoever runs the install). If
-`dr workload list` returns 403 or "not enabled", no workload can run there.
+If `dr` reports `workload` as an unknown command, the installed `dr` is older than v0.14.1. Run `dr self update`.
 
 ## PLACEHOLDER credentials
 
@@ -46,9 +37,10 @@ and `.datarobot.yaml` has `value: dr-credential:PLACEHOLDER/apiToken`.
 **Why.** `dr workload config` names each secret's credential
 `<workload name>/<VARIABLE>`. Credentials live server-side, not in the repo,
 so if an earlier deploy under the same name already created one, `dr` won't
-overwrite a value it can't read, and leaves `PLACEHOLDER` instead. Deleting a
-workload doesn't delete its credentials, so this usually comes from a
-previous deployment with the same name. Re-cloning changes nothing.
+overwrite a value it can't read, and leaves `PLACEHOLDER` instead. `dr workload
+delete` leaves a workload's credentials in place unless it runs with `--purge`,
+so this usually comes from a previous deployment with the same name.
+Re-cloning changes nothing.
 
 **Fix**, any one of:
 
@@ -98,13 +90,10 @@ reports the endpoint; `dr run doctor` shows when `/health` turns 200.
 
 ## The workload stopped after 8 hours
 
-A deploy that isn't promoted is a draft, and DataRobot stops drafts after 8
-hours. Once it works, keep it with the flag for your `dr` version
-(`dr --version`):
+A deploy that isn't promoted is a draft, and DataRobot stops drafts after 8 hours. Once the workload works, keep it by deploying with `--promote`:
 
 ```sh
-dr run deploy -- --promote   # dr v0.13 and later
-dr run deploy -- --lock      # dr v0.12
+dr run deploy -- --promote
 ```
 
 ## `Readiness probe failing: HTTP 401` in the logs
@@ -171,16 +160,15 @@ It prints every value it checks, `DATAROBOT_API_TOKEN` included. Use
 `dr run doctor` instead, which keeps only the verdict, and don't paste
 `validate` output anywhere.
 
-## Starting over
+## Start over
+
+To deploy from scratch, delete the workload together with what the deploy created beside it, then run `dr start` again:
 
 ```sh
-dr workload stop
-dr workload delete
-# Credentials outlive the workload: delete hermes-agent/* in DataRobot's
-# Credentials page, or the next deploy under that name gets PLACEHOLDERs.
-# So does the artifact:
-dr artifact list | grep hermes-agent
-dr artifact delete <artifact-id> --yes
-rm .datarobot.yaml        # keep .env to skip re-entering settings
+dr workload delete --purge
+# Keep .env to skip re-entering settings.
+rm .datarobot.yaml
 dr start
 ```
+
+`--purge` also removes the credentials the project created, its draft artifact, and the local sync state in `.datarobot/workload/`. Without it, the next deploy under the same name gets `PLACEHOLDER` credentials. A promoted artifact and a credential that another project created stay in place, and `dr` names them. Delete a remaining credential on the DataRobot Credentials page, and a remaining artifact with `dr artifact delete ARTIFACT_ID --yes`.

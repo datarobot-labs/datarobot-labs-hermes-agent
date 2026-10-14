@@ -13,8 +13,7 @@ Hermes Agent is a project of Nous Research. This repository is not affiliated wi
 
 ## Deploy your own
 
-You need a DataRobot account with Workloads enabled, and the DataRobot CLI
-logged in to that install:
+You need a DataRobot account with Workloads enabled, and the DataRobot CLI (`dr`) v0.14.1 or later, logged in to that install:
 
 ```sh
 brew install datarobot-oss/taps/dr-cli          # or: curl -fsSL https://cli.datarobot.com/install | sh
@@ -42,13 +41,10 @@ dr run deploy
 the image (a few minutes the first time) and starts the workload, and later
 deploys roll out only what changed. Add `-- --dry-run` to preview a deploy.
 
-The first deploy is a draft, which DataRobot stops after 8 hours. Once it
-works, keep it running. The flag depends on your `dr` version
-(`dr --version`):
+The first deploy is a draft, which DataRobot stops after 8 hours. Once it works, keep the workload running by deploying it with `--promote`:
 
 ```sh
-dr run deploy -- --promote   # dr v0.13 and later
-dr run deploy -- --lock      # dr v0.12
+dr run deploy -- --promote
 ```
 
 To open the web UI, open the URL `dr workload endpoint` prints, with its
@@ -149,9 +145,7 @@ dr run deploy                  # ship what changed
 dr task list --all             # every task this repo defines
 ```
 
-Run `dr workload` commands from the repo root, where they find the workload
-in `.datarobot.yaml`. With `dr` v0.12 or older, `export
-DATAROBOT_CLI_FEATURE_WORKLOAD=true` first; the `dr run` tasks set it for you.
+Run `dr workload` commands from the repo root, where they find the workload in `.datarobot.yaml`.
 
 ## Local development
 

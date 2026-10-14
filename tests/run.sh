@@ -29,4 +29,4 @@ exec docker run --rm \
     --volume "$repo":/repo:ro --workdir /repo \
     "$image" bats --print-output-on-failure "$@" /repo/tests/static.bats /repo/tests/entrypoint.bats /repo/tests/nginx.bats /repo/tests/smoke.bats \
     /repo/tests/workload-config.bats /repo/tests/llm-gateway-url.bats \
-    /repo/tests/install-skill.bats
+    /repo/tests/install-skill.bats /repo/tests/dr-version.bats
