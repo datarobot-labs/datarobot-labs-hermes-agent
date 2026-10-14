@@ -66,8 +66,9 @@ no_leftovers() {
     no_leftovers
 }
 
-@test "the endpoint may be double-quoted, single-quoted or bare" {
-    for form in '"https://one.example.com/api/v2"' "'https://one.example.com/api/v2'" 'https://one.example.com/api/v2'; do
+@test "the endpoint may be double-quoted, single-quoted or bare, with any trailing slashes" {
+    for form in '"https://one.example.com/api/v2"' "'https://one.example.com/api/v2'" 'https://one.example.com/api/v2' \
+        '"https://one.example.com/api/v2//"'; do
         printf 'DATAROBOT_ENDPOINT=%s\n' "$form" > "$ENV"
         gateway
         [ "$status" -eq 0 ]

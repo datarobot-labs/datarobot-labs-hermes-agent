@@ -40,7 +40,10 @@ if [ -z "$endpoint" ]; then
     echo "$env_file has no DATAROBOT_ENDPOINT. Run 'dr start' again." >&2
     exit 1
 fi
-want="${endpoint%/}/genai/llmgw"
+# Every trailing slash goes, as in 30-otel.sh, so ".../api/v2//" still yields
+# a real route.
+while [ "$endpoint" != "${endpoint%/}" ]; do endpoint=${endpoint%/}; done
+want="$endpoint/genai/llmgw"
 
 if ! grep -qE '^LLM_BASE_URL=' "$env_file"; then
     printf '\n%s\nLLM_BASE_URL="%s"\n' "$marker" "$want" >> "$env_file"
