@@ -93,9 +93,13 @@ fi
 say "starting $image as uid 1000 on a read-only root, without a network"
 # DR_SYNC_CATALOG_ID stays unset: a dummy catalog would crash-loop on download.
 # WORKLOAD_ID is set, as DataRobot sets it, so OTel export takes the deployed
-# path that renders the API token into its config.
+# path that renders the API token into its config. The base image declares
+# /opt/data a VOLUME, which Docker would mount writable despite --read-only;
+# DataRobot mounts nothing there, so it gets a read-only volume instead, filled
+# from the image like the anonymous one would be.
 docker run --detach --name "$container" --platform linux/amd64 \
     --network none --read-only --user 1000:1000 --tmpfs /tmp:exec,mode=1777 \
+    --mount type=volume,target=/opt/data,readonly \
     --env SLACK_BOT_TOKEN --env SLACK_APP_TOKEN --env SLACK_ALLOWED_USERS=U0SMOKE \
     --env GITHUB_APP_ID=1 --env GITHUB_INSTALLATION_IDS=1 --env GITHUB_PRIVATE_KEY \
     --env DATAROBOT_API_TOKEN --env LLM_API_KEY --env LLM_BASE_URL=http://127.0.0.1:9/v1 \
@@ -125,18 +129,21 @@ say "/health still answers 200 after ${grace}s"
 
 uid=$(docker exec "$container" id -u) || fail "could not read the container's uid"
 [ "$uid" = 1000 ] || fail "the container runs as uid $uid, not 1000"
-# The seed belongs to uid 1000 (see the Dockerfile), so only a read-only root
-# can refuse this write. A permission error would prove nothing, so the error
-# itself has to say so. Not /opt/data: the base image declares it a VOLUME, so
-# Docker mounts a writable volume there even with --read-only.
-if probe=$(docker exec "$container" touch /opt/hermes-seed/.smoke 2>&1); then
-    fail "the root filesystem is writable"
-fi
-case "$probe" in
-    *"Read-only file system"*) ;;
-    *) fail "could not probe the root filesystem: $probe" ;;
-esac
-say "runs as uid 1000 on a read-only root"
+# Both paths belong to uid 1000 (see the Dockerfile), so only a read-only
+# filesystem can refuse these writes. A permission error would prove nothing,
+# so the error itself has to say so.
+read_only() {
+    if probe=$(docker exec "$container" touch "$1/.smoke" 2>&1); then
+        fail "$1 is writable"
+    fi
+    case "$probe" in
+        *"Read-only file system"*) ;;
+        *) fail "could not probe $1: $probe" ;;
+    esac
+}
+read_only /opt/hermes-seed
+read_only /opt/data
+say "runs as uid 1000 on a read-only root, /opt/data included"
 
 docker logs "$container" > "$logs" 2>&1 || fail "could not read the container log"
 for canary in $canaries; do

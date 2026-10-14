@@ -69,7 +69,8 @@ case "$1" in
                 eval "printf '%s' \"\${$n}\"" ;;
             id) echo "${STUB_UID:-1000}" ;;
             touch)
-                [ "${STUB_TOUCH_STATUS:-1}" -ne 0 ] || exit 0
+                # STUB_WRITABLE: the one path where writes succeed.
+                case "$2" in "${STUB_WRITABLE:-/none}"/*) exit 0 ;; esac
                 echo "touch: cannot touch '$2': ${STUB_TOUCH_ERROR:-Read-only file system}" >&2
                 exit 1 ;;
         esac ;;
@@ -98,6 +99,7 @@ smoke() {
     [[ "$output" == *" --user 1000:1000 "* ]]
     [[ "$output" == *" --network none "* ]]
     [[ "$output" == *" --tmpfs /tmp:exec,mode=1777 "* ]]
+    [[ "$output" == *" --mount type=volume,target=/opt/data,readonly "* ]]
     [[ "$output" == *" labs-hermes:test" ]]
     ! grep -q '^docker build ' "$STUB_LOG"
     grep -q '^docker rm --force ' "$STUB_LOG"
@@ -187,19 +189,26 @@ smoke() {
 }
 
 @test "a writable root filesystem fails" {
-    STUB_TOUCH_STATUS=0 smoke
+    STUB_WRITABLE=/opt/hermes-seed smoke
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAIL: the root filesystem is writable"* ]]
+    [[ "$output" == *"FAIL: /opt/hermes-seed is writable"* ]]
 }
 
-@test "the write probe targets a path uid 1000 owns, so only a read-only root refuses it" {
+@test "a writable /opt/data fails, as the base image's VOLUME would be" {
+    STUB_WRITABLE=/opt/data smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: /opt/data is writable"* ]]
+}
+
+@test "the write probes target paths uid 1000 owns, so only a read-only filesystem refuses them" {
     smoke
     [ "$status" -eq 0 ]
     grep -q '^docker exec [^ ]* touch /opt/hermes-seed/.smoke$' "$STUB_LOG"
+    grep -q '^docker exec [^ ]* touch /opt/data/.smoke$' "$STUB_LOG"
 
     STUB_TOUCH_ERROR='Permission denied' smoke
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAIL: could not probe the root filesystem: touch: cannot touch '/opt/hermes-seed/.smoke': Permission denied"* ]]
+    [[ "$output" == *"FAIL: could not probe /opt/hermes-seed: touch: cannot touch '/opt/hermes-seed/.smoke': Permission denied"* ]]
 }
 
 @test "a log without the skill count fails" {
