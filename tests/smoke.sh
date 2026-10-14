@@ -138,12 +138,12 @@ if grep -q 'BEGIN.RSA' "$logs"; then
 fi
 say "no secret value in $(wc -l < "$logs" | tr -d ' ') log lines"
 
-# The entrypoint logs how many skills HERMES_HOME holds after the sync, once
-# LAB-71 lands. None means the bundled skills were lost.
+# docker/entrypoint.d/50-skills.sh logs how many skills HERMES_HOME holds
+# after the sync. No line means the skills step never ran; zero means the
+# bundled skills were lost.
 skills=$(sed -n 's/.*skills in HERMES_HOME: \([0-9][0-9]*\).*/\1/p' "$logs" | tail -n 1)
-if [ -n "$skills" ]; then
-    [ "$skills" -gt 0 ] || fail "HERMES_HOME holds no skills after boot"
-    say "$skills skills in HERMES_HOME"
-fi
+[ -n "$skills" ] || fail "the entrypoint did not log a skill count"
+[ "$skills" -gt 0 ] || fail "HERMES_HOME holds no skills after boot"
+say "$skills skills in HERMES_HOME"
 
 say "ok"

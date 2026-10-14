@@ -20,7 +20,8 @@
 setup() {
     WORK=$(mktemp -d)
     mkdir "$WORK/bin"
-    : > "$WORK/container.log"
+    # A healthy boot's log: the skills step reports what HERMES_HOME holds.
+    echo '[entrypoint] skills in HERMES_HOME: 3' > "$WORK/container.log"
     export STUB_DIR="$WORK" STUB_LOG="$WORK/docker.calls"
     # STUB_HEALTH: the /health status of each probe in turn; the last repeats.
     # STUB_EXIT_AFTER: the container stops after this many `inspect` calls.
@@ -156,7 +157,14 @@ smoke() {
     [[ "$output" == *"FAIL: the root filesystem is writable"* ]]
 }
 
-@test "the skill count is checked when the entrypoint logs it" {
+@test "a log without the skill count fails" {
+    echo '[entrypoint] boot' > "$WORK/container.log"
+    smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the entrypoint did not log a skill count"* ]]
+}
+
+@test "zero skills fails, and the count is reported" {
     echo '[entrypoint] skills in HERMES_HOME: 0' > "$WORK/container.log"
     smoke
     [ "$status" -eq 1 ]
