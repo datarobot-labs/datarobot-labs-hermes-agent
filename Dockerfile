@@ -294,8 +294,8 @@ RUN chmod 0755 /usr/local/bin/dr-sync
 # here can redeploy, read logs and inspect workloads. Both the installer
 # (fetched at the commit of the release tag) and the version are pinned, since
 # the script runs as root at build time.
-ARG DR_CLI_VERSION=v0.12.0
-ARG DR_CLI_INSTALLER_REF=d3fdb737e570a619e1f3944848f8e74adb701009
+ARG DR_CLI_VERSION=v0.14.1
+ARG DR_CLI_INSTALLER_REF=6af9d8ec756e54e4e10f32bbe5cc380e13ca4be3
 RUN curl -fsSL -o /tmp/install-dr.sh \
         "https://raw.githubusercontent.com/datarobot-oss/cli/${DR_CLI_INSTALLER_REF}/install.sh" \
     && INSTALL_DIR=/usr/local/bin sh /tmp/install-dr.sh "${DR_CLI_VERSION}" \

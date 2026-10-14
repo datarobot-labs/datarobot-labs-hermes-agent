@@ -310,3 +310,11 @@ PY
     ' /repo/Taskfile.yaml
     [ "$status" -eq 0 ]
 }
+
+@test "the dr pinned in the image is at least the minimum that dr start enforces" {
+    min=$(awk '/^dr:/ { found = 1; next } found && /^[^[:space:]#]/ { exit } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
+    pin=$(sed -nE 's/^ARG DR_CLI_VERSION=v([0-9.]+)$/\1/p' /repo/Dockerfile)
+    [ -n "$min" ]
+    [ -n "$pin" ]
+    [ "$(printf '%s\n%s\n' "$min" "$pin" | sort -V | head -n 1)" = "$min" ]
+}
