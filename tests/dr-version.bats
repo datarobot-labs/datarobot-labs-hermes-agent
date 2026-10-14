@@ -79,8 +79,16 @@ check() {
     [[ "$output" == *"no dr minimum-version"* ]]
 }
 
+@test "a missing dr minimum is not replaced by the minimum of the next tool" {
+    printf 'dr:\n  name: DataRobot CLI\ntask:\n  name: Task\n  minimum-version: 3.40.0\n' > "$WORK/versions.yaml"
+    STUB_VERSION=v0.14.1 check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"no dr minimum-version"* ]]
+    [[ "$output" != *"3.40.0"* ]]
+}
+
 @test "the repo's own minimum is a version this check accepts" {
-    minimum=$(awk '/^dr:/ { found = 1; next } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
+    minimum=$(awk '/^dr:/ { found = 1; next } found && /^[^[:space:]#]/ { exit } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
     STUB_VERSION="v$minimum" run sh /repo/scripts/check-dr-version.sh /repo/.datarobot/cli/versions.yaml
     [ "$status" -eq 0 ]
 }

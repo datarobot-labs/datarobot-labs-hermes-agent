@@ -24,7 +24,7 @@ set -eu
 
 versions=${1:-.datarobot/cli/versions.yaml}
 
-minimum=$(awk '/^dr:/ { found = 1; next } found && /minimum-version:/ { print $2; exit }' "$versions")
+minimum=$(awk '/^dr:/ { found = 1; next } found && /^[^[:space:]#]/ { exit } found && /minimum-version:/ { print $2; exit }' "$versions")
 if [ -z "$minimum" ]; then
     echo "$versions has no dr minimum-version." >&2
     exit 1
