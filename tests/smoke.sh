@@ -92,11 +92,14 @@ fi
 
 say "starting $image as uid 1000 on a read-only root, without a network"
 # DR_SYNC_CATALOG_ID stays unset: a dummy catalog would crash-loop on download.
+# WORKLOAD_ID is set, as DataRobot sets it, so OTel export takes the deployed
+# path that renders the API token into its config.
 docker run --detach --name "$container" --platform linux/amd64 \
     --network none --read-only --user 1000:1000 --tmpfs /tmp:exec,mode=1777 \
     --env SLACK_BOT_TOKEN --env SLACK_APP_TOKEN --env SLACK_ALLOWED_USERS=U0SMOKE \
     --env GITHUB_APP_ID=1 --env GITHUB_INSTALLATION_IDS=1 --env GITHUB_PRIVATE_KEY \
     --env DATAROBOT_API_TOKEN --env LLM_API_KEY --env LLM_BASE_URL=http://127.0.0.1:9/v1 \
+    --env WORKLOAD_ID=smoke \
     "$image" > /dev/null \
     || fail "the container did not start"
 
@@ -153,5 +156,12 @@ skills=$(sed -n 's/.*skills in HERMES_HOME: \([0-9][0-9]*\).*/\1/p' "$logs" | ta
 [ -n "$skills" ] || fail "the entrypoint did not log a skill count"
 [ "$skills" -gt 0 ] || fail "HERMES_HOME holds no skills after boot"
 say "$skills skills in HERMES_HOME"
+
+# The secret scan above only covers the deployed OTel path if it ran:
+# docker/entrypoint.d/30-otel.sh renders the API token into hermes_otel.yaml
+# there, and the plugin loads it.
+grep -q 'hermes-otel export enabled' "$logs" \
+    || fail "OTel export was not enabled, as it is on a deployed workload"
+say "OTel export enabled, as on a deployed workload"
 
 say "ok"

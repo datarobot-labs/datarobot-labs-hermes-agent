@@ -20,8 +20,10 @@
 setup() {
     WORK=$(mktemp -d)
     mkdir "$WORK/bin"
-    # A healthy boot's log: the skills step reports what HERMES_HOME holds.
-    echo '[entrypoint] skills in HERMES_HOME: 3' > "$WORK/container.log"
+    # A healthy boot's log: the skills step reports what HERMES_HOME holds,
+    # and OTel export is on, as on a deployed workload.
+    printf '%s\n' '[entrypoint] skills in HERMES_HOME: 3' \
+        '[entrypoint] hermes-otel export enabled: entity=workload-smoke endpoint=x' > "$WORK/container.log"
     export STUB_DIR="$WORK" STUB_LOG="$WORK/docker.calls"
     # STUB_HEALTH: the /health status of each probe in turn; the last repeats.
     # STUB_EXIT_AFTER: the container stops after this many `inspect` calls.
@@ -126,6 +128,19 @@ smoke() {
     grep -qx 'CANARYPEMBODYAAAA' "$WORK/run.env"
 }
 
+@test "the container gets a WORKLOAD_ID, and a boot without OTel export fails" {
+    smoke
+    [ "$status" -eq 0 ]
+    grep -qx 'WORKLOAD_ID=smoke' "$WORK/run.env"
+    [[ "$output" == *"OTel export enabled, as on a deployed workload"* ]]
+
+    sed -i '/hermes-otel export enabled/d' "$WORK/container.log"
+    echo '[entrypoint] hermes-otel export disabled: need an entity' >> "$WORK/container.log"
+    smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: OTel export was not enabled, as it is on a deployed workload"* ]]
+}
+
 @test "a canary token in the log fails" {
     echo 'slack: auth failed for xoxb-CANARYSLACKBOT' > "$WORK/container.log"
     smoke
@@ -195,12 +210,12 @@ smoke() {
 }
 
 @test "zero skills fails, and the count is reported" {
-    echo '[entrypoint] skills in HERMES_HOME: 0' > "$WORK/container.log"
+    sed -i 's/HERMES_HOME: 3/HERMES_HOME: 0/' "$WORK/container.log"
     smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: HERMES_HOME holds no skills after boot"* ]]
 
-    echo '[entrypoint] skills in HERMES_HOME: 42' > "$WORK/container.log"
+    sed -i 's/HERMES_HOME: 0/HERMES_HOME: 42/' "$WORK/container.log"
     smoke
     [ "$status" -eq 0 ]
     [[ "$output" == *"42 skills in HERMES_HOME"* ]]
