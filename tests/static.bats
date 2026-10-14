@@ -301,3 +301,12 @@ PY
     [ -f .drignore ]
     [ ! -e .wapiignore ]
 }
+
+@test "the deploy and env tasks refuse a dr older than the minimum" {
+    run awk '
+        /^  [a-z_:*-]+:$/ { task = $1 }
+        /scripts\/check-dr-version.sh/ { seen[task] = 1 }
+        END { exit !(seen["deploy:"] && seen["env:"]) }
+    ' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+}

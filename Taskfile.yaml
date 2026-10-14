@@ -47,6 +47,10 @@ tasks:
     aliases: [up]
     interactive: true
     preconditions:
+      - sh: scripts/check-dr-version.sh
+        msg: >-
+          dr is older than the minimum in .datarobot/cli/versions.yaml. Run
+          'dr self update'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
       - sh: "! grep -q PLACEHOLDER .datarobot.yaml"
@@ -80,10 +84,12 @@ tasks:
       `dr start` wrote the first ones.
     interactive: true
     preconditions:
+      - sh: scripts/check-dr-version.sh
+        msg: >-
+          dr is older than the minimum in .datarobot/cli/versions.yaml. Run
+          'dr self update'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
-      - sh: dr workload config --help 2>/dev/null | grep -q -- '--sync-env'
-        msg: "This needs dr v0.14.1 or later. Run 'dr self update'."
     cmds:
       # First, so a DATAROBOT_ENDPOINT changed since `dr start` takes the
       # LLM_BASE_URL that start manages along with it.
