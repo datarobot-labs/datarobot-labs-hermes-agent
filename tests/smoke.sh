@@ -155,6 +155,12 @@ say "no secret value in $(wc -l < "$logs" | tr -d ' ') log lines"
 skills=$(sed -n 's/.*skills in HERMES_HOME: \([0-9][0-9]*\).*/\1/p' "$logs" | tail -n 1)
 [ -n "$skills" ] || fail "the entrypoint did not log a skill count"
 [ "$skills" -gt 0 ] || fail "HERMES_HOME holds no skills after boot"
+# The seed's Labs skills keep the count above zero on their own, so it can't
+# show that the base image's bundled skills arrived. 50-skills.sh warns when
+# that sync fails or finds nothing to sync from.
+if grep -qF -e 'skills_sync.py failed' -e 'bundled skills directory' "$logs"; then
+    fail "the base image's bundled skills did not sync"
+fi
 say "$skills skills in HERMES_HOME"
 
 # The secret scan above only covers the deployed OTel path if it ran:

@@ -221,6 +221,19 @@ smoke() {
     [[ "$output" == *"42 skills in HERMES_HOME"* ]]
 }
 
+@test "a failed or skipped bundled skills sync fails, even with skills from the seed" {
+    echo '[entrypoint] Warning: skills_sync.py failed; continuing' >> "$WORK/container.log"
+    smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the base image's bundled skills did not sync"* ]]
+
+    sed -i '/skills_sync.py failed/d' "$WORK/container.log"
+    echo '[entrypoint] Warning: bundled skills directory /opt/hermes/skills not found; skipping the skills sync' >> "$WORK/container.log"
+    smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the base image's bundled skills did not sync"* ]]
+}
+
 @test "a failure prints the container log and still removes the container" {
     echo 'gateway: boom' > "$WORK/container.log"
     STUB_UID=0 smoke
