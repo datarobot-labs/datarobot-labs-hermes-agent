@@ -99,10 +99,11 @@ smoke() {
     [[ "$output" == *" --user 1000:1000 "* ]]
     [[ "$output" == *" --network none "* ]]
     [[ "$output" == *" --tmpfs /tmp:exec,mode=1777 "* ]]
-    [[ "$output" == *" --mount type=volume,target=/opt/data,readonly "* ]]
+    [[ "$output" =~ " --mount type=volume,source=labs-hermes-smoke-"[0-9]+"-data,target=/opt/data,readonly " ]]
     [[ "$output" == *" labs-hermes:test" ]]
     ! grep -q '^docker build ' "$STUB_LOG"
     grep -q '^docker rm --force --volumes ' "$STUB_LOG"
+    grep -q '^docker volume rm labs-hermes-smoke-[0-9]*-data$' "$STUB_LOG"
 }
 
 @test "without SMOKE_IMAGE it builds the image for linux/amd64 first" {
@@ -249,4 +250,5 @@ smoke() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"gateway: boom"* ]]
     grep -q '^docker rm --force --volumes ' "$STUB_LOG"
+    grep -q '^docker volume rm labs-hermes-smoke-[0-9]*-data$' "$STUB_LOG"
 }

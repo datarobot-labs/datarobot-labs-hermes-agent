@@ -32,6 +32,7 @@ timeout=${SMOKE_TIMEOUT:-240}
 grace=${SMOKE_GRACE:-20}
 poll=${SMOKE_POLL:-2}
 container=labs-hermes-smoke-$$
+volume=$container-data
 logs=$(mktemp)
 
 # Canary values. The PEM is built from fragments so secret scanners don't flag
@@ -52,6 +53,7 @@ canaries='CANARYPEMBODY CANARYSLACKBOT CANARYSLACKAPP CANARYDRTOKEN CANARYLLMKEY
 
 cleanup() {
     docker rm --force --volumes "$container" > /dev/null 2>&1 || true
+    docker volume rm "$volume" > /dev/null 2>&1 || true
     rm -f "$logs"
 }
 trap cleanup EXIT
@@ -96,10 +98,11 @@ say "starting $image as uid 1000 on a read-only root, without a network"
 # path that renders the API token into its config. The base image declares
 # /opt/data a VOLUME, which Docker would mount writable despite --read-only;
 # DataRobot mounts nothing there, so it gets a read-only volume instead, filled
-# from the image like the anonymous one would be.
+# from the image like the anonymous one would be. Named, because Docker refuses
+# a read-only anonymous volume; cleanup removes it.
 docker run --detach --name "$container" --platform linux/amd64 \
     --network none --read-only --user 1000:1000 --tmpfs /tmp:exec,mode=1777 \
-    --mount type=volume,target=/opt/data,readonly \
+    --mount "type=volume,source=$volume,target=/opt/data,readonly" \
     --env SLACK_BOT_TOKEN --env SLACK_APP_TOKEN --env SLACK_ALLOWED_USERS=U0SMOKE \
     --env GITHUB_APP_ID=1 --env GITHUB_INSTALLATION_IDS=1 --env GITHUB_PRIVATE_KEY \
     --env DATAROBOT_API_TOKEN --env LLM_API_KEY --env LLM_BASE_URL=http://127.0.0.1:9/v1 \
