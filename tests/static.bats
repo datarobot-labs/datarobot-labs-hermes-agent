@@ -93,7 +93,7 @@ import sys, yaml
 workflow = yaml.safe_load(open(sys.argv[1]))
 on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
 for event in ("pull_request", "push"):
-    missing = {"Dockerfile", "docker/**", "config/**", "vendor/**"} - set(on[event]["paths"])
+    missing = {"Dockerfile", ".dockerignore", "docker/**", "config/**", "vendor/**", "Taskfile.yaml"} - set(on[event]["paths"])
     assert not missing, f"{event} does not trigger on {sorted(missing)}"
 assert "schedule" in on, "no scheduled build"
 PY
