@@ -34,7 +34,21 @@ count() {
 }
 case "$1" in
     build) exit "${STUB_BUILD_STATUS:-0}" ;;
-    run) env > "$STUB_DIR/run.env"; exit "${STUB_RUN_STATUS:-0}" ;;
+    run)
+        # What the container would get: `--env NAME` forwards NAME from this
+        # environment, `--env NAME=value` sets it.
+        : > "$STUB_DIR/run.env"
+        while [ $# -gt 0 ]; do
+            if [ "$1" = --env ]; then
+                case "$2" in
+                    *=*) printf '%s\n' "$2" ;;
+                    *) ! printenv "$2" > /dev/null || printf '%s=%s\n' "$2" "$(printenv "$2")" ;;
+                esac >> "$STUB_DIR/run.env"
+                shift
+            fi
+            shift
+        done
+        exit "${STUB_RUN_STATUS:-0}" ;;
     inspect)
         count inspects
         if [ -n "${STUB_EXIT_AFTER:-}" ] && [ "$n" -gt "$STUB_EXIT_AFTER" ]; then
@@ -101,11 +115,14 @@ smoke() {
     ! grep -q '^docker run ' "$STUB_LOG"
 }
 
-@test "secret values reach docker through the environment, never on its command line" {
+@test "every canary reaches the container through --env NAME, never on docker's command line" {
     smoke
     [ "$status" -eq 0 ]
     ! grep -q CANARY "$STUB_LOG"
-    grep -q '^SLACK_BOT_TOKEN=xoxb-CANARYSLACKBOT$' "$WORK/run.env"
+    grep -qx 'SLACK_BOT_TOKEN=xoxb-CANARYSLACKBOT' "$WORK/run.env"
+    grep -qx 'SLACK_APP_TOKEN=xapp-CANARYSLACKAPP' "$WORK/run.env"
+    grep -qx 'DATAROBOT_API_TOKEN=CANARYDRTOKEN' "$WORK/run.env"
+    grep -qx 'LLM_API_KEY=CANARYLLMKEY' "$WORK/run.env"
     grep -qx 'CANARYPEMBODYAAAA' "$WORK/run.env"
 }
 
