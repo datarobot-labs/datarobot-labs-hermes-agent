@@ -36,7 +36,7 @@ teardown() {
 }
 
 check() {
-    run sh /repo/scripts/check-dr-version.sh "$WORK/versions.yaml"
+    run /repo/scripts/check-dr-version.sh "$WORK/versions.yaml"
 }
 
 @test "passes when dr is the minimum version" {
@@ -104,6 +104,6 @@ check() {
 
 @test "the repo's own minimum is a version this check accepts" {
     minimum=$(awk '/^dr:/ { found = 1; next } found && /^[^[:space:]#]/ { exit } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
-    STUB_VERSION="v$minimum" run sh /repo/scripts/check-dr-version.sh /repo/.datarobot/cli/versions.yaml
+    STUB_VERSION="v$minimum" run /repo/scripts/check-dr-version.sh /repo/.datarobot/cli/versions.yaml
     [ "$status" -eq 0 ]
 }
