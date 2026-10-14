@@ -61,6 +61,21 @@ check() {
     [[ "$output" == *"dr self update"* ]]
 }
 
+@test "fails for a prerelease of the minimum, which is older than the release" {
+    STUB_VERSION=v0.14.1-rc.1 check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"v0.14.1-rc.1"* ]]
+    STUB_VERSION=v0.14.1-dev0 check
+    [ "$status" -eq 1 ]
+}
+
+@test "passes for a prerelease of a newer version" {
+    STUB_VERSION=v0.15.0-rc.1 check
+    [ "$status" -eq 0 ]
+    STUB_VERSION=v0.14.2-dev0 check
+    [ "$status" -eq 0 ]
+}
+
 @test "fails for the v0.12 release the minimum replaced" {
     STUB_VERSION=v0.12.0 check
     [ "$status" -eq 1 ]

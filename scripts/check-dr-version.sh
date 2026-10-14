@@ -30,21 +30,26 @@ if [ -z "$minimum" ]; then
     exit 1
 fi
 
-# `dr self version` prints "DataRobot CLI version: v0.14.1".
-installed=$(dr self version 2>/dev/null | sed -nE 's/^DataRobot CLI version: v?([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' | head -n 1)
-if [ -z "$installed" ]; then
+# `dr self version` prints "DataRobot CLI version: v0.14.1", with a suffix such
+# as -rc.1 on a prerelease.
+version=$(dr self version 2>/dev/null | sed -nE 's/^DataRobot CLI version: v?([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?).*/\1/p' | head -n 1)
+if [ -z "$version" ]; then
     echo "Can't read the version of dr. Run 'dr self update'." >&2
     exit 1
 fi
+installed=${version%%-*}
+prerelease=${version#"$installed"}
 
-# Compare each part as a number, so 0.14.10 is newer than 0.14.1.
-if ! awk -v have="$installed" -v need="$minimum" 'BEGIN {
+# Compare each part as a number, so 0.14.10 is newer than 0.14.1. A prerelease
+# is older than the release it precedes, so it passes only for a higher version.
+if ! awk -v have="$installed" -v need="$minimum" -v pre="$prerelease" 'BEGIN {
     split(have, h, "."); split(need, n, ".")
     for (i = 1; i <= 3; i++) {
         if (h[i] + 0 > n[i] + 0) exit 0
         if (h[i] + 0 < n[i] + 0) exit 1
     }
+    exit (pre != "")
 }'; then
-    echo "This needs dr v$minimum or later, and this is v$installed. Run 'dr self update'." >&2
+    echo "This needs dr v$minimum or later, and this is v$version. Run 'dr self update'." >&2
     exit 1
 fi
