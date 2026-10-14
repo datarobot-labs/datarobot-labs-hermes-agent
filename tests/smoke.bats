@@ -180,11 +180,11 @@ smoke() {
 @test "the write probe targets a path uid 1000 owns, so only a read-only root refuses it" {
     smoke
     [ "$status" -eq 0 ]
-    grep -q '^docker exec [^ ]* touch /opt/data/.smoke$' "$STUB_LOG"
+    grep -q '^docker exec [^ ]* touch /opt/hermes-seed/.smoke$' "$STUB_LOG"
 
     STUB_TOUCH_ERROR='Permission denied' smoke
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAIL: could not probe the root filesystem: touch: cannot touch '/opt/data/.smoke': Permission denied"* ]]
+    [[ "$output" == *"FAIL: could not probe the root filesystem: touch: cannot touch '/opt/hermes-seed/.smoke': Permission denied"* ]]
 }
 
 @test "a log without the skill count fails" {

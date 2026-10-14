@@ -122,10 +122,11 @@ say "/health still answers 200 after ${grace}s"
 
 uid=$(docker exec "$container" id -u) || fail "could not read the container's uid"
 [ "$uid" = 1000 ] || fail "the container runs as uid $uid, not 1000"
-# /opt/data belongs to uid 1000 (see the Dockerfile), so only a read-only root
+# The seed belongs to uid 1000 (see the Dockerfile), so only a read-only root
 # can refuse this write. A permission error would prove nothing, so the error
-# itself has to say so.
-if probe=$(docker exec "$container" touch /opt/data/.smoke 2>&1); then
+# itself has to say so. Not /opt/data: the base image declares it a VOLUME, so
+# Docker mounts a writable volume there even with --read-only.
+if probe=$(docker exec "$container" touch /opt/hermes-seed/.smoke 2>&1); then
     fail "the root filesystem is writable"
 fi
 case "$probe" in
