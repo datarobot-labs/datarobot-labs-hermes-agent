@@ -14,11 +14,6 @@
 
 version: "3"
 
-env:
-  # dr up to v0.12 hides `dr workload` (or its config and up subcommands)
-  # behind this client-side flag. v0.13 dropped the gate and ignores it.
-  DATAROBOT_CLI_FEATURE_WORKLOAD: "true"
-
 vars:
   # The base image, pinned by digest. Keep it in step with the Dockerfile's
   # FROM and README.md: `task test` fails if the three differ.
@@ -47,8 +42,8 @@ tasks:
     desc: >-
       Deploy the workload, or roll out what changed since the last deploy,
       with `dr workload up`. Extra arguments go to it, e.g.
-      `dr run deploy -- --dry-run`, or `dr run deploy -- --promote`
-      (`--lock` on dr v0.12) to keep a draft from being stopped after 8 hours.
+      `dr run deploy -- --dry-run`, or `dr run deploy -- --promote` to keep a
+      draft from being stopped after 8 hours.
     aliases: [up]
     interactive: true
     preconditions:
@@ -88,7 +83,7 @@ tasks:
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
       - sh: dr workload config --help 2>/dev/null | grep -q -- '--sync-env'
-        msg: "This needs dr v0.12 or later. Run 'dr self update'."
+        msg: "This needs dr v0.14.1 or later. Run 'dr self update'."
     cmds:
       # First, so a DATAROBOT_ENDPOINT changed since `dr start` takes the
       # LLM_BASE_URL that start manages along with it.

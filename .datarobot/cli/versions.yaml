@@ -9,9 +9,12 @@
 # those tasks check for it themselves.
 dr:
   name: DataRobot CLI
-  # Matches the dr the Dockerfile pins into the image (DR_CLI_VERSION), and
-  # brings `dr workload config --sync-env`, which `dr run env` uses.
-  minimum-version: 0.12.0
+  # The release the deploy docs and tasks are written for. It has
+  # `dr workload config --sync-env`, which `dr run env` uses, `dr workload up
+  # --promote`, no feature gate on `dr workload`, and the `.drignore` name.
+  # From this release `dr workload up` also finishes a deploy that a timeout or
+  # Ctrl-C interrupted, instead of reporting "Already up to date".
+  minimum-version: 0.14.1
   command: dr self version
   url: https://github.com/datarobot-oss/cli
   install:

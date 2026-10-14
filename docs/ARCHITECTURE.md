@@ -35,11 +35,11 @@ That drops the build context from 375 MB / 15,277 files to ~50 KB / 492.
 
 The same exclusions appear twice, because two different mechanisms are at play:
 
-- **`.wapiignore`** decides what `dr workload up` uploads to the artifact. It is
-  the one that matters for the deploy — `dr` does not read `.dockerignore`, and
+- **`.drignore`** decides what `dr workload up` uploads to the artifact. It is
+  the one that matters for the deploy: `dr` does not read `.dockerignore`, and
   without this file the sync refuses to run at all (`plan exceeds
-  RollbackMaxFiles=1000`). Newer `dr` releases call this file `.drignore` and
-  warn that the old name is deprecated; `tests/static.bats` accepts either.
+  RollbackMaxFiles=1000`). `dr` reads the deprecated name `.wapiignore` only as
+  a fallback and warns about it on every deploy.
 - **`.dockerignore`** decides what the docker build sees, locally and
   server-side.
 
