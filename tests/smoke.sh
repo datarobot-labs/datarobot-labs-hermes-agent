@@ -167,11 +167,19 @@ skills=$(sed -n 's/.*skills in HERMES_HOME: \([0-9][0-9]*\).*/\1/p' "$logs" | ta
 [ "$skills" -gt 0 ] || fail "HERMES_HOME holds no skills after boot"
 # The seed's Labs skills keep the count above zero on their own, so it can't
 # show that the base image's bundled skills arrived. 50-skills.sh warns when
-# that sync fails or finds nothing to sync from.
+# that sync fails or finds nothing to sync from, and a sync that copies nothing
+# leaves no more skills than the seed holds. tests/static.bats keeps the Labs
+# skills from duplicating bundled ones, so the difference is what the base
+# image brought.
 if grep -qF -e 'skills_sync.py failed' -e 'bundled skills directory' "$logs"; then
     fail "the base image's bundled skills did not sync"
 fi
-say "$skills skills in HERMES_HOME"
+seeded=$(docker exec "$container" sh -c 'find /opt/hermes-seed/skills -name SKILL.md | wc -l') \
+    || fail "could not count the seed's skills"
+seeded=$(echo "$seeded" | tr -d ' ')
+[ "$skills" -gt "$seeded" ] \
+    || fail "no bundled skills reached HERMES_HOME ($skills skills, $seeded of them from the seed)"
+say "$skills skills in HERMES_HOME, $((skills - seeded)) of them bundled with the base image"
 
 # The secret scan above only covers the deployed OTel path if it ran:
 # docker/entrypoint.d/30-otel.sh renders the API token into hermes_otel.yaml

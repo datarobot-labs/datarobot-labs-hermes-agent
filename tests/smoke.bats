@@ -68,6 +68,8 @@ case "$1" in
                 [ "$n" -le $# ] || n=$#
                 eval "printf '%s' \"\${$n}\"" ;;
             id) echo "${STUB_UID:-1000}" ;;
+            # The seed's skill count; the default healthy log reports 3 in all.
+            sh) echo "${STUB_SEEDED:-2}" ;;
             touch)
                 # STUB_WRITABLE: the one path where writes succeed.
                 case "$2" in "${STUB_WRITABLE:-/none}"/*) exit 0 ;; esac
@@ -228,7 +230,14 @@ smoke() {
     sed -i 's/HERMES_HOME: 0/HERMES_HOME: 42/' "$WORK/container.log"
     smoke
     [ "$status" -eq 0 ]
-    [[ "$output" == *"42 skills in HERMES_HOME"* ]]
+    [[ "$output" == *"42 skills in HERMES_HOME, 40 of them bundled with the base image"* ]]
+}
+
+@test "a sync that copies nothing fails: HERMES_HOME holds only the seed's skills" {
+    STUB_SEEDED=3 smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: no bundled skills reached HERMES_HOME (3 skills, 3 of them from the seed)"* ]]
+    grep -q "^docker exec [^ ]* sh -c find /opt/hermes-seed/skills -name SKILL.md | wc -l$" "$STUB_LOG"
 }
 
 @test "a failed or skipped bundled skills sync fails, even with skills from the seed" {
