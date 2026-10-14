@@ -29,7 +29,13 @@ set -eu
 env_file=${1:-.env}
 marker='# Follows DATAROBOT_ENDPOINT (set by dr start). Delete this line to set your own.'
 
-endpoint=$(sed -nE 's/^DATAROBOT_ENDPOINT="?([^"]*)"?$/\1/p' "$env_file" | tail -n 1)
+endpoint=$(sed -n 's/^DATAROBOT_ENDPOINT=//p' "$env_file" | tail -n 1)
+# dotenv allows double, single or no quotes; dr writes double, other tools
+# (python-dotenv's set_key, for one) write single.
+case $endpoint in
+    \"*\") endpoint=${endpoint#\"} endpoint=${endpoint%\"} ;;
+    \'*\') endpoint=${endpoint#\'} endpoint=${endpoint%\'} ;;
+esac
 if [ -z "$endpoint" ]; then
     echo "$env_file has no DATAROBOT_ENDPOINT. Run 'dr start' again." >&2
     exit 1

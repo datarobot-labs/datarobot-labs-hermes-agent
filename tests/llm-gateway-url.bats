@@ -66,6 +66,15 @@ no_leftovers() {
     no_leftovers
 }
 
+@test "the endpoint may be double-quoted, single-quoted or bare" {
+    for form in '"https://one.example.com/api/v2"' "'https://one.example.com/api/v2'" 'https://one.example.com/api/v2'; do
+        printf 'DATAROBOT_ENDPOINT=%s\n' "$form" > "$ENV"
+        gateway
+        [ "$status" -eq 0 ]
+        grep -qx 'LLM_BASE_URL="https://one.example.com/api/v2/genai/llmgw"' "$ENV"
+    done
+}
+
 @test "a value without the marker was set by hand and stays" {
     printf 'LLM_BASE_URL="https://my-gateway.example.com/v1"\n' >> "$ENV"
     cp "$ENV" "$WORK/before"
