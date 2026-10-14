@@ -1,0 +1,69 @@
+# What `dr dotenv setup` asks for when it writes ./.env. `dr start` runs it
+# with --if-needed, so it only asks when a required value is missing.
+#
+# DATAROBOT_ENDPOINT and DATAROBOT_API_TOKEN are not listed: dr always writes
+# them itself, from the install you are logged in to with `dr auth login`.
+# The token stays local (dr itself and `docker compose` use it): the deployed
+# workload gets its own key instead, see scripts/workload-config.sh.
+#
+# Everything else in .env becomes a workload environment variable when
+# `dr workload config` writes .datarobot.yaml, so only runtime settings
+# belong here.
+#
+# LLM_MODEL is deliberately not asked for. dr's secret detector reads a value
+# like "anthropic/claude-opus-4-8" as a random token, and
+# `dr workload config --yes` would then store the model name as a credential.
+# The Dockerfile's default applies instead; README.md "Changing settings"
+# covers overriding it.
+slack:
+  - key: enable_slack
+    # Optional because dr stores a `key:` answer as a comment, which
+    # `dr dotenv setup --if-needed` does not read back: a required one would
+    # reopen the wizard on every `dr start`.
+    optional: true
+    help: >-
+      Connect the agent to Slack? You need a Slack app made from
+      config/slack-manifest.json first (README.md, "Connecting Slack").
+      Choose "No" to use only the web UI; you can turn Slack on later.
+    default: "no"
+    options:
+      - name: "No, web UI only"
+        value: "no"
+      - name: "Yes, I have the bot and app tokens"
+        value: "yes"
+        requires: slack_tokens
+
+slack_tokens:
+  - env: SLACK_BOT_TOKEN
+    type: secret_string
+    help: "Bot User OAuth Token (xoxb-...), from the Slack app's OAuth & Permissions page."
+  - env: SLACK_APP_TOKEN
+    type: secret_string
+    help: "App-level token (xapp-...) with the connections:write scope, from Basic Information."
+  - env: SLACK_HOME_CHANNEL
+    optional: true
+    help: "Channel id for notifications (optional; you can set it later with /sethome)."
+  # No default on purpose: dr activates the section a default option requires
+  # even while this prompt's own section is off, which would make
+  # SLACK_ALLOWED_USERS required for people who never turned Slack on.
+  - key: slack_access
+    optional: true
+    help: >-
+      Who may talk to the bot? An empty allowlist blocks everyone; allowing
+      everyone is convenient, but this agent has terminal access.
+    options:
+      - name: "Only the Slack user ids I list"
+        value: allowlist
+        requires: slack_allowlist
+      - name: "Everyone in the workspace"
+        value: everyone
+        requires: slack_everyone
+
+slack_allowlist:
+  - env: SLACK_ALLOWED_USERS
+    help: "Comma-separated Slack user ids, e.g. U0123ABC,U0456DEF."
+
+slack_everyone:
+  - env: GATEWAY_ALLOW_ALL_USERS
+    default: "true"
+    help: "Lets every member of the workspace use the bot."

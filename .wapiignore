@@ -45,11 +45,23 @@ config/config.yaml.bak.*
 .datarobot/
 .claude/
 
-# Tests and CI run on the developer machine and in GitHub, not in the image.
-# (.dockerignore already leaves them out of the build context.)
-tests/
-.github/
+# Documentation for people, not the image.
+/docs/
+
+# Tests, CI and dev scripts run on the developer machine and in GitHub, not in
+# the image. (.dockerignore already leaves them out of the build context.)
+# Anchored with a leading /: unanchored, `scripts/` or `tests/` would also
+# match the directories of that name inside skills under config/skills/,
+# which the image build needs.
+/tests/
+/scripts/
+/.github/
 .hadolint.yaml
 .licenserc.yaml
 
 __pycache__/
+
+# scripts/install-skill.sh stages the new skills tree here; gone once it ends.
+config/.skills.new/
+config/.skills.old/
+config/.skills.lock/

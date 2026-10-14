@@ -50,3 +50,12 @@ config/config.yaml.bak.*
 __pycache__/
 
 .datarobot.yaml*
+
+# `dr start`'s per-machine bookkeeping (when the last checks passed). The rest
+# of .datarobot/cli/ is the committed project setup.
+.datarobot/cli/state.yaml
+
+# scripts/install-skill.sh stages the new skills tree here; gone once it ends.
+config/.skills.new/
+config/.skills.old/
+config/.skills.lock/

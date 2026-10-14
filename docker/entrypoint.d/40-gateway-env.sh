@@ -26,13 +26,44 @@ if [ -z "${API_SERVER_KEY:-}" ]; then
     export API_SERVER_KEY
 fi
 
+# Unless set explicitly, LLM_BASE_URL is the LLM gateway of the install
+# DATAROBOT_ENDPOINT names, the same derivation 30-otel.sh does for the OTel
+# endpoint. A local run whose .env changes only DATAROBOT_ENDPOINT thus talks
+# to that install's gateway rather than app's.
+if [ -z "${LLM_BASE_URL:-}" ] && [ -n "${DATAROBOT_ENDPOINT:-}" ]; then
+    LLM_BASE_URL="$(printf '%s' "$DATAROBOT_ENDPOINT" | sed 's#/*$##')/genai/llmgw"
+fi
+export LLM_BASE_URL="${LLM_BASE_URL:-}"
+
 # Default LLM_API_KEY to the platform-injected DATAROBOT_API_TOKEN (`source:
 # api-key` in .datarobot.yaml) rather than requiring a separately managed
 # dr-credential: LLM_BASE_URL's default is the DataRobot LLM gateway itself,
 # which accepts a normal DataRobot API token, and this one is rotated by the
 # platform instead of going stale in a credential nobody remembers to renew.
-: "${LLM_API_KEY:=${DATAROBOT_API_TOKEN:-}}"
-export LLM_API_KEY
+#
+# Only for a gateway on the DataRobot install's own origin, though: the token
+# is a DataRobot credential, and an LLM_BASE_URL anywhere else would receive
+# it as a bearer token on every call. Another gateway needs its own key.
+#
+# url_origin URL prints scheme://host:port, lowercased, with the scheme's
+# default port filled in and any user@ dropped, so https://h and
+# https://h:443 compare equal. The host may be a name, an IPv4 address or a
+# bracketed IPv6 literal. Prints nothing for a URL it can't read.
+url_origin() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]' |
+        sed -nE 's#^(https?)://([^/?#@]*@)?(\[[0-9a-f:.]+\]|[^][/?#:@]+)(:([0-9]+))?([/?#].*)?$#\1 \3 \5#p' |
+        awk 'NF >= 2 { port = ($3 != "") ? $3 : ($1 == "https" ? 443 : 80); print $1 "://" $2 ":" (port + 0) }'
+}
+if [ -z "${LLM_API_KEY:-}" ]; then
+    dr_origin=$(url_origin "${DATAROBOT_ENDPOINT:-}")
+    llm_origin=$(url_origin "${LLM_BASE_URL:-}")
+    if [ -n "$dr_origin" ] && [ "$dr_origin" = "$llm_origin" ]; then
+        LLM_API_KEY=${DATAROBOT_API_TOKEN:-}
+    elif [ -n "${LLM_BASE_URL:-}" ]; then
+        echo "[entrypoint] LLM_BASE_URL is not on DATAROBOT_ENDPOINT's host, so DATAROBOT_API_TOKEN is not sent to it; set LLM_API_KEY for that gateway" >&2
+    fi
+fi
+export LLM_API_KEY="${LLM_API_KEY:-}"
 
 # Some Hermes provider names (e.g. "NVIDIA") are also recognized as
 # built-in providers with their own credential lookup by convention --

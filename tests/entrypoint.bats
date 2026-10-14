@@ -255,10 +255,71 @@ assert_absent() {
 }
 
 @test "LLM_API_KEY defaults to DATAROBOT_API_TOKEN and is aliased to the provider key" {
-    run boot DATAROBOT_API_TOKEN=drtok LLM_PROVIDER=NVIDIA
+    run boot DATAROBOT_API_TOKEN=drtok LLM_PROVIDER=NVIDIA \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://DR.example.com/api/v2/genai/llmgw
     [ "$status" -eq 0 ]
     grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
     grep -q '^NVIDIA_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "without LLM_BASE_URL, the gateway follows DATAROBOT_ENDPOINT and gets the token" {
+    run boot DATAROBOT_API_TOKEN=drtok \
+        DATAROBOT_ENDPOINT=https://staging.example.com/api/v2/
+    [ "$status" -eq 0 ]
+    grep -q '^hermes config set custom_providers.0.base_url https://staging.example.com/api/v2/genai/llmgw$' "$WORK/calls.log"
+    grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "DATAROBOT_API_TOKEN is never sent to a gateway on another host" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://llm.example.org/v1
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
+    grep -q 'set LLM_API_KEY for that gateway' "$WORK/err"
+    # No self-test either: it would carry the key as a bearer token.
+    assert_absent 'LLM gateway self-test' "$WORK/err"
+}
+
+@test "an explicit default port is the same origin, so the token still applies" {
+    run boot DATAROBOT_API_TOKEN=drtok \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://dr.example.com:443/api/v2/genai/llmgw
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "an IPv6 install's own gateway gets the token, with or without the default port" {
+    run boot DATAROBOT_API_TOKEN=drtok \
+        DATAROBOT_ENDPOINT='https://[2001:db8::1]/api/v2' \
+        LLM_BASE_URL='https://[2001:DB8::1]:443/api/v2/genai/llmgw'
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=drtok$' "$WORK/gateway.env"
+}
+
+@test "a different IPv6 host gets no token" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT='https://[2001:db8::1]/api/v2' \
+        LLM_BASE_URL='https://[2001:db8::2]/v1'
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
+}
+
+@test "a user@ prefix naming the install's host doesn't fool the origin check" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://dr.example.com@evil.test/v1
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
+}
+
+@test "a lookalike host that merely starts with the install's host gets no token" {
+    run boot DATAROBOT_API_TOKEN=CANARYDRTOKEN \
+        DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 \
+        LLM_BASE_URL=https://dr.example.com.evil.test/v1
+    [ "$status" -eq 0 ]
+    grep -q '^LLM_API_KEY=$' "$WORK/gateway.env"
 }
 
 @test "an explicit LLM_API_KEY is not replaced" {
