@@ -63,6 +63,27 @@ On an install other than `app.datarobot.com`, also see
 Each deployment needs its own name: to deploy a second copy, run
 `WORKLOAD_NAME=hermes-<something> dr start` in a fresh clone.
 
+## Deploying from CI
+
+A clone can roll out its deployment on every push to `main`. The workflow [`deploy.yml`](.github/workflows/deploy.yml) runs the [`workload-deploy-github`](https://github.com/datarobot-oss/workload-deploy-github) action, which runs `dr workload up` for the workload that `.datarobot.yaml` names. The workflow is off until you turn it on.
+
+CI never creates a workload. The first deploy runs on your machine, and the manifest it writes holds the workload ID that CI rolls from then on.
+
+1. Deploy once with `dr start` and `dr run deploy -- --promote`.
+2. Commit the manifest to a private repository, because it holds your credential IDs and Slack channel. Git ignores the file by default, so force-add it:
+
+   ```sh
+   git add -f .datarobot.yaml
+   git commit -m "Add the deploy manifest"
+   ```
+
+3. In the repository settings, add the secrets `DATAROBOT_ENDPOINT` and `DATAROBOT_API_TOKEN`, and the variable `DEPLOY_TO_DATAROBOT` with the value `true`. The endpoint is the URL of your install, for example `https://app.datarobot.com`. Use an API key of the account that ran `dr start`.
+4. Push to `main`. The deploy job rolls the workload and prints its endpoint in the job summary.
+
+The `.env` file stays on your machine. To change a setting, run `dr run env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment in the repository settings.
+
+GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it. A run that fails with `No workloadId found` means the committed manifest has no workload ID: run the first deploy and commit the manifest again.
+
 ## Connecting Slack
 
 Slack is optional; without it the agent is still reachable through the web UI.

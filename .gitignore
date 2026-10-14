@@ -49,11 +49,18 @@ config/config.yaml.bak.*
 
 __pycache__/
 
+# The deploy manifest holds the credential and Slack IDs of whoever ran
+# `dr start`, so it stays out of this public repo. A clone that deploys from CI
+# commits its own with `git add -f .datarobot.yaml`, and git then tracks it.
 .datarobot.yaml*
 
 # `dr start`'s per-machine bookkeeping (when the last checks passed). The rest
 # of .datarobot/cli/ is the committed project setup.
 .datarobot/cli/state.yaml
+
+# `dr workload up`'s record of the last upload. It belongs to one machine, and a
+# CI run starts without it.
+.datarobot/workload/
 
 # scripts/install-skill.sh stages the new skills tree here; gone once it ends.
 config/.skills.new/

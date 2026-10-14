@@ -296,3 +296,16 @@ PY
     # gitleaks exits 0 after zero commits when git cannot read the repository.
     echo "$output" | grep -Eq '(^|[^0-9])[1-9][0-9]* commits scanned'
 }
+
+@test "git ignores the deploy manifest and the upload record, and tracks dr start's setup" {
+    scratch=$(mktemp -d)
+    git -C "$scratch" init -q
+    cp /repo/.gitignore "$scratch/.gitignore"
+
+    run git -C "$scratch" check-ignore --no-index .datarobot.yaml .datarobot/workload/manifest.json
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+
+    run git -C "$scratch" check-ignore --no-index .datarobot/cli/prompts.yaml .datarobot/cli/versions.yaml
+    [ "$status" -eq 1 ]
+}
