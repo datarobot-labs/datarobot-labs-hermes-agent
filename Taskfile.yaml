@@ -42,6 +42,7 @@ tasks:
       - task: _llm-gateway-url
       - task: _manifest
       - echo "Ready. Deploy with 'dr run deploy'."
+      - echo "To deploy from CI, commit the manifest with 'git add -f .datarobot.yaml' in a private repo. See README.md, 'Deploying from CI'."
 
   deploy:
     desc: >-

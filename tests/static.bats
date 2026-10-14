@@ -309,3 +309,13 @@ PY
     run git -C "$scratch" check-ignore --no-index .datarobot/cli/prompts.yaml .datarobot/cli/versions.yaml
     [ "$status" -eq 1 ]
 }
+
+@test "the deploy job runs only from main, so a dispatch from a branch cannot deploy" {
+    run grep -F "github.ref == 'refs/heads/main'" /repo/.github/workflows/deploy.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the deploy job runs in the datarobot environment, which holds the credentials" {
+    run grep -E "^    environment: datarobot\$" /repo/.github/workflows/deploy.yml
+    [ "$status" -eq 0 ]
+}

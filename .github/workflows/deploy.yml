@@ -14,7 +14,9 @@
 
 # Rolls the workload that the committed .datarobot.yaml names. Off until a
 # clone sets the repository variable DEPLOY_TO_DATAROBOT to true, so this repo
-# and every fresh clone skip it. README.md, "Deploying from CI", has the setup.
+# and every fresh clone skip it. It runs only from main, so a manual run from
+# another branch cannot deploy that branch. README.md, "Deploying from CI",
+# has the setup.
 name: deploy
 
 on:
@@ -32,7 +34,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ vars.DEPLOY_TO_DATAROBOT == 'true' }}
+    if: ${{ vars.DEPLOY_TO_DATAROBOT == 'true' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: datarobot
