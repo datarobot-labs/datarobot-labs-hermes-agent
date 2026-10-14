@@ -577,6 +577,7 @@ docker run -it --rm -v ./config:/opt/data --env-file .env \
 ```sh
 task test                       # or tests/run.sh; needs only Docker
 task test -- --filter dr-sync   # extra arguments go to bats
+task test:image                 # or tests/smoke.sh; builds and boots the real image
 ```
 
 The suite runs in a tools image pinned by digest (`tests/Dockerfile`) as uid 1000 on a read-only root, like the workload. CI runs the same command on every pull request (`.github/workflows/test.yml`).
@@ -584,6 +585,9 @@ The suite runs in a tools image pinned by digest (`tests/Dockerfile`) as uid 100
 - `tests/static.bats`: shellcheck, hadolint, YAML and JSON validity, the base image pinned by digest in the Dockerfile, Taskfile and README, the `dr workload up` upload set (under 1,000 files, no secret files), and a gitleaks scan.
 - `tests/entrypoint.bats`: runs `docker/entrypoint.sh` with stub `hermes`, `dr-sync`, `curl`, `nginx`, `python` and `sqlite3` (`tests/fixtures/opt/stubs`), and checks the boot sequence, that no secret value is ever logged, and `nginx -t`.
 - `tests/nginx.bats`: runs `docker/nginx.conf` in front of two stand-in upstreams and checks which one answers `/health`, `/v1`, `/api/jobs` and everything else. The platform's readiness probe hits `/health`, so it must reach the gateway and never the web UI.
+- `tests/smoke.bats`: the checks in `tests/smoke.sh`, against a stub `docker`.
+
+`task test:image` builds the image (about 4 GB, slow the first time) and boots it with no network, as uid 1000 on a read-only root, with dummy Slack, GitHub and DataRobot values that include a canary private key, and a `WORKLOAD_ID` so OTel export takes the deployed path. It passes when `/health` answers 200 and keeps answering after the Slack connection has failed, the skills step has put skills in `HERMES_HOME`, and no secret value appears in the log. `SMOKE_IMAGE=<tag>` tests an image you already built. CI runs it on pull requests that touch the image, and weekly (`.github/workflows/image.yml`).
 
 When you change the entrypoint, add a test for the new behavior to `tests/entrypoint.bats`. When you bump the base image digest, change it in the Dockerfile, the Taskfile and the README together: the suite fails if they differ.
 

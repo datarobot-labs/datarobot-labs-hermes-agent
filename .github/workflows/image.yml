@@ -1,0 +1,71 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Builds the workload image and boots it as DataRobot runs it (tests/smoke.sh).
+# Runs when a change can affect the image, and weekly: the base is pinned by
+# digest, but the build still downloads the web UI, plugins and npm tools.
+name: image
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - docker/**
+      - config/**
+      - vendor/**
+      - tests/smoke.sh
+      - Taskfile.yaml
+      - .github/workflows/image.yml
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - docker/**
+      - config/**
+      - vendor/**
+      - tests/smoke.sh
+      - Taskfile.yaml
+      - .github/workflows/image.yml
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: arduino/setup-task@c0bc642852239c2689f73f4ea6459c29405f3c52 # v3.0.0
+        with:
+          version: 3.54.0
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # The image is about 4 GB and its build layers need as much again. Drop
+      # preinstalled SDKs this job never uses.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - run: task test:image

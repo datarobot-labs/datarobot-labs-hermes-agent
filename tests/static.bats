@@ -42,6 +42,8 @@ setup_file() {
     [ "$status" -eq 0 ]
     run shellcheck -s sh -S warning /repo/tests/fixtures/opt/stubs/*
     [ "$status" -eq 0 ]
+    run shellcheck -s sh -S warning /repo/tests/smoke.sh
+    [ "$status" -eq 0 ]
 }
 
 @test "Dockerfiles pass hadolint" {
@@ -83,6 +85,19 @@ setup_file() {
     [ "$status" -eq 0 ]
     unpinned=$(grep -hE '^\s+(- )?uses: [^./][^ ]+@' /repo/.github/workflows/*.y*ml | grep -vE '@[0-9a-f]{40}( |$)' || true)
     [ -z "$unpinned" ]
+}
+
+@test "the image workflow builds every change that reaches the image" {
+    run python3 - /repo/.github/workflows/image.yml <<'PY'
+import sys, yaml
+workflow = yaml.safe_load(open(sys.argv[1]))
+on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+for event in ("pull_request", "push"):
+    missing = {"Dockerfile", ".dockerignore", "docker/**", "config/**", "vendor/**", "Taskfile.yaml"} - set(on[event]["paths"])
+    assert not missing, f"{event} does not trigger on {sorted(missing)}"
+assert "schedule" in on, "no scheduled build"
+PY
+    [ "$status" -eq 0 ]
 }
 
 @test "the base image is pinned by digest" {
