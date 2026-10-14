@@ -52,7 +52,10 @@ case "$1" in
                 [ "$n" -le $# ] || n=$#
                 eval "printf '%s' \"\${$n}\"" ;;
             id) echo "${STUB_UID:-1000}" ;;
-            touch) exit "${STUB_TOUCH_STATUS:-1}" ;;
+            touch)
+                [ "${STUB_TOUCH_STATUS:-1}" -ne 0 ] || exit 0
+                echo "touch: cannot touch '$2': ${STUB_TOUCH_ERROR:-Read-only file system}" >&2
+                exit 1 ;;
         esac ;;
     logs) cat "$STUB_DIR/container.log" ;;
 esac
@@ -155,6 +158,16 @@ smoke() {
     STUB_TOUCH_STATUS=0 smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the root filesystem is writable"* ]]
+}
+
+@test "the write probe targets a path uid 1000 owns, so only a read-only root refuses it" {
+    smoke
+    [ "$status" -eq 0 ]
+    grep -q '^docker exec [^ ]* touch /opt/data/.smoke$' "$STUB_LOG"
+
+    STUB_TOUCH_ERROR='Permission denied' smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: could not probe the root filesystem: touch: cannot touch '/opt/data/.smoke': Permission denied"* ]]
 }
 
 @test "a log without the skill count fails" {
