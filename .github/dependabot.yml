@@ -19,6 +19,11 @@ updates:
     directory: "/config"
     schedule:
       interval: "weekly"
+    # The base image's uv refuses releases younger than 14 days, so an earlier
+    # bump cannot build. See the comment at the top of config/requirements.txt.
+    # Security updates ignore the cooldown and may need to wait out the hold.
+    cooldown:
+      default-days: 14
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
