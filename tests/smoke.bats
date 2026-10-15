@@ -335,6 +335,15 @@ smoke() {
     [[ "$output" == *"::endgroup::"* ]]
 }
 
+@test "the token that turns workflow commands back on is random, new on every run" {
+    SMOKE_SHOW_LOG=1 GITHUB_ACTIONS=true smoke
+    first=$(sed -n 's/^::stop-commands::\(.*\)$/\1/p' <<< "$output")
+    SMOKE_SHOW_LOG=1 GITHUB_ACTIONS=true smoke
+    second=$(sed -n 's/^::stop-commands::\(.*\)$/\1/p' <<< "$output")
+    [[ "$first" =~ ^smoke-log-[0-9a-f]{32}$ ]]
+    [ "$first" != "$second" ]
+}
+
 @test "a failure prints the container log and still removes the container" {
     echo 'gateway: boom' >> "$WORK/container.log"
     STUB_UID=0 smoke

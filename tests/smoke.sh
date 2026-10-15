@@ -224,7 +224,9 @@ say "OTel export enabled and the hermes-otel plugin loaded, as on a deployed wor
 # a container line starting with "::" must not act as one.
 if [ "${SMOKE_SHOW_LOG:-}" = 1 ]; then
     if [ "${GITHUB_ACTIONS:-}" = true ]; then
-        resume="smoke-log-$$-$(date +%s)"
+        # Random, as GitHub requires: output that could guess it could turn
+        # the commands back on.
+        resume="smoke-log-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
         echo "::group::Container log"
         echo "::stop-commands::$resume"
         cat "$logs"
