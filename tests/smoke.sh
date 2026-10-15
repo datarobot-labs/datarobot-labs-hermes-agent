@@ -169,7 +169,12 @@ seeded=$(echo "$seeded" | tr -d ' ')
 # Stop it the way the platform does, SIGTERM and a kill 30s later, so the log
 # checked below covers shutdown and anything logged late, not only the boot.
 docker stop --time 30 "$container" > /dev/null || fail "the container did not stop"
-say "stopped the container"
+# 137 is the kill after 30s: SIGTERM never ended it, so on the platform the
+# entrypoint's shutdown, the final dr-sync upload included, would not run.
+code=$(docker inspect --format '{{.State.ExitCode}}' "$container") \
+    || fail "could not read the container's exit code"
+[ "$code" != 137 ] || fail "the container ignored SIGTERM and was killed after 30s (exit 137)"
+say "the container stopped on SIGTERM (exit $code)"
 
 docker logs "$container" > "$logs" 2>&1 || fail "could not read the container log"
 for canary in $canaries; do

@@ -54,6 +54,8 @@ case "$1" in
         done
         exit "${STUB_RUN_STATUS:-0}" ;;
     inspect)
+        # STUB_EXIT_CODE: the exit code once stopped (137 is a kill after the timeout).
+        case "$3" in *ExitCode*) echo "${STUB_EXIT_CODE:-0}"; exit 0 ;; esac
         count inspects
         if [ -n "${STUB_EXIT_AFTER:-}" ] && [ "$n" -gt "$STUB_EXIT_AFTER" ]; then
             echo false
@@ -169,6 +171,19 @@ smoke() {
     STUB_STOP_LINE='shutdown: xoxb-CANARYSLACKBOT' smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the container log shows the value of a secret (canary CANARYSLACKBOT)"* ]]
+}
+
+@test "a container that SIGTERM doesn't stop, killed after the timeout, fails" {
+    smoke
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"the container stopped on SIGTERM (exit 0)"* ]]
+
+    STUB_EXIT_CODE=143 smoke
+    [ "$status" -eq 0 ]
+
+    STUB_EXIT_CODE=137 smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the container ignored SIGTERM and was killed after 30s (exit 137)"* ]]
 }
 
 @test "the private key's header in the log fails" {
