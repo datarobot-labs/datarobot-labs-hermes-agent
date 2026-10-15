@@ -230,7 +230,9 @@ if [ "${SMOKE_SHOW_LOG:-}" = 1 ]; then
         echo "::group::Container log"
         echo "::stop-commands::$resume"
         cat "$logs"
-        echo "::$resume::"
+        # Its own line even when the log's last line has no newline, or the
+        # commands would stay off.
+        printf '\n::%s::\n' "$resume"
         echo "::endgroup::"
     else
         say "container log:"

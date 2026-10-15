@@ -335,6 +335,15 @@ smoke() {
     [[ "$output" == *"::endgroup::"* ]]
 }
 
+@test "workflow commands come back on even when the log's last line has no newline" {
+    printf 'cut off mid-line' >> "$WORK/container.log"
+    SMOKE_SHOW_LOG=1 GITHUB_ACTIONS=true smoke
+    [ "$status" -eq 0 ]
+    resume=$(sed -n 's/^::stop-commands::\(.*\)$/\1/p' <<< "$output")
+    grep -qx "::$resume::" <<< "$output"
+    grep -qx 'cut off mid-line' <<< "$output"
+}
+
 @test "the token that turns workflow commands back on is random, new on every run" {
     SMOKE_SHOW_LOG=1 GITHUB_ACTIONS=true smoke
     first=$(sed -n 's/^::stop-commands::\(.*\)$/\1/p' <<< "$output")
