@@ -311,6 +311,13 @@ smoke() {
     [[ "$output" == *"FAIL: the hermes-otel plugin never registered its hooks"* ]]
 }
 
+@test "a hermes-otel plugin that registered zero hooks fails" {
+    sed -i 's/Registered 13 hooks/Registered 0 hooks/' "$WORK/container.log"
+    smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the hermes-otel plugin never registered its hooks"* ]]
+}
+
 @test "a healthy boot's log is shown only with SMOKE_SHOW_LOG=1" {
     echo '[entrypoint] a healthy boot line' >> "$WORK/container.log"
     smoke

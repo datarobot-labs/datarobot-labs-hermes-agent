@@ -214,7 +214,7 @@ grep -q 'hermes-otel export enabled' "$logs" \
 # That line is the entrypoint rendering the config. The plugin loading it is
 # its own line once its hooks are in (in a real run: "[hermes-otel] Registered
 # 13 hooks"); without it, export was configured but never ran.
-grep -qE '\[hermes-otel\] Registered [0-9]+ hooks' "$logs" \
+grep -qE '\[hermes-otel\] Registered [1-9][0-9]* hooks' "$logs" \
     || fail "the hermes-otel plugin never registered its hooks"
 say "OTel export enabled and the hermes-otel plugin loaded, as on a deployed workload"
 
