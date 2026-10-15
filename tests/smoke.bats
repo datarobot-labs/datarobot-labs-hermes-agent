@@ -253,6 +253,30 @@ smoke() {
     [[ "$output" == *"FAIL: the base image's bundled skills did not sync"* ]]
 }
 
+@test "a healthy boot's log is shown only with SMOKE_SHOW_LOG=1" {
+    echo '[entrypoint] a healthy boot line' >> "$WORK/container.log"
+    smoke
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"a healthy boot line"* ]]
+
+    SMOKE_SHOW_LOG=1 smoke
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"container log:"* ]]
+    [[ "$output" == *"a healthy boot line"* ]]
+}
+
+@test "on GitHub Actions the log is grouped, with workflow commands off around it" {
+    echo '::error::not a real error' >> "$WORK/container.log"
+    SMOKE_SHOW_LOG=1 GITHUB_ACTIONS=true smoke
+    [ "$status" -eq 0 ]
+    # The container's "::" line sits between stop-commands and its resume token.
+    resume=$(sed -n 's/^::stop-commands::\(.*\)$/\1/p' <<< "$output")
+    [ -n "$resume" ]
+    sed -n "/^::stop-commands::$resume\$/,/^::$resume::\$/p" <<< "$output" | grep -qx '::error::not a real error'
+    [[ "$output" == *"::group::Container log"* ]]
+    [[ "$output" == *"::endgroup::"* ]]
+}
+
 @test "a failure prints the container log and still removes the container" {
     echo 'gateway: boom' > "$WORK/container.log"
     STUB_UID=0 smoke

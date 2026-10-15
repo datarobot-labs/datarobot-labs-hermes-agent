@@ -188,4 +188,22 @@ grep -q 'hermes-otel export enabled' "$logs" \
     || fail "OTel export was not enabled, as it is on a deployed workload"
 say "OTel export enabled, as on a deployed workload"
 
+# The whole log of a healthy boot, to read what Hermes reports (CI sets
+# SMOKE_SHOW_LOG). The secrets in this run are canaries, so it is safe to show.
+# On GitHub Actions it goes in a collapsed group, with workflow commands off:
+# a container line starting with "::" must not act as one.
+if [ "${SMOKE_SHOW_LOG:-}" = 1 ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+        resume="smoke-log-$$-$(date +%s)"
+        echo "::group::Container log"
+        echo "::stop-commands::$resume"
+        cat "$logs"
+        echo "::$resume::"
+        echo "::endgroup::"
+    else
+        say "container log:"
+        cat "$logs" >&2
+    fi
+fi
+
 say "ok"
