@@ -21,9 +21,10 @@ setup() {
     WORK=$(mktemp -d)
     mkdir "$WORK/bin"
     # A healthy boot's log: the skills step reports what HERMES_HOME holds,
-    # and OTel export is on, as on a deployed workload.
+    # OTel export is on, as on a deployed workload, and Slack fails to connect.
     printf '%s\n' '[entrypoint] skills in HERMES_HOME: 3' \
-        '[entrypoint] hermes-otel export enabled: entity=workload-smoke endpoint=x' > "$WORK/container.log"
+        '[entrypoint] hermes-otel export enabled: entity=workload-smoke endpoint=x' \
+        'WARNING gateway.run: ✗ slack failed to connect' > "$WORK/container.log"
     export STUB_DIR="$WORK" STUB_LOG="$WORK/docker.calls"
     # STUB_HEALTH: the /health status of each probe in turn; the last repeats.
     # STUB_EXIT_AFTER: the container stops after this many `inspect` calls.
@@ -89,7 +90,7 @@ teardown() {
 
 smoke() {
     run env PATH="$WORK/bin:$PATH" SMOKE_IMAGE="${SMOKE_IMAGE-labs-hermes:test}" \
-        SMOKE_GRACE=0 SMOKE_POLL=0 sh /repo/tests/smoke.sh
+        SMOKE_GRACE=0 SMOKE_POLL=0 SMOKE_SLACK_TIMEOUT="${SMOKE_SLACK_TIMEOUT-3}" sh /repo/tests/smoke.sh
 }
 
 @test "a container that answers /health passes, run as uid 1000 on a read-only root without a network" {
@@ -147,7 +148,7 @@ smoke() {
 }
 
 @test "a canary token in the log fails" {
-    echo 'slack: auth failed for xoxb-CANARYSLACKBOT' > "$WORK/container.log"
+    echo 'slack: auth failed for xoxb-CANARYSLACKBOT' >> "$WORK/container.log"
     smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the container log shows the value of a secret (canary CANARYSLACKBOT)"* ]]
@@ -155,7 +156,7 @@ smoke() {
 
 @test "the private key's header in the log fails" {
     edge='-----'
-    echo "${edge}BEGIN RSA PRIVATE KEY${edge}" > "$WORK/container.log"
+    echo "${edge}BEGIN RSA PRIVATE KEY${edge}" >> "$WORK/container.log"
     smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the container log shows the private key"* ]]
@@ -176,13 +177,31 @@ smoke() {
 @test "a container that exits after becoming healthy fails" {
     STUB_EXIT_AFTER=1 smoke
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAIL: the container exited within 0s of becoming healthy"* ]]
+    [[ "$output" == *"FAIL: the container exited within 0s of Slack failing"* ]]
 }
 
 @test "/health that stops answering after the grace period fails" {
     STUB_HEALTH="200 503" smoke
     [ "$status" -eq 1 ]
-    [[ "$output" == *"FAIL: /health answered 503 0s after becoming healthy"* ]]
+    [[ "$output" == *"FAIL: /health answered 503 0s after Slack failed"* ]]
+}
+
+@test "the grace period starts only once Slack has reported its connection failure" {
+    smoke
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Slack failed to connect, as it must without a network"* ]]
+
+    sed -i '/slack failed to connect/d' "$WORK/container.log"
+    SMOKE_SLACK_TIMEOUT=1 smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: Slack did not report its connection failure within 1s of /health answering"* ]]
+}
+
+@test "a container that exits while Slack is still connecting fails" {
+    sed -i '/slack failed to connect/d' "$WORK/container.log"
+    STUB_EXIT_AFTER=1 smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the container exited before Slack reported its connection failure"* ]]
 }
 
 @test "a container running as another uid fails" {
@@ -215,7 +234,7 @@ smoke() {
 }
 
 @test "a log without the skill count fails" {
-    echo '[entrypoint] boot' > "$WORK/container.log"
+    sed -i '/skills in HERMES_HOME/d' "$WORK/container.log"
     smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the entrypoint did not log a skill count"* ]]
@@ -278,7 +297,7 @@ smoke() {
 }
 
 @test "a failure prints the container log and still removes the container" {
-    echo 'gateway: boom' > "$WORK/container.log"
+    echo 'gateway: boom' >> "$WORK/container.log"
     STUB_UID=0 smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"gateway: boom"* ]]

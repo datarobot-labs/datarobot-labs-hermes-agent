@@ -23,12 +23,14 @@
 # after the Slack adapter has failed, and the logs never show a canary value.
 #
 #   SMOKE_IMAGE    test this image instead of building labs-hermes:smoke
-#   SMOKE_TIMEOUT  seconds to wait for /health (default 240)
-#   SMOKE_GRACE    seconds /health must stay up after it first answers (default 20)
+#   SMOKE_TIMEOUT        seconds to wait for /health (default 240)
+#   SMOKE_SLACK_TIMEOUT  seconds to wait, after that, for Slack to fail (default 120)
+#   SMOKE_GRACE          seconds /health must stay up after Slack failed (default 20)
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 timeout=${SMOKE_TIMEOUT:-240}
+slack_timeout=${SMOKE_SLACK_TIMEOUT:-120}
 grace=${SMOKE_GRACE:-20}
 poll=${SMOKE_POLL:-2}
 container=labs-hermes-smoke-$$
@@ -122,13 +124,23 @@ while :; do
 done
 say "/health answered 200 after $(($(date +%s) - start))s"
 
-# By now the Slack adapter has tried to connect and failed. The gateway has to
-# keep serving: its exit is the container's exit.
+# With dummy tokens and no network, Slack's connection fails. Wait until the
+# gateway says so (in a real run: "gateway.run: ✗ slack failed to connect"),
+# rather than for a fixed time that a slower adapter could outlast. Then the
+# gateway has to keep serving: its exit is the container's exit.
+slack_start=$(date +%s)
+until docker logs "$container" 2>&1 | grep -qF 'slack failed to connect'; do
+    running || fail "the container exited before Slack reported its connection failure"
+    [ $(($(date +%s) - slack_start)) -lt "$slack_timeout" ] \
+        || fail "Slack did not report its connection failure within ${slack_timeout}s of /health answering"
+    sleep "$poll"
+done
+say "Slack failed to connect, as it must without a network"
 sleep "$grace"
-running || fail "the container exited within ${grace}s of becoming healthy"
+running || fail "the container exited within ${grace}s of Slack failing"
 status=$(health)
-[ "$status" = 200 ] || fail "/health answered $status ${grace}s after becoming healthy"
-say "/health still answers 200 after ${grace}s"
+[ "$status" = 200 ] || fail "/health answered $status ${grace}s after Slack failed"
+say "/health still answers 200 ${grace}s after Slack failed"
 
 uid=$(docker exec "$container" id -u) || fail "could not read the container's uid"
 [ "$uid" = 1000 ] || fail "the container runs as uid $uid, not 1000"
