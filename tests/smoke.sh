@@ -198,7 +198,12 @@ say "$skills skills in HERMES_HOME, $((skills - seeded)) of them bundled with th
 # there, and the plugin loads it.
 grep -q 'hermes-otel export enabled' "$logs" \
     || fail "OTel export was not enabled, as it is on a deployed workload"
-say "OTel export enabled, as on a deployed workload"
+# That line is the entrypoint rendering the config. The plugin loading it is
+# its own line once its hooks are in (in a real run: "[hermes-otel] Registered
+# 13 hooks"); without it, export was configured but never ran.
+grep -qE '\[hermes-otel\] Registered [0-9]+ hooks' "$logs" \
+    || fail "the hermes-otel plugin never registered its hooks"
+say "OTel export enabled and the hermes-otel plugin loaded, as on a deployed workload"
 
 # The whole log of a healthy boot, to read what Hermes reports (CI sets
 # SMOKE_SHOW_LOG). The secrets in this run are canaries, so it is safe to show.

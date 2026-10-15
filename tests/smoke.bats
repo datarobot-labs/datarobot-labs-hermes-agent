@@ -24,6 +24,7 @@ setup() {
     # OTel export is on, as on a deployed workload, and Slack fails to connect.
     printf '%s\n' '[entrypoint] skills in HERMES_HOME: 3' \
         '[entrypoint] hermes-otel export enabled: entity=workload-smoke endpoint=x' \
+        '[hermes-otel] Registered 13 hooks' \
         'WARNING gateway.run: ✗ slack failed to connect' > "$WORK/container.log"
     export STUB_DIR="$WORK" STUB_LOG="$WORK/docker.calls"
     # STUB_HEALTH: the /health status of each probe in turn; the last repeats.
@@ -138,7 +139,7 @@ smoke() {
     smoke
     [ "$status" -eq 0 ]
     grep -qx 'WORKLOAD_ID=smoke' "$WORK/run.env"
-    [[ "$output" == *"OTel export enabled, as on a deployed workload"* ]]
+    [[ "$output" == *"OTel export enabled and the hermes-otel plugin loaded, as on a deployed workload"* ]]
 
     sed -i '/hermes-otel export enabled/d' "$WORK/container.log"
     echo '[entrypoint] hermes-otel export disabled: need an entity' >> "$WORK/container.log"
@@ -270,6 +271,13 @@ smoke() {
     smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the base image's bundled skills did not sync"* ]]
+}
+
+@test "export configured but no hermes-otel hooks registered fails" {
+    sed -i '/Registered 13 hooks/d' "$WORK/container.log"
+    smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the hermes-otel plugin never registered its hooks"* ]]
 }
 
 @test "a healthy boot's log is shown only with SMOKE_SHOW_LOG=1" {
