@@ -79,6 +79,8 @@ case "$1" in
                 exit 1 ;;
         esac ;;
     logs) cat "$STUB_DIR/container.log" ;;
+    # STUB_STOP_LINE: a line the container logs while shutting down.
+    stop) [ -z "${STUB_STOP_LINE:-}" ] || echo "$STUB_STOP_LINE" >> "$STUB_DIR/container.log" ;;
 esac
 exit 0
 EOF
@@ -151,6 +153,20 @@ smoke() {
 @test "a canary token in the log fails" {
     echo 'slack: auth failed for xoxb-CANARYSLACKBOT' >> "$WORK/container.log"
     smoke
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FAIL: the container log shows the value of a secret (canary CANARYSLACKBOT)"* ]]
+}
+
+@test "the log is read after the container stops, so a secret logged at shutdown fails" {
+    smoke
+    [ "$status" -eq 0 ]
+    # The seed count needs the running container; the final log read comes after the stop.
+    seed=$(grep -n '^docker exec .* sh -c find /opt/hermes-seed/skills' "$STUB_LOG" | cut -d: -f1)
+    stop=$(grep -n '^docker stop --time 30 ' "$STUB_LOG" | cut -d: -f1)
+    last_logs=$(grep -n '^docker logs ' "$STUB_LOG" | tail -n 1 | cut -d: -f1)
+    [ -n "$seed" ] && [ -n "$stop" ] && [ "$seed" -lt "$stop" ] && [ "$stop" -lt "$last_logs" ]
+
+    STUB_STOP_LINE='shutdown: xoxb-CANARYSLACKBOT' smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the container log shows the value of a secret (canary CANARYSLACKBOT)"* ]]
 }

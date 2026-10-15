@@ -160,6 +160,17 @@ read_only /opt/hermes-seed
 read_only /opt/data
 say "runs as uid 1000 on a read-only root, /opt/data included"
 
+# The seed's own skill count, for the skills check below; it needs the
+# container still running.
+seeded=$(docker exec "$container" sh -c 'find /opt/hermes-seed/skills -name SKILL.md | wc -l') \
+    || fail "could not count the seed's skills"
+seeded=$(echo "$seeded" | tr -d ' ')
+
+# Stop it the way the platform does, SIGTERM and a kill 30s later, so the log
+# checked below covers shutdown and anything logged late, not only the boot.
+docker stop --time 30 "$container" > /dev/null || fail "the container did not stop"
+say "stopped the container"
+
 docker logs "$container" > "$logs" 2>&1 || fail "could not read the container log"
 for canary in $canaries; do
     if grep -qF "$canary" "$logs"; then
@@ -186,9 +197,6 @@ skills=$(sed -n 's/.*skills in HERMES_HOME: \([0-9][0-9]*\).*/\1/p' "$logs" | ta
 if grep -qF -e 'skills_sync.py failed' -e 'bundled skills directory' "$logs"; then
     fail "the base image's bundled skills did not sync"
 fi
-seeded=$(docker exec "$container" sh -c 'find /opt/hermes-seed/skills -name SKILL.md | wc -l') \
-    || fail "could not count the seed's skills"
-seeded=$(echo "$seeded" | tr -d ' ')
 [ "$skills" -gt "$seeded" ] \
     || fail "no bundled skills reached HERMES_HOME ($skills skills, $seeded of them from the seed)"
 say "$skills skills in HERMES_HOME, $((skills - seeded)) of them bundled with the base image"
