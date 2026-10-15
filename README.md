@@ -59,6 +59,39 @@ On an install other than `app.datarobot.com`, also see
 Each deployment needs its own name: to deploy a second copy, run
 `WORKLOAD_NAME=hermes-<something> dr start` in a fresh clone.
 
+## Deploying from CI
+
+A clone can roll out its deployment on every push to `main`. The workflow [`deploy.yml`](.github/workflows/deploy.yml) runs the [`workload-deploy-github`](https://github.com/datarobot-oss/workload-deploy-github) action, which runs `dr workload up` for the workload that `.datarobot.yaml` names. The workflow is off until you turn it on.
+
+CI never creates a workload. The first deploy runs on your machine, and the manifest it writes holds the workload ID that CI rolls from then on.
+
+1. Run the first deploy on your machine with `dr start` and `dr run deploy`, and keep the workload running as described in [Deploy your own](#deploy-your-own).
+2. Commit the manifest to a private repository. It holds your credential IDs and Slack channel, and git ignores it by default, so add it with `-f`:
+
+   ```sh
+   git add -f .datarobot.yaml
+   git commit -m "Add the deploy manifest"
+   ```
+
+3. In the repository settings, create the `datarobot` environment, limit its deployment branches to `main`, and add two secrets to it:
+   - `DATAROBOT_ENDPOINT`: the URL of your DataRobot install, for example `https://app.datarobot.com`.
+   - `DATAROBOT_API_TOKEN`: an API key of the account that ran `dr start`.
+4. Add the repository variable `DEPLOY_TO_DATAROBOT` with the value `true`.
+5. Push to `main`. The deploy job rolls the workload and prints its endpoint in the job summary.
+
+The `.env` file stays on your machine. To change a setting, run `dr run env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment.
+
+GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it.
+
+### Fix a failed deploy job
+
+The deploy job fails with one of these messages when the manifest is missing or unsafe:
+
+| Message | Cause | Fix |
+| --- | --- | --- |
+| `No workloadId found` | The commit has no manifest with a workload ID. | Run the first deploy, then commit the manifest with `git add -f`. |
+| `doesn't declare DATAROBOT_API_TOKEN as the workload's own key` | The manifest gives the workload the token of whoever wrote it. | Run `dr run env`, then commit the manifest. |
+
 ## Connecting Slack
 
 Slack is optional; without it the agent is still reachable through the web UI.

@@ -1,0 +1,53 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Rolls the workload that the committed .datarobot.yaml names. Off until a
+# clone sets the repository variable DEPLOY_TO_DATAROBOT to true, so this repo
+# and every fresh clone skip it. It runs only from main, so a manual run from
+# another branch cannot deploy that branch. README.md, "Deploying from CI",
+# has the setup.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time. A newer push waits for the running one.
+concurrency:
+  group: deploy-datarobot
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ vars.DEPLOY_TO_DATAROBOT == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: datarobot
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      # The same check `dr run deploy` makes: the workload keeps its own API
+      # key, never the token of whoever wrote the manifest.
+      - name: Check that the workload keeps its own API key
+        if: ${{ hashFiles('.datarobot.yaml') != '' }}
+        run: scripts/workload-config.sh --check
+      - uses: datarobot-oss/workload-deploy-github@11f728fce23b7121f1e5dd8866961204ff6b4d95  # v2.0.0
+        with:
+          datarobot_endpoint: ${{ secrets.DATAROBOT_ENDPOINT }}
+          datarobot_api_token: ${{ secrets.DATAROBOT_API_TOKEN }}

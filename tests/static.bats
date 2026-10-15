@@ -311,6 +311,37 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "git ignores the deploy manifest and the upload record, and tracks dr start's setup" {
+    scratch=$(mktemp -d)
+    git -C "$scratch" init -q
+    cp /repo/.gitignore "$scratch/.gitignore"
+
+    run git -C "$scratch" check-ignore --no-index .datarobot.yaml .datarobot/workload/manifest.json
+    [ "$status" -eq 0 ]
+    [ "${#lines[@]}" -eq 2 ]
+
+    run git -C "$scratch" check-ignore --no-index .datarobot/cli/prompts.yaml .datarobot/cli/versions.yaml
+    [ "$status" -eq 1 ]
+}
+
+@test "the deploy job runs only from main, so a dispatch from a branch cannot deploy" {
+    run grep -F "github.ref == 'refs/heads/main'" /repo/.github/workflows/deploy.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the deploy job runs in the datarobot environment, which holds the credentials" {
+    run grep -E "^    environment: datarobot\$" /repo/.github/workflows/deploy.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the deploy workflow checks the workload's own API key before it deploys" {
+    check=$(grep -n 'scripts/workload-config.sh --check' /repo/.github/workflows/deploy.yml | head -n 1 | cut -d: -f1)
+    deploy=$(grep -n 'uses: datarobot-oss/workload-deploy-github@' /repo/.github/workflows/deploy.yml | head -n 1 | cut -d: -f1)
+    [ -n "$check" ]
+    [ -n "$deploy" ]
+    [ "$check" -lt "$deploy" ]
+}
+
 @test "the dr pinned in the image is at least the minimum that dr start enforces" {
     min=$(awk '/^dr:/ { found = 1; next } found && /^[^[:space:]#]/ { exit } found && /minimum-version:/ { print $2; exit }' /repo/.datarobot/cli/versions.yaml)
     pin=$(sed -nE 's/^ARG DR_CLI_VERSION=v([0-9.]+)$/\1/p' /repo/Dockerfile)
