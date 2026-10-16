@@ -57,10 +57,17 @@ fi
 
 [ -d "$config/skills" ] || { echo "No config/skills here. Run this from the project root." >&2; exit 1; }
 
-# -t only with a terminal on stdin: `hermes skills install` may ask to
-# confirm, and docker refuses -t without one.
+# `hermes skills install` asks to confirm. With a terminal on stdin, -t lets
+# the caller read its preview and answer. Without one it would read end of
+# input, cancel and still exit 0, so then it gets --yes: running this is the
+# request to install. --yes skips only the prompt; a blocked scan still needs
+# --force, which this never passes.
 tty_flag=
-[ ! -t 0 ] || tty_flag=-t
+install_yes=1
+if [ -t 0 ]; then
+    tty_flag=-t
+    install_yes=
+fi
 
 # Runs inside the container, as root. It builds the complete new skills tree
 # next to the old one and swaps it in by rename, so an upgrade that removed
@@ -106,7 +113,7 @@ tar -C "$src" --anchored \
 tar -C "$data" -xpf "$archive"
 rm -f "$archive"
 chown -R hermes:hermes "$data"
-hermes skills install "$1"
+hermes skills install ${INSTALL_YES:+--yes} "$1"
 cp -a "$data/skills" "$new"
 chown -R "$HOST_UID:$HOST_GID" "$new"
 mv "$src/skills" "$old"
@@ -114,6 +121,6 @@ mv "$new" "$src/skills"
 '
 
 docker run -i $tty_flag --rm --user 0:0 --label "$label" \
-    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e INSTALL_YES="$install_yes" \
     -v "$config:/host-config" \
     --entrypoint /bin/sh "$image" -c "$inner" sh "$skill"

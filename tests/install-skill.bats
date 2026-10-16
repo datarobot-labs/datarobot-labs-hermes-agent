@@ -30,7 +30,11 @@ if [ "$1" = ps ]; then
 fi
 printf '%s\n' "$@" > "$DOCKER_ARGS"
 [ -n "${RUN_INNER:-}" ] || exit 0
-while [ "$#" -gt 0 ] && [ "$1" != -c ]; do shift; done
+# Like docker, hand the container script the -e NAME=value variables.
+while [ "$#" -gt 0 ] && [ "$1" != -c ]; do
+    case "$1" in -e) export "$2"; shift ;; esac
+    shift
+done
 shift
 script=$1
 shift
@@ -86,6 +90,7 @@ install_skill() {
 fake_hermes() {
     cat > "$WORK/bin/hermes" <<'STUB'
 #!/bin/sh
+printf '%s\n' "$@" > "$HERMES_ARGS"
 [ -z "${HERMES_FAIL:-}" ] || exit 1
 rm -f "$HERMES_DATA_DIR/skills/cat/demo/old.py"
 echo new > "$HERMES_DATA_DIR/skills/cat/demo/new.py"
@@ -98,7 +103,7 @@ STUB
 
 run_inner() {
     cd "$WORK/project"
-    PATH="$WORK/bin:$PATH" DOCKER_ARGS="$WORK/args" RUN_INNER=1 \
+    PATH="$WORK/bin:$PATH" DOCKER_ARGS="$WORK/args" HERMES_ARGS="$WORK/hermes-args" RUN_INNER=1 \
         HOST_CONFIG_DIR="$WORK/project/config" HERMES_DATA_DIR="$WORK/data" \
         HOST_UID="$(id -u)" HOST_GID="$(id -g)" \
         run sh /repo/scripts/install-skill.sh registry.example.com/hermes@sha256:abc cat/demo
@@ -202,4 +207,13 @@ run_inner() {
     done
     # The skill a skill ships keeps its own bin folder in config/skills too.
     [ -f "$c/skills/other/bin/tool" ]
+}
+
+@test "without a terminal, the install is confirmed with --yes, never forced" {
+    fake_hermes
+    run_inner < /dev/null
+    [ "$status" -eq 0 ]
+    grep -qx -- 'INSTALL_YES=1' "$WORK/args"
+    [ "$(cat "$WORK/hermes-args")" = "$(printf 'skills\ninstall\n--yes\ncat/demo')" ]
+    ! grep -qx -- '--force' "$WORK/hermes-args"
 }
