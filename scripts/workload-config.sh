@@ -40,12 +40,49 @@ set -eu
 token=DATAROBOT_API_TOKEN
 manifest=.datarobot.yaml
 
-# Lines that name the token as an entry, in block (`- name: X`, `name: X`) or
-# flow (`- {name: X, ...}`) style. A comment, say a commented-out old entry,
-# is not one.
+# Reads the token's entries in every environmentVars list, and only there:
+# lines at the list's item column (`- name: X`, or the flow `- {name: X}`) and
+# lines at an item's own key column (`name: X` after another key). Text deeper
+# than that, say inside a `|` block value, is not an entry, and neither is a
+# comment. MODE "count" prints how many lines name the token. MODE "drop"
+# prints the file without the `- name:` and flow entries: an entry's blank,
+# comment and more-indented lines go with it, up to the next other line at or
+# above its column. Anything else naming the token is left for
+# is_workload_key to refuse afterwards, rather than guessed at.
+token_entries() {
+    awk -v name="$token" -v mode="$1" '
+        function indent(s) { match(s, /^ */); return RLENGTH }
+        function blank(s) { return s ~ /^[[:space:]]*(#.*)?$/ }
+        BEGIN { itemcol = -1; keyin = -1 }
+        {
+            line = $0; skip = 0
+            if (!blank(line)) {
+                i = indent(line)
+                if (inenv && (i < envcol || (i == envcol && line !~ /^ *- /))) inenv = 0
+                if (dropping && i <= dropcol) dropping = 0
+                if (inenv && line ~ /^ *- / && (itemcol < 0 || i == itemcol)) {
+                    itemcol = i; match(line, /^ *- +/); keyin = RLENGTH
+                    if (line ~ ("^ *- +name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                        count++; skip = 1; dropping = 1; dropcol = i
+                    } else if (line ~ ("^ *- *[{].*name: *[\"'\'']?" name "[\"'\'']? *[,}]")) {
+                        count++; skip = 1
+                    }
+                } else if (inenv && i == keyin && line ~ ("^ *name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                    count++
+                }
+                if (line ~ /^ *(- +)?environmentVars: *(#.*)?$/) {
+                    inenv = 1; match(line, /^ *(- +)?/); envcol = RLENGTH; itemcol = -1; keyin = -1
+                }
+            }
+            if (dropping && !skip && (blank(line) || indent(line) > dropcol)) skip = 1
+            if (mode == "drop" && !skip) print line
+        }
+        END { if (mode == "count") print count + 0 }
+    ' "$2"
+}
+
 names_token() {
-    grep -v '^[[:space:]]*#' "$1" |
-        grep -cE "(^|[{,[:space:]])name:[[:space:]]*[\"']?${token}[\"']?[[:space:]]*([,}#]|\$)" || true
+    token_entries count "$1"
 }
 
 # Finds the environmentVars of Hermes' container under `artifact:`: the one
@@ -97,7 +134,10 @@ primary_env() {
                         next
                     }
                     closetok()
-                    if ($0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                    # Only at the column of the list items: a deeper "- name:"
+                    # is text inside some value, not an entry.
+                    if (eitem < 0 && $0 ~ /^ *- /) eitem = i
+                    if (i == eitem && $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
                         intok = 1; tokcol = i; tsrc = 0; tother = 0
                     }
                     next
@@ -108,7 +148,7 @@ primary_env() {
             if (first || i == keycol) {
                 kv = substr($0, keycol + 1)
                 if (kv ~ /^primary: *true *(#.*)?$/) isprim = 1
-                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1 }
+                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1; eitem = -1 }
             }
             next
         }
@@ -135,24 +175,8 @@ is_workload_key() {
     [ "${loc##* }" = 1 ]
 }
 
-# Drops every entry for the token: a `- name:` block with the lines indented
-# under it, or a flow-style one-liner. Anything else naming it is caught by
-# is_workload_key afterwards, which fails the run rather than guess.
 remove_token_entries() {
-    awk -v name="$token" '
-        function indent(s) { match(s, /^[[:space:]]*/); return RLENGTH }
-        # Inside an entry being dropped, blank and comment lines and anything
-        # indented under its `- name:` go with it; the next other line at or
-        # above that indentation ends it. A comment does not end it, or the
-        # value of the entry would be left attached to the entry before it.
-        skipping && ($0 ~ /^[[:space:]]*(#.*)?$/ || indent($0) > entry) { next }
-        { skipping = 0 }
-        $0 ~ "^[[:space:]]*- name:[[:space:]]*[\"'\'']?" name "[\"'\'']?[[:space:]]*(#.*)?$" {
-            skipping = 1; entry = indent($0); next
-        }
-        $0 ~ "^[[:space:]]*-[[:space:]]*[{].*name:[[:space:]]*[\"'\'']?" name "[\"'\'']?[[:space:]]*[,}]" { next }
-        { print }
-    ' "$1"
+    token_entries drop "$1"
 }
 
 # Puts the api-key entry first in the primary container's environmentVars,

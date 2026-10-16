@@ -417,6 +417,49 @@ YAML
     grep -A1 'name: SLACK_HOME_CHANNEL' "$PROJECT/.datarobot.yaml" | grep -q 'value: C123'
 }
 
+# The workload's own key, plus a variable whose block value mentions the token.
+block_value_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+              - name: DATAROBOT_API_TOKEN
+                source: api-key
+              - name: SETUP_NOTES
+                value: |
+                  - name: DATAROBOT_API_TOKEN
+                    value: example
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+}
+
+@test "the token named inside another variable's block value is not an entry, and a sync keeps the value" {
+    block_value_manifest
+    configure noop --check
+    [ "$status" -eq 0 ]
+    python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"][1]["value"], end="")' \
+        "$PROJECT/.datarobot.yaml" > "$WORK/notes.before"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    python3 -c 'import sys, yaml
+envs = yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"]
+print(next(e["value"] for e in envs if e["name"] == "SETUP_NOTES"), end="")' "$PROJECT/.datarobot.yaml" > "$WORK/notes.after"
+    cmp "$WORK/notes.before" "$WORK/notes.after"
+}
+
+@test "an entry that names the token after another key still counts, so --check fails" {
+    configure write --yes
+    sed -i 's#^\( *\)- name: SLACK_HOME_CHANNEL$#\1- value: dr-credential:0123456789abcdef01234567/apiToken\n\1  name: DATAROBOT_API_TOKEN\n&#' \
+        "$PROJECT/.datarobot.yaml"
+    grep -q '^ *name: DATAROBOT_API_TOKEN$' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}
+
 @test "a caller's --dir is refused before dr runs, in either form" {
     for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
         rm -f "$WORK/seen/env"
