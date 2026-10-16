@@ -68,4 +68,8 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
+      # Show the whole container log of a healthy boot too, not only of a
+      # failed one, so the job records what Hermes reports.
       - run: task test:image
+        env:
+          SMOKE_SHOW_LOG: "1"

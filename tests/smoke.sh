@@ -23,12 +23,14 @@
 # after the Slack adapter has failed, and the logs never show a canary value.
 #
 #   SMOKE_IMAGE    test this image instead of building labs-hermes:smoke
-#   SMOKE_TIMEOUT  seconds to wait for /health (default 240)
-#   SMOKE_GRACE    seconds /health must stay up after it first answers (default 20)
+#   SMOKE_TIMEOUT        seconds to wait for /health (default 240)
+#   SMOKE_SLACK_TIMEOUT  seconds to wait, after that, for Slack to fail (default 120)
+#   SMOKE_GRACE          seconds /health must stay up after Slack failed (default 20)
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 timeout=${SMOKE_TIMEOUT:-240}
+slack_timeout=${SMOKE_SLACK_TIMEOUT:-120}
 grace=${SMOKE_GRACE:-20}
 poll=${SMOKE_POLL:-2}
 container=labs-hermes-smoke-$$
@@ -122,13 +124,23 @@ while :; do
 done
 say "/health answered 200 after $(($(date +%s) - start))s"
 
-# By now the Slack adapter has tried to connect and failed. The gateway has to
-# keep serving: its exit is the container's exit.
+# With dummy tokens and no network, Slack's connection fails. Wait until the
+# gateway says so (in a real run: "gateway.run: ✗ slack failed to connect"),
+# rather than for a fixed time that a slower adapter could outlast. Then the
+# gateway has to keep serving: its exit is the container's exit.
+slack_start=$(date +%s)
+until docker logs "$container" 2>&1 | grep -qF 'slack failed to connect'; do
+    running || fail "the container exited before Slack reported its connection failure"
+    [ $(($(date +%s) - slack_start)) -lt "$slack_timeout" ] \
+        || fail "Slack did not report its connection failure within ${slack_timeout}s of /health answering"
+    sleep "$poll"
+done
+say "Slack failed to connect, as it must without a network"
 sleep "$grace"
-running || fail "the container exited within ${grace}s of becoming healthy"
+running || fail "the container exited within ${grace}s of Slack failing"
 status=$(health)
-[ "$status" = 200 ] || fail "/health answered $status ${grace}s after becoming healthy"
-say "/health still answers 200 after ${grace}s"
+[ "$status" = 200 ] || fail "/health answered $status ${grace}s after Slack failed"
+say "/health still answers 200 ${grace}s after Slack failed"
 
 uid=$(docker exec "$container" id -u) || fail "could not read the container's uid"
 [ "$uid" = 1000 ] || fail "the container runs as uid $uid, not 1000"
@@ -147,6 +159,22 @@ read_only() {
 read_only /opt/hermes-seed
 read_only /opt/data
 say "runs as uid 1000 on a read-only root, /opt/data included"
+
+# The seed's own skill count, for the skills check below; it needs the
+# container still running.
+seeded=$(docker exec "$container" sh -c 'find /opt/hermes-seed/skills -name SKILL.md | wc -l') \
+    || fail "could not count the seed's skills"
+seeded=$(echo "$seeded" | tr -d ' ')
+
+# Stop it the way the platform does, SIGTERM and a kill 30s later, so the log
+# checked below covers shutdown and anything logged late, not only the boot.
+docker stop --time 30 "$container" > /dev/null || fail "the container did not stop"
+# 137 is the kill after 30s: SIGTERM never ended it, so on the platform the
+# entrypoint's shutdown, the final dr-sync upload included, would not run.
+code=$(docker inspect --format '{{.State.ExitCode}}' "$container") \
+    || fail "could not read the container's exit code"
+[ "$code" != 137 ] || fail "the container ignored SIGTERM and was killed after 30s (exit 137)"
+say "the container stopped on SIGTERM (exit $code)"
 
 docker logs "$container" > "$logs" 2>&1 || fail "could not read the container log"
 for canary in $canaries; do
@@ -174,9 +202,6 @@ skills=$(sed -n 's/.*skills in HERMES_HOME: \([0-9][0-9]*\).*/\1/p' "$logs" | ta
 if grep -qF -e 'skills_sync.py failed' -e 'bundled skills directory' "$logs"; then
     fail "the base image's bundled skills did not sync"
 fi
-seeded=$(docker exec "$container" sh -c 'find /opt/hermes-seed/skills -name SKILL.md | wc -l') \
-    || fail "could not count the seed's skills"
-seeded=$(echo "$seeded" | tr -d ' ')
 [ "$skills" -gt "$seeded" ] \
     || fail "no bundled skills reached HERMES_HOME ($skills skills, $seeded of them from the seed)"
 say "$skills skills in HERMES_HOME, $((skills - seeded)) of them bundled with the base image"
@@ -186,6 +211,33 @@ say "$skills skills in HERMES_HOME, $((skills - seeded)) of them bundled with th
 # there, and the plugin loads it.
 grep -q 'hermes-otel export enabled' "$logs" \
     || fail "OTel export was not enabled, as it is on a deployed workload"
-say "OTel export enabled, as on a deployed workload"
+# That line is the entrypoint rendering the config. The plugin loading it is
+# its own line once its hooks are in (in a real run: "[hermes-otel] Registered
+# 13 hooks"); without it, export was configured but never ran.
+grep -qE '\[hermes-otel\] Registered [1-9][0-9]* hooks' "$logs" \
+    || fail "the hermes-otel plugin never registered its hooks"
+say "OTel export enabled and the hermes-otel plugin loaded, as on a deployed workload"
+
+# The whole log of a healthy boot, to read what Hermes reports (CI sets
+# SMOKE_SHOW_LOG). The secrets in this run are canaries, so it is safe to show.
+# On GitHub Actions it goes in a collapsed group, with workflow commands off:
+# a container line starting with "::" must not act as one.
+if [ "${SMOKE_SHOW_LOG:-}" = 1 ]; then
+    if [ "${GITHUB_ACTIONS:-}" = true ]; then
+        # Random, as GitHub requires: output that could guess it could turn
+        # the commands back on.
+        resume="smoke-log-$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+        echo "::group::Container log"
+        echo "::stop-commands::$resume"
+        cat "$logs"
+        # Its own line even when the log's last line has no newline, or the
+        # commands would stay off.
+        printf '\n::%s::\n' "$resume"
+        echo "::endgroup::"
+    else
+        say "container log:"
+        cat "$logs" >&2
+    fi
+fi
 
 say "ok"
