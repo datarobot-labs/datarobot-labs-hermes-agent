@@ -180,3 +180,26 @@ run_inner() {
     diff -r "$WORK/before" "$WORK/project/config/skills"
     [ "$(cat "$WORK/project/config/.skills.old/marker")" = backup ]
 }
+
+@test "only what Hermes needs is staged: host binaries, runtime state and credentials stay out" {
+    fake_hermes
+    c="$WORK/project/config"
+    echo cfg > "$c/config.yaml"
+    mkdir -p "$c/bin" "$c/.local/share" "$c/.cua-driver" "$c/lazy-packages" "$c/sessions" "$c/logs" "$c/cache" \
+        "$c/skills/other/bin" "$c/skills/other/sessions"
+    touch "$c/bin/uv" "$c/.local/share/x" "$c/.cua-driver/d" "$c/lazy-packages/p" "$c/sessions/s" "$c/logs/l" \
+        "$c/cache/c" "$c/.env" "$c/auth.json" "$c/state.db" "$c/state.db-wal" "$c/config.yaml.bak.1" \
+        "$c/skills/other/bin/tool" "$c/skills/other/sessions/notes"
+    run_inner
+    [ "$status" -eq 0 ]
+    d="$WORK/data"
+    [ "$(cat "$d/config.yaml")" = cfg ]
+    [ -f "$d/skills/other/bin/tool" ]
+    [ -f "$d/skills/other/sessions/notes" ]
+    for gone in bin .local .cua-driver lazy-packages sessions logs cache .env auth.json state.db state.db-wal \
+        config.yaml.bak.1 .skills.lock; do
+        [ ! -e "$d/$gone" ] || { echo "staged: $gone"; return 1; }
+    done
+    # The skill a skill ships keeps its own bin folder in config/skills too.
+    [ -f "$c/skills/other/bin/tool" ]
+}

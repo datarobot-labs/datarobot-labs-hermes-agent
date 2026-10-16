@@ -89,7 +89,22 @@ fi
 trap "rm -rf \"\$new\"; [ -d \"\$src/skills\" ] || mv \"\$old\" \"\$src/skills\" 2>/dev/null || true; rm -rf \"\$old\"; rmdir \"\$lock\"" EXIT
 trap "exit 130" INT TERM HUP
 rm -rf "$new" "$old" "$data/skills"
-cp -a "$src/." "$data/"
+# Hermes needs the config and skills, not what a local hermes setup leaves
+# in config: host-arch binaries, runtime state and credential files. The
+# exclusions are the ones .dockerignore keeps out of the image, matched at
+# the top of config only, so a skill keeps its own bin or cache folder. An
+# archive file, not a pipe, so a failed create stops the run.
+archive=$(mktemp)
+tar -C "$src" --anchored \
+    --exclude=./.env --exclude=./auth.json --exclude=./auth.lock \
+    --exclude=./bin --exclude=./.local --exclude=./.cua-driver --exclude=./lazy-packages \
+    --exclude="./state.db*" --exclude=./logs --exclude=./sessions --exclude=./cache \
+    --exclude=./.cache --exclude=./backups --exclude=./audio_cache --exclude=./image_cache \
+    --exclude="./config.yaml.bak.*" \
+    --exclude=./.skills.new --exclude=./.skills.old --exclude=./.skills.lock \
+    -cf "$archive" .
+tar -C "$data" -xpf "$archive"
+rm -f "$archive"
 chown -R hermes:hermes "$data"
 hermes skills install "$1"
 cp -a "$data/skills" "$new"
