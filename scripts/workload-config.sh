@@ -41,9 +41,11 @@ token=DATAROBOT_API_TOKEN
 manifest=.datarobot.yaml
 
 # Lines that name the token as an entry, in block (`- name: X`, `name: X`) or
-# flow (`- {name: X, ...}`) style.
+# flow (`- {name: X, ...}`) style. A comment, say a commented-out old entry,
+# is not one.
 names_token() {
-    grep -cE "(^|[{,[:space:]])name:[[:space:]]*[\"']?${token}[\"']?[[:space:]]*([,}#]|\$)" "$1" || true
+    grep -v '^[[:space:]]*#' "$1" |
+        grep -cE "(^|[{,[:space:]])name:[[:space:]]*[\"']?${token}[\"']?[[:space:]]*([,}#]|\$)" || true
 }
 
 # Finds the environmentVars of Hermes' container under `artifact:`: the one
@@ -139,10 +141,11 @@ is_workload_key() {
 remove_token_entries() {
     awk -v name="$token" '
         function indent(s) { match(s, /^[[:space:]]*/); return RLENGTH }
-        # Inside an entry being dropped, blank lines and anything indented
-        # under its `- name:` go with it; the next line at or above that
-        # indentation ends it.
-        skipping && ($0 ~ /^[[:space:]]*$/ || indent($0) > entry) { next }
+        # Inside an entry being dropped, blank and comment lines and anything
+        # indented under its `- name:` go with it; the next other line at or
+        # above that indentation ends it. A comment does not end it, or the
+        # value of the entry would be left attached to the entry before it.
+        skipping && ($0 ~ /^[[:space:]]*(#.*)?$/ || indent($0) > entry) { next }
         { skipping = 0 }
         $0 ~ "^[[:space:]]*- name:[[:space:]]*[\"'\'']?" name "[\"'\'']?[[:space:]]*(#.*)?$" {
             skipping = 1; entry = indent($0); next

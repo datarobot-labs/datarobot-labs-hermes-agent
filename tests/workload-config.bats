@@ -381,6 +381,42 @@ YAML
     [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
 }
 
+@test "a commented-out token entry is not an entry: --check passes and a sync keeps it" {
+    configure write --yes
+    sed -i 's#^\( *\)- name: SLACK_HOME_CHANNEL$#\1\# - name: DATAROBOT_API_TOKEN\n\1\#   value: dr-credential:0123456789abcdef01234567/apiToken\n&#' \
+        "$PROJECT/.datarobot.yaml"
+    grep -q '^ *# - name: DATAROBOT_API_TOKEN$' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -eq 0 ]
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -q '^ *# - name: DATAROBOT_API_TOKEN$' "$PROJECT/.datarobot.yaml"
+    python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$PROJECT/.datarobot.yaml"
+}
+
+@test "a credential entry with a comment inside is replaced whole" {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+              - name: DATAROBOT_API_TOKEN
+              # rotated by hand
+                value: dr-credential:0123456789abcdef01234567/apiToken
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$PROJECT/.datarobot.yaml"
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -A1 'name: SLACK_HOME_CHANNEL' "$PROJECT/.datarobot.yaml" | grep -q 'value: C123'
+}
+
 @test "a caller's --dir is refused before dr runs, in either form" {
     for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
         rm -f "$WORK/seen/env"
