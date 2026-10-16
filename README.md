@@ -140,13 +140,16 @@ Skills are baked into the image from `config/skills/`. Install one, commit it,
 and deploy:
 
 ```sh
-dr run install:official/creative/ascii-art      # one of Hermes' optional skills
-dr run install:<owner>/<repo>/<path>            # a skill on GitHub
+dr run install:official/communication/one-three-one-rule   # one of Hermes' optional skills
+dr run install:<owner>/<repo>/<path>                       # a skill on GitHub
 dr workload up
 ```
 
 `install` runs `hermes skills install` in the pinned Hermes image, so it needs
-Docker. To see what's available, run `task hermes -- skills browse`. The
+Docker. From a terminal it shows Hermes' preview and asks you to confirm;
+without one (CI, a script) it confirms for you, since running it is the
+request. Commit the new skill and `config/skills/.hub/lock.json`. To see
+what's available, run `task hermes -- skills browse`. The
 DataRobot skills in `config/skills/datarobot/` come from
 [datarobot-agent-skills](https://github.com/datarobot-oss/datarobot-agent-skills);
 `dr run skills:datarobot` refreshes them.
