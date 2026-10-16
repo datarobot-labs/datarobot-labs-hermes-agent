@@ -311,6 +311,17 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "deploy and doctor check for PLACEHOLDER credentials with the shared script only" {
+    run awk '
+        /^  [a-z_:*-]+:$/ { task = $1 }
+        /scripts\/check-credentials.sh/ { seen[task] = 1 }
+        END { exit !(seen["deploy:"] && seen["doctor:"]) }
+    ' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -n 'grep -q PLACEHOLDER' /repo/Taskfile.yaml
+    [ "$status" -ne 0 ]
+}
+
 @test "git ignores the deploy manifest and the upload record, and tracks dr start's setup" {
     scratch=$(mktemp -d)
     git -C "$scratch" init -q
