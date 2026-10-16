@@ -460,6 +460,32 @@ print(next(e["value"] for e in envs if e["name"] == "SETUP_NOTES"), end="")' "$P
     [ "$status" -ne 0 ]
 }
 
+@test "in an indentationless list, the key goes in at the column of the other items" {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+            - name: DATAROBOT_API_TOKEN
+              value: dr-credential:0123456789abcdef01234567/apiToken
+            - name: SLACK_HOME_CHANNEL
+              value: C123
+YAML
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    grep -qx '            - name: DATAROBOT_API_TOKEN' "$PROJECT/.datarobot.yaml"
+    grep -qx '              source: api-key' "$PROJECT/.datarobot.yaml"
+    python3 -c 'import sys, yaml
+envs = yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"]
+assert envs == [{"name": "DATAROBOT_API_TOKEN", "source": "api-key"}, {"name": "SLACK_HOME_CHANNEL", "value": "C123"}], envs' \
+        "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
 @test "a caller's --dir is refused before dr runs, in either form" {
     for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
         rm -f "$WORK/seen/env"

@@ -89,8 +89,10 @@ names_token() {
 # built from this repo's Dockerfile (`dockerfile: source: provided`; only one
 # container can be), else the single one marked `primary: true` (each
 # container group has its own primary), else the only container. Prints
-# "<line of the environmentVars key> <its column> <1 if it holds the api-key
-# entry, else 0>". The api-key entry counts only when `source: api-key` is its
+# "<line of the environmentVars key> <its column> <the column of its items>
+# <1 if it holds the api-key entry, else 0>". The items' column is two past the
+# key's when the list is empty, and the key's own for an indentationless list.
+# The api-key entry counts only when `source: api-key` is its
 # one key besides name: no value, no other source. Exits 2 when none of those
 # rules picks one container, and 3 when it has no environmentVars key. A
 # line-based reading of the block style dr writes, kept to the keys that
@@ -108,9 +110,11 @@ primary_env() {
             closetok()
             if (!initem) return
             items++
-            if (built) { builts++; b_env = env; b_col = envcol; b_pair = pair }
-            if (isprim) { prims++; p_env = env; p_col = envcol; p_pair = pair }
-            if (items == 1) { f_env = env; f_col = envcol; f_pair = pair }
+            # The column its items use; with none yet, two under the key.
+            it = (eitem >= 0) ? eitem : envcol + 2
+            if (built) { builts++; b_env = env; b_col = envcol; b_it = it; b_pair = pair }
+            if (isprim) { prims++; p_env = env; p_col = envcol; p_it = it; p_pair = pair }
+            if (items == 1) { f_env = env; f_col = envcol; f_it = it; f_pair = pair }
             initem = 0; inenv = 0
         }
         /^[[:space:]]*(#.*)?$/ { next }
@@ -157,12 +161,12 @@ primary_env() {
         }
         END {
             finish()
-            if (builts == 1) { e = b_env; c = b_col; p = b_pair }
-            else if (prims == 1) { e = p_env; c = p_col; p = p_pair }
-            else if (prims == 0 && items == 1) { e = f_env; c = f_col; p = f_pair }
+            if (builts == 1) { e = b_env; c = b_col; t = b_it; p = b_pair }
+            else if (prims == 1) { e = p_env; c = p_col; t = p_it; p = p_pair }
+            else if (prims == 0 && items == 1) { e = f_env; c = f_col; t = f_it; p = f_pair }
             else exit 2
             if (!e) exit 3
-            print e, c, p
+            print e, c, t, p
         }
     ' "$1"
 }
@@ -183,12 +187,12 @@ remove_token_entries() {
 # and nowhere else.
 add_api_key_entry() {
     loc=$(primary_env "$1") || return
-    awk -v name="$token" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f2)" '
+    awk -v name="$token" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f3)" '
         { print }
         NR == at {
             pad = sprintf("%" col "s", "")
-            print pad "  - name: " name
-            print pad "    source: api-key"
+            print pad "- name: " name
+            print pad "  source: api-key"
         }
     ' "$1"
 }
