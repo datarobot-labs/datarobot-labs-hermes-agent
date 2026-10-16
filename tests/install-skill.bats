@@ -21,8 +21,13 @@ setup() {
     mkdir -p "$WORK/project/config/skills" "$WORK/bin" "$WORK/data"
     # docker records its arguments; with RUN_INNER set it also runs the
     # container's script here, against $WORK/data instead of /opt/data.
+    # `docker ps` lists one install container when STUB_RUNNING is set.
     cat > "$WORK/bin/docker" <<'STUB'
 #!/bin/sh
+if [ "$1" = ps ]; then
+    [ -z "${STUB_RUNNING:-}" ] || echo 0123456789ab
+    exit 0
+fi
 printf '%s\n' "$@" > "$DOCKER_ARGS"
 [ -n "${RUN_INNER:-}" ] || exit 0
 while [ "$#" -gt 0 ] && [ "$1" != -c ]; do shift; done
@@ -56,6 +61,7 @@ install_skill() {
     grep -qx -- "HOST_GID=$(id -g)" "$WORK/args"
     grep -qx -- "$WORK/project/config:/host-config" "$WORK/args"
     grep -qx -- 'registry.example.com/hermes@sha256:abc' "$WORK/args"
+    grep -A1 -x -- '--label' "$WORK/args" | grep -qx 'labs-hermes.install-skill'
 }
 
 @test "the skill is passed as an argument, never spliced into the container's script" {
@@ -131,7 +137,7 @@ run_inner() {
     mkdir "$WORK/project/config/.skills.lock" "$WORK/project/config/.skills.old"
     echo backup > "$WORK/project/config/.skills.old/marker"
     cp -a "$WORK/project/config/skills" "$WORK/before"
-    run_inner
+    STUB_RUNNING=1 run_inner
     [ "$status" -eq 75 ]
     [[ "$output" == *"Another skill install is running"* ]]
     diff -r "$WORK/before" "$WORK/project/config/skills"
@@ -148,4 +154,29 @@ run_inner() {
     HERMES_FAIL=1 run_inner
     [ "$status" -ne 0 ]
     [ ! -e "$WORK/project/config/.skills.lock" ]
+}
+
+@test "after a run killed between its renames, the next one restores config/skills and goes on" {
+    fake_hermes
+    # What the kill leaves: the previous tree in .skills.old, no skills, the lock.
+    mv "$WORK/project/config/skills" "$WORK/project/config/.skills.old"
+    mkdir "$WORK/project/config/.skills.lock"
+    run_inner
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Restored config/skills from an interrupted install."* ]]
+    [ "$(cat "$WORK/project/config/skills/other/SKILL.md")" = keep ]
+    [ "$(cat "$WORK/project/config/skills/cat/demo/new.py")" = new ]
+    [ -z "$(find "$WORK/project/config" -maxdepth 1 -name '.skills.*')" ]
+}
+
+@test "with .skills.old next to config/skills and nothing running, it stops and touches neither" {
+    fake_hermes
+    mkdir "$WORK/project/config/.skills.old"
+    echo backup > "$WORK/project/config/.skills.old/marker"
+    cp -a "$WORK/project/config/skills" "$WORK/before"
+    run_inner
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"left from an interrupted install, next to config/skills"* ]]
+    diff -r "$WORK/before" "$WORK/project/config/skills"
+    [ "$(cat "$WORK/project/config/.skills.old/marker")" = backup ]
 }

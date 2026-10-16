@@ -31,6 +31,29 @@ set -eu
 image=$1
 skill=$2
 config=$(pwd)/config
+# Marks the install container, so a later run can tell one is still going.
+label=labs-hermes.install-skill
+
+# A run killed between the two renames in the container leaves the previous
+# skills in config/.skills.old, no config/skills, and its lock. With no
+# install running, put them back and drop the stale lock. With config/skills
+# there too, say so rather than pick one.
+if [ -d "$config/.skills.old" ]; then
+    running=$(docker ps -q --filter "label=$label") \
+        || { echo "Could not list running containers to check for another install." >&2; exit 1; }
+    if [ -n "$running" ]; then
+        echo "Another skill install is running. Try again once it has finished." >&2
+        exit 75
+    fi
+    if [ -d "$config/skills" ]; then
+        echo "config/.skills.old is left from an interrupted install, next to config/skills." >&2
+        echo "Keep the one you want, delete the other and config/.skills.lock, then try again." >&2
+        exit 1
+    fi
+    mv "$config/.skills.old" "$config/skills"
+    rmdir "$config/.skills.lock" 2>/dev/null || true
+    echo "Restored config/skills from an interrupted install." >&2
+fi
 
 [ -d "$config/skills" ] || { echo "No config/skills here. Run this from the project root." >&2; exit 1; }
 
@@ -75,7 +98,7 @@ mv "$src/skills" "$old"
 mv "$new" "$src/skills"
 '
 
-docker run -i $tty_flag --rm --user 0:0 \
+docker run -i $tty_flag --rm --user 0:0 --label "$label" \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
     -v "$config:/host-config" \
     --entrypoint /bin/sh "$image" -c "$inner" sh "$skill"
