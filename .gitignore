@@ -66,3 +66,13 @@ __pycache__/
 config/.skills.new/
 config/.skills.old/
 config/.skills.lock/
+
+# Hermes' own state, written into config/skills by `hermes skills install`
+# (scripts/install-skill.sh) and rebuilt by a running Hermes: usage counters,
+# its audit log and caches. The new skill and .hub/lock.json are what to commit.
+config/skills/.usage.json
+config/skills/.usage.json.lock
+config/skills/.hub/audit.log
+config/skills/.hub/index-cache/
+config/skills/.hub/quarantine/
+config/skills/.hub/scan-cache/
