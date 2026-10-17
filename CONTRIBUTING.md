@@ -13,16 +13,23 @@ Contribute on GitHub. The GitLab project is a read-only mirror of the GitHub rep
 
 ## Maintain the GitLab mirror
 
-The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. Maintainers set it up once and renew its token before the token expires.
+The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. It pushes over SSH with a deploy key, because GitLab Free doesn't offer project access tokens. A deploy key reaches this one project only. Maintainers set it up once and replace it before it expires.
 
 To set up the mirror, complete the following steps.
 
-1. In the GitLab project, go to **Settings > Access tokens**, and create a project access token with the Maintainer role and the `write_repository` scope. Set the longest expiry that GitLab allows.
-2. In the GitHub repository, go to **Settings > Environments**, and create the environment `gitlab-mirror`. Limit its deployment branches and tags to `main` and `v*`.
-3. Add the token to that environment as the secret `GITLAB_MIRROR_TOKEN`.
-4. Run the workflow with **Run workflow**, and check that the GitLab project shows the same commit as `main`.
+1. In an empty folder on your machine, generate the key pair:
 
-The weekly run fails once the token expires. To renew it, repeat steps 1 and 3.
+   ```sh
+   ssh-keygen -t ed25519 -N "" -C github-mirror -f mirror-key
+   ```
+
+2. In the GitLab project, go to **Settings > Repository > Deploy keys**, and select **Add new key**. Paste the contents of `mirror-key.pub`, select **Grant write permissions to this key**, and set an expiration date.
+3. Go to **Settings > Repository > Branch rules**, and open the details of `main`. In **Allowed to push and merge**, select **Edit**, add the deploy key under **Deploy keys**, and save.
+4. In the GitHub repository, go to **Settings > Environments**, and create the environment `gitlab-mirror`. Limit its deployment branches and tags to `main` and `v*`. Add the contents of `mirror-key`, the private half, as the environment secret `GITLAB_MIRROR_KEY`.
+5. Delete `mirror-key` and `mirror-key.pub` from your machine.
+6. Run the workflow with **Run workflow**, and check that the GitLab project shows the same commit as `main`.
+
+The weekly run fails once the key expires. To replace it, repeat the steps with a new key, and remove the old key from GitLab. The key can push only while the person who added it keeps access to the GitLab project, so replace it when that person leaves.
 
 The push is a fast-forward, so a commit made directly on the GitLab default branch makes every later run fail. To recover, remove that commit from GitLab, which needs a temporary **Allow force push** on the protected branch, and run the workflow again.
 

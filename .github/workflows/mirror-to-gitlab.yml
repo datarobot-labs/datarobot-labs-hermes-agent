@@ -21,7 +21,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-  # A weekly run reports an expired token even when nobody pushes.
+  # A weekly run reports an expired key even when nobody pushes.
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
     if: ${{ github.repository == 'datarobot-labs/datarobot-labs-hermes-agent' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Holds the token, and only main and the v* tags can read it.
+    # Holds the deploy key, and only main and the v* tags can read it.
     environment: gitlab-mirror
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -49,5 +49,5 @@ jobs:
           persist-credentials: false
       - name: Push main and the tags to GitLab
         env:
-          GITLAB_MIRROR_TOKEN: ${{ secrets.GITLAB_MIRROR_TOKEN }}
-        run: scripts/mirror-to-gitlab.sh https://gitlab.com/datarobot-labs/datarobot-labs-hermes-agent.git
+          GITLAB_MIRROR_KEY: ${{ secrets.GITLAB_MIRROR_KEY }}
+        run: scripts/mirror-to-gitlab.sh git@gitlab.com:datarobot-labs/datarobot-labs-hermes-agent.git
