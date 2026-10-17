@@ -1,0 +1,25 @@
+{
+  "title": "Hermes on DataRobot",
+  "subtitle": "System view",
+  "theme": "light",
+  "roles": {
+    "e21": "core",
+    "e1": "hide"
+  },
+  "labels": {
+    "e15": "DataRobot Gateway\n~Access via DataRobot sharing",
+    "e21": "Hermes Agent\n~Container workload",
+    "e23": "datarobot-sync\n~State sync sidecar",
+    "e25": "Credentials Store\n~App secrets",
+    "e29": "Observability\n~Tracing",
+    "e8": "GitHub / GitLab\n~Repo + pipeline",
+    "e43": "env vars",
+    "e48": "LLM calls"
+  },
+  "rewire": {
+    "e43": {
+      "from": "e25",
+      "to": "e17"
+    }
+  }
+}

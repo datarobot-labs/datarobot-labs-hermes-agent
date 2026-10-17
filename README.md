@@ -1,15 +1,34 @@
-# Hermes on DataRobot
+# Hermes Agent on DataRobot
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture-dark.png">
+  <img alt="Hermes Agent on DataRobot system view: users reach the Hermes Agent through the DataRobot Gateway, and CI/CD deploys it as a workload." src="docs/architecture.png">
+</picture>
 
 > [!NOTE]
 > Experimental and community maintained. Not an officially supported DataRobot product, and provided as is with no support commitment.
 
-This repository packages [Hermes Agent](https://github.com/NousResearch/hermes-agent), an autonomous agent,
-as a container image and deploys it as a DataRobot workload. It runs on
-DataRobot's LLM gateway, serves a web UI on the workload's endpoint, can join
-Slack as a bot, and carries tools for coding, git and working with DataRobot
-itself.
+Autonomy where it pays off. Control where it counts.
+
+A long-running, autonomous agent remembers last Tuesday and acts while you're away. That takes controls a one-shot pipeline never needed. This repository runs [Hermes Agent](https://github.com/NousResearch/hermes-agent), an open, long-running agent, as a DataRobot workload, inside a perimeter that supplies them. Read the thinking behind it in [Autonomous Agents with Control](https://labs.datarobot.com/blog/persistent-autonomous-agents/).
+
+You get a Hermes Agent with a web UI on the workload's endpoint, an optional Slack bot, and tools for coding, git and working with DataRobot itself, on DataRobot's LLM gateway.
 
 Hermes Agent is a project of Nous Research. This repository is not affiliated with or endorsed by Nous Research.
+
+## The controls
+
+Built on the Agent Workforce Platform, in three groups.
+
+**Build efficiently anywhere.** Hermes Agent runs unmodified: bring any framework. It calls models through the DataRobot LLM gateway, so there are no provider API keys to manage. The toolchain in the image is pinned and checksummed.
+
+**Operate consistently everywhere.** The agent runs as a workload with a stable endpoint and a `/health` readiness probe. Sessions and memory survive restarts: [datarobot-sync](https://datarobot-labs.github.io/datarobot-sync/) restores them on boot and uploads them on a timer and at shutdown, keeping earlier generations you can inspect and roll back to. See [Persisting state across restarts](docs/ARCHITECTURE.md#persisting-state-across-restarts).
+
+**Govern from day one.**
+
+- *Credentials.* Secrets live as DataRobot credentials, never in the image or the repo. The workload gets a key of its own from the platform, not yours. On GitHub it acts as its own GitHub App, with installation tokens that last about an hour, instead of a personal token.
+- *Tracing.* OpenTelemetry traces of model calls, tool calls and API requests go to DataRobot. See [Exporting traces to DataRobot](docs/ARCHITECTURE.md#exporting-traces-to-datarobot).
+- *Access.* The web UI sits behind the DataRobot login, so the platform decides who gets in and there is no second user database. Slack is gated separately, by an allow-list of user IDs that blocks everyone when it's empty. Both reach the same agent and the same memory.
 
 ## Deploy your own
 
@@ -24,7 +43,7 @@ Then, from a clone of this repo:
 
 ```sh
 dr start
-dr run deploy
+dr workload up
 ```
 
 **`dr start`** sets up the clone, and is safe to re-run:
@@ -37,15 +56,11 @@ dr run deploy
   stored as DataRobot credentials rather than in the file. Your own API token
   isn't one of them: the workload gets a key of its own from the platform.
 
-**`dr run deploy`** runs `dr workload up`: it uploads the repo, DataRobot builds
-the image (a few minutes the first time) and starts the workload, and later
-deploys roll out only what changed. Add `-- --dry-run` to preview a deploy.
-
-The first deploy is a draft, which DataRobot stops after 8 hours. Once it works, keep the workload running by deploying it with `--promote`:
-
-```sh
-dr run deploy -- --promote
-```
+**`dr workload up`** uploads the repo, DataRobot builds the image (a few
+minutes the first time) and starts the workload, and later deploys roll out
+only what changed. Add `--dry-run` to preview a deploy. `dr run deploy` is the
+same deploy, run through this repo's task, which first refuses a manifest that
+would give the workload your own token.
 
 To open the web UI, open the URL `dr workload endpoint` prints, with its
 trailing slash. To check that everything is healthy:
@@ -65,7 +80,7 @@ A clone can roll out its deployment on every push to `main`. The workflow [`depl
 
 CI never creates a workload. The first deploy runs on your machine, and the manifest it writes holds the workload ID that CI rolls from then on.
 
-1. Run the first deploy on your machine with `dr start` and `dr run deploy`, and keep the workload running as described in [Deploy your own](#deploy-your-own).
+1. Run the first deploy on your machine with `dr start` and `dr workload up`, as described in [Deploy your own](#deploy-your-own).
 2. Commit the manifest to a private repository. It holds your credential IDs and Slack channel, and git ignores it by default, so add it with `-f`:
 
    ```sh
@@ -114,7 +129,7 @@ Each deployment needs its own Slack app, or two bots answer every message.
 
    ```sh
    dr run env
-   dr run deploy
+   dr workload up
    ```
 
 Slack needs no inbound URL: the bot connects out over Socket Mode.
@@ -127,7 +142,7 @@ and deploy:
 ```sh
 dr run install:official/creative/ascii-art      # one of Hermes' optional skills
 dr run install:<owner>/<repo>/<path>            # a skill on GitHub
-dr run deploy
+dr workload up
 ```
 
 `install` runs `hermes skills install` in the pinned Hermes image, so it needs
@@ -151,13 +166,13 @@ deploy:
 
 ```sh
 dr run env
-dr run deploy
+dr workload up
 ```
 
 Use `dr run env` rather than `dr workload config --sync-env` or
 `dr workload up --sync-env`: those copy every name in `.env` into the
 workload, your own `DATAROBOT_API_TOKEN` included, in place of the workload's
-own key. `dr run deploy` refuses `--sync-env` for that reason.
+own key. Don't pass `--sync-env`; `dr run deploy` refuses it.
 
 Settings you might change:
 
@@ -176,7 +191,7 @@ dr run doctor                  # is everything healthy?
 dr workload logs --follow      # container logs
 dr workload status             # running, stopped, ...
 dr workload stop               # and start
-dr run deploy                  # ship what changed
+dr workload up                 # ship what changed
 dr task list --all             # every task this repo defines
 ```
 

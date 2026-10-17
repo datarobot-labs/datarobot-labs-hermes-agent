@@ -1,4 +1,4 @@
-# How labs-hermes works
+# How Hermes Agent on DataRobot works
 
 [README.md](../README.md) covers deploying and operating the agent. This page
 explains how the image is put together and why, for when you need to change it.
@@ -70,7 +70,7 @@ default in the Dockerfile. `LLM_BASE_URL`, unless set, is derived at boot from
   `hermes config set` on every boot.
 
 To point at a different `chat_completions` gateway, set the relevant vars in
-`.env`, `LLM_API_KEY` included, then `dr run env` and `dr run deploy` — no
+`.env`, `LLM_API_KEY` included, then `dr run env` and `dr workload up` — no
 edits to `config.yaml` needed.
 
 One URL is still a literal: the `datarobot` MCP server in `config/config.yaml`
@@ -123,7 +123,7 @@ one. Hermes reads these keys straight from the real environment
 `SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` — there is no config file entry for it.
 
 To rotate a secret: change it in `./.env`, then `dr run env` (it re-sends the
-credentials behind the secrets) and `dr run deploy`.
+credentials behind the secrets) and `dr workload up`.
 
 ## Running under the Workload API's constraints
 
@@ -169,10 +169,10 @@ Three changes fix it:
 ## Persisting state across restarts
 
 `$HERMES_HOME` lives on `/tmp`, so a restart would otherwise lose every
-session, memory and `state.db` (see above). [`dr-sync`](https://github.com/datarobot/datarobot-sync)
-— a single static Go binary, vendored under `vendor/dr-sync/` and `COPY`'d
-into the image — mirrors `$HERMES_HOME` against a DataRobot Files API
-container instead:
+session, memory and `state.db` (see above). [datarobot-sync](https://datarobot-labs.github.io/datarobot-sync/)
+(the `dr-sync` binary) — a single static Go binary, downloaded into the image at
+build time — mirrors `$HERMES_HOME` against a DataRobot Files API container
+instead:
 
 - **On boot**, `docker/entrypoint.sh` logs a `[entrypoint] boot <utc> host=<pod>`
   line, then runs `dr-sync download "$HERMES_HOME"` before starting the
@@ -230,7 +230,7 @@ dr sync init --name "hermes-workload-state"
 ```
 
 Then add `DR_SYNC_CATALOG_ID=<id>` to `.env`, and run `dr run env` and
-`dr run deploy`. `dr-sync` also uses `DATAROBOT_ENDPOINT` and
+`dr workload up`. datarobot-sync also uses `DATAROBOT_ENDPOINT` and
 `DATAROBOT_API_TOKEN`, which the workload already has.
 
 Never point a local `.env` at the production container: a local
@@ -251,28 +251,6 @@ dr sync ls --long --catalog-id "$DR_SYNC_CATALOG_ID" --prefix sessions
 # Roll a bad overwrite back: restore an older generation into a scratch dir
 # first, look at it, then (with the workload stopped) into the real one.
 dr sync download --catalog-id "$DR_SYNC_CATALOG_ID" --generation <N> /some/empty/dir
-```
-
-### Why `dr-sync` is vendored instead of downloaded
-
-Every other pinned tool in the Dockerfile (`gh`, `glab`, `pulumi`, ...) is
-`curl`'d from a public release during the build. `dr-sync` can't be: its repo,
-`datarobot/datarobot-sync`, is **private**, and the server-side image build
-has no GitHub credentials to fetch a release asset with — that `curl` 404s
-with no hint why. Its other two distribution channels (the `ghcr.io` image,
-the `dr` plugin tarball) are the same private org and fail the same way.
-
-So the two Linux binaries live in the repo, unversioned, at
-`vendor/dr-sync/linux_amd64/dr-sync` and `vendor/dr-sync/linux_arm64/dr-sync`
-— the Dockerfile just `COPY`s the one matching `TARGETARCH`.
-`vendor/dr-sync/VERSION` records which release they came from, since the
-binaries themselves don't carry that in their path or filename.
-
-To bump to the latest release (needs `gh` authenticated against the
-`datarobot` org):
-
-```sh
-task vendor:dr-sync
 ```
 
 ## Exporting traces to DataRobot
@@ -301,7 +279,7 @@ secret — so it can never be written into a config file that lands in a git
 commit or an image layer, the same rule the "Secrets" section above applies
 to every credential.
 
-The fix is the same shape as `dr-sync`'s and the LLM gateway's: bake a
+The fix is the same shape as datarobot-sync's and the LLM gateway's: bake a
 *template*, `config/hermes_otel.yaml.tmpl`, into the seed, and have
 `docker/entrypoint.sh` render it into the real `$HERMES_HOME/hermes_otel.yaml`
 on every boot via `envsubst`. Export is **on by default**: the entrypoint

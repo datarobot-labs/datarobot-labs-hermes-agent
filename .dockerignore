@@ -12,7 +12,6 @@
 !config/.drsyncignore
 !config/hermes_otel.yaml.tmpl
 !config/requirements.txt
-!vendor/
 
 # Secrets are injected as workload environment variables, never baked.
 config/.env

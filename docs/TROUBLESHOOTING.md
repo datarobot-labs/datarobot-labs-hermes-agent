@@ -32,7 +32,7 @@ already exists ... keeps PLACEHOLDER ... a deploy will refuse that.
 ```
 
 and `.datarobot.yaml` has `value: dr-credential:PLACEHOLDER/apiToken`.
-`dr run deploy` refuses to run until it's fixed.
+`dr workload up` refuses to deploy it until it's fixed.
 
 **Why.** `dr workload config` names each secret's credential
 `<workload name>/<VARIABLE>`. Credentials live server-side, not in the repo,
@@ -61,7 +61,7 @@ this. Fix it with:
 
 ```sh
 dr run env
-dr run deploy
+dr workload up
 ```
 
 `dr run env` lists `DATAROBOT_API_TOKEN` as removed and then puts the
@@ -85,16 +85,8 @@ workload's key with your token. To bring other `.env` changes over, use
 
 ## HTTP 502 right after a deploy
 
-The gateway is still booting. It takes a minute or two after `dr run deploy`
+The gateway is still booting. It takes a minute or two after `dr workload up`
 reports the endpoint; `dr run doctor` shows when `/health` turns 200.
-
-## The workload stopped after 8 hours
-
-A deploy that isn't promoted is a draft, and DataRobot stops drafts after 8 hours. Once the workload works, keep it by deploying with `--promote`:
-
-```sh
-dr run deploy -- --promote
-```
 
 ## `Readiness probe failing: HTTP 401` in the logs
 
@@ -128,7 +120,7 @@ booting.
 - **Nobody is allowed.** An empty `SLACK_ALLOWED_USERS` blocks everyone; it is
   not "allow all". List user ids, or set `GATEWAY_ALLOW_ALL_USERS=true` to let
   the whole workspace in. Re-run `dr dotenv setup` to change it, then
-  `dr run env` and `dr run deploy`.
+  `dr run env` and `dr workload up`.
 - **The app token is missing a scope.** `SLACK_APP_TOKEN` (`xapp-...`) needs
   `connections:write`, or Socket Mode can't connect. Look for a WebSocket
   connect line in `dr workload logs`.
@@ -173,4 +165,4 @@ dr start
 
 `--purge` also removes the credentials the project created, its draft artifact, and the local sync state in `.datarobot/workload/`. Without it, the next deploy under the same name gets `PLACEHOLDER` credentials.
 
-A promoted artifact is locked, and DataRobot refuses to delete a locked artifact. `--purge` keeps it, keeps the credentials it uses, and `dr` names them. A credential that another project created also stays. After a purge that kept credentials, the next deploy under the same name gets `PLACEHOLDER` credentials too. Don't delete the kept credentials: the locked artifact or the other project still uses them. Reuse them as in option 1 of [PLACEHOLDER credentials](#placeholder-credentials), or deploy under another name with `WORKLOAD_NAME=hermes-<something> dr start`.
+A locked artifact (`--lock`) can't be deleted: DataRobot refuses to delete a locked artifact. `--purge` keeps it, keeps the credentials it uses, and `dr` names them. A credential that another project created also stays. After a purge that kept credentials, the next deploy under the same name gets `PLACEHOLDER` credentials too. Don't delete the kept credentials: the locked artifact or the other project still uses them. Reuse them as in option 1 of [PLACEHOLDER credentials](#placeholder-credentials), or deploy under another name with `WORKLOAD_NAME=hermes-<something> dr start`.
