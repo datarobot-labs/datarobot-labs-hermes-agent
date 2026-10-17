@@ -96,9 +96,9 @@ CI never creates a workload. The first deploy runs on your machine, and the mani
 
 The `.env` file stays on your machine. To change a setting, run `dr run env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment.
 
-If the new version never passes its `/health` readiness check, `dr workload up` fails the job and the version already serving keeps serving; `dr run doctor` checks the live endpoint from outside. To see the plan on pull requests without deploying, run the action with `dry_run: "true"`, as in its [plan-and-apply example](https://github.com/datarobot-oss/workload-deploy-github/blob/11f728fce23b7121f1e5dd8866961204ff6b4d95/examples/plan-and-apply.yml).
+If the new version never passes its `/health` readiness check, `dr workload up` fails the job and the version already serving keeps serving; `dr run doctor` checks the live endpoint from outside. To see the plan on pull requests without deploying, run the action with `dry_run: "true"`, as in its [plan-and-apply example](https://github.com/datarobot-oss/workload-deploy-github/blob/ef184a69a02243bdeda2dd0fa354930a1902ec30/examples/plan-and-apply.yml).
 
-GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it.
+GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it. The action runs the DataRobot CLI from a container image, so the runner must be Linux with Docker.
 
 ### Fix a failed deploy job
 
