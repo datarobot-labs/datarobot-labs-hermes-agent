@@ -6,7 +6,9 @@ The GitHub equivalent is the `deploy.yml` workflow, described in the "Deploying 
 
 ## Use the GitLab project as a mirror
 
-The GitLab project is a read-only mirror of the GitHub repository. It carries the code, not the issues or the pull requests. Open issues and pull requests on GitHub. A commit made directly on the default branch of the mirror blocks every later sync.
+The GitLab project is a read-only mirror of the GitHub repository. It carries the code, not the issues or the pull requests. Open issues and pull requests on GitHub.
+
+The workflow [`mirror-to-gitlab.yml`](../.github/workflows/mirror-to-gitlab.yml) pushes `main` and the `v*` tags to the mirror on every push to `main`, on every `v*` tag, and once a week. The push is a fast-forward and never forces, so a commit made directly on the default branch of the mirror makes every later push fail. For the setup, see "Maintain the GitLab mirror" in [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 To deploy, create your own private GitLab project from this code. The mirror itself never deploys, because it doesn't set the variable that turns the pipeline on.
 

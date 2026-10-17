@@ -11,6 +11,21 @@ Guidelines for developing and contributing to this project.
 
 Contribute on GitHub. The GitLab project is a read-only mirror of the GitHub repository, so open issues and pull requests there.
 
+## Maintain the GitLab mirror
+
+The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. Maintainers set it up once and renew its token before the token expires.
+
+To set up the mirror, complete the following steps.
+
+1. In the GitLab project, go to **Settings > Access tokens**, and create a project access token with the Maintainer role and the `write_repository` scope. Set the longest expiry that GitLab allows.
+2. In the GitHub repository, go to **Settings > Environments**, and create the environment `gitlab-mirror`. Limit its deployment branches and tags to `main` and `v*`.
+3. Add the token to that environment as the secret `GITLAB_MIRROR_TOKEN`.
+4. Run the workflow with **Run workflow**, and check that the GitLab project shows the same commit as `main`.
+
+The weekly run fails once the token expires. To renew it, repeat steps 1 and 3.
+
+The push is a fast-forward, so a commit made directly on the GitLab default branch makes every later run fail. To recover, remove that commit from GitLab, which needs a temporary **Allow force push** on the protected branch, and run the workflow again.
+
 ## Running the tests
 
 Run `task test` (needs only Docker) before you open a pull request. See the "Tests" section of the [README](README.md).
