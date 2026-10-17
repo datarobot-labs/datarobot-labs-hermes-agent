@@ -28,7 +28,7 @@ The push is a fast-forward, so a commit made directly on the GitLab default bran
 
 ## Running the tests
 
-Run `task test` (needs only Docker) before you open a pull request. See the "Tests" section of the [README](README.md).
+Run `task test` (needs only Docker) before you open a pull request. See the "Tests" section of the [README](README.md). If the pull request changes a file under `.github`, also run `task lint:workflows`, which audits the workflows with [zizmor](https://docs.zizmor.sh/) and [actionlint](https://github.com/rhysd/actionlint). To include the zizmor audits that query GitHub, run it with `GH_TOKEN` set.
 
 The files listed under `paths` in `.licenserc.yaml` start with the Apache 2.0 header. CI checks it with [SkyWalking Eyes](https://github.com/apache/skywalking-eyes). To run it locally, install it with `go install github.com/apache/skywalking-eyes/cmd/license-eye@v0.9.0`, then run `license-eye -c .licenserc.yaml header fix` to add a missing header.
 

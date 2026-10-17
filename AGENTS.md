@@ -25,6 +25,8 @@ task lint
 
 `task test` needs only Docker. It runs the bats suite in a pinned tools image, as uid 1000 on a read-only root, which is how the workload runs. `task lint` runs shellcheck on the scripts.
 
+When you change anything under `.github`, also run `task lint:workflows`. It audits the workflows with zizmor and actionlint, and CI runs the same task.
+
 When you change a deploy pipeline, a pin, or a rule that keeps secrets out of the repository, update the matching test in `tests/static.bats`. Those tests are the contract.
 
 ## Follow these conventions

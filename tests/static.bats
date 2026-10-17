@@ -73,7 +73,7 @@ upload_set() {
 
 @test "YAML and JSON files parse" {
     cd /repo
-    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .gitlab-ci.yml \
+    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .github/zizmor.yml .gitlab-ci.yml \
             .datarobot/cli/versions.yaml .datarobot/cli/prompts.yaml; do
         python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"
     done
@@ -363,6 +363,36 @@ PY
 
 @test "the GitLab pipeline pins the deploy component to a full commit SHA" {
     run grep -E '^  - component: .*/datarobot-oss/workload-deploy/deploy@[0-9a-f]{40}$' /repo/.gitlab-ci.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the workflow lint runs zizmor and actionlint from images pinned by digest, through the task" {
+    run grep -E '^      ZIZMOR: ghcr\.io/zizmorcore/zizmor@sha256:[0-9a-f]{64}$' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -E '^      ACTIONLINT: rhysd/actionlint@sha256:[0-9a-f]{64}$' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -F 'run: task lint:workflows' /repo/.github/workflows/workflow-lint.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "every Dependabot ecosystem waits at least a week for a release to age" {
+    run python3 - /repo/.github/dependabot.yml <<'PY'
+import sys, yaml
+for update in yaml.safe_load(open(sys.argv[1]))["updates"]:
+    days = update.get("cooldown", {}).get("default-days", 0)
+    assert days >= 7, f"{update['package-ecosystem']} {update['directory']} waits {days} days"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the zizmor ignores name only the shared Review Router workflow" {
+    run python3 - /repo/.github/zizmor.yml <<'PY'
+import sys, yaml
+rules = yaml.safe_load(open(sys.argv[1]))["rules"]
+assert rules, "no ignores, so this file is not needed"
+for rule, settings in rules.items():
+    assert settings["ignore"] == ["review-router.yml"], f"{rule} ignores {settings['ignore']}"
+PY
     [ "$status" -eq 0 ]
 }
 
