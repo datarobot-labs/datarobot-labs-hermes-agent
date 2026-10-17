@@ -186,15 +186,10 @@ mirror() {
     mirror
     [ "$status" -ne 0 ]
     [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
-
-    # Bash ignores `set -e` in a command that sits before `||`, which sh here does not,
-    # so the script's own check has to stop it.
-    run bash -c 'cd "$1" && bash /repo/scripts/mirror-to-gitlab.sh "$2"' _ "$CLONE" "$REMOTE"
-    [ "$status" -ne 0 ]
-    [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
+    [ "$(git -C "$CLONE" tag --list v1.0.0)" = v1.0.0 ]
 }
 
-@test "fails on a tag the clone lacks, and deletes nothing from GitLab" {
+@test "fetches a tag the clone lacks, and keeps it on GitLab" {
     tag_on_github v1.0.0
     mirror
     [ "$status" -eq 0 ]
@@ -204,9 +199,32 @@ mirror() {
     commit_on_github second
 
     mirror
-    [ "$status" -ne 0 ]
-    [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
-    [ "$(git -C "$GITLAB" rev-parse main)" != "$(git -C "$CLONE" rev-parse origin/main)" ]
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$GITLAB" rev-parse v1.0.0)" = "$(git -C "$GITHUB" rev-parse v1.0.0)" ]
+    [ "$(git -C "$GITLAB" rev-parse main)" = "$(git -C "$CLONE" rev-parse origin/main)" ]
+}
+
+@test "mirrors a tag that GitHub recreated after the checkout at its new commit" {
+    commit_on_github second
+    git -C "$CLONE" tag v1.0.0 HEAD~1
+
+    # The clone still holds v1.0.0 at the old commit when GitHub moves the tag.
+    git -C "$CLONE" push -q origin v1.0.0
+    git -C "$CLONE" push -q origin :refs/tags/v1.0.0
+    git -C "$CLONE" push -q origin HEAD:refs/tags/v1.0.0
+
+    mirror
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$GITLAB" rev-parse v1.0.0)" = "$(git -C "$GITHUB" rev-parse v1.0.0)" ]
+    [ "$(git -C "$GITLAB" rev-parse v1.0.0)" = "$(git -C "$CLONE" rev-parse HEAD)" ]
+}
+
+@test "does not push a v tag that only the clone has" {
+    git -C "$CLONE" tag v9.9.9
+
+    mirror
+    [ "$status" -eq 0 ]
+    [ -z "$(git -C "$GITLAB" tag --list v9.9.9)" ]
 }
 
 @test "fails without a key, and pushes nothing" {
@@ -254,7 +272,8 @@ mirror() {
 }
 
 @test "the push never forces, deletes, or mirrors, and it is atomic" {
-    run grep -nE -e '--force|--mirror|--prune|--delete|(^|[[:space:]])\+refs' /repo/scripts/mirror-to-gitlab.sh
+    # The forced, pruning fetch only rewrites the local copies of origin's v tags.
+    run sh -c "grep -v '^git fetch' /repo/scripts/mirror-to-gitlab.sh | grep -nE -e '--force|--mirror|--prune|--delete|(^|[[:space:]])\+refs'"
     [ "$status" -ne 0 ]
     grep -q -e '--atomic' /repo/scripts/mirror-to-gitlab.sh
 }
