@@ -1,0 +1,48 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Rolls the workload that the committed .datarobot.yaml names. Off until a
+# clone sets the CI/CD variable DEPLOY_TO_DATAROBOT to true, so this project
+# and every fresh clone or fork skip it and start no pipeline. It runs only on
+# the default branch. docs/GITLAB.md has the setup.
+stages:
+  - check
+  - deploy
+
+include:
+  # The component pins the DataRobot CLI and runs `dr workload up`. The commit
+  # is the release 2.0.0 of datarobot-oss/workload-deploy.
+  - component: $CI_SERVER_FQDN/datarobot-oss/workload-deploy/deploy@0c6bce5f5af5436b2584a2ae9ac46386ced5c3c4
+    inputs:
+      environment: datarobot
+      rules:
+        - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      # GitLab rejects a pipeline that has the deploy job but not its stop job,
+      # so the stop job follows the same gate. It stays a manual job.
+      stop_rules:
+        - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+          when: manual
+
+# The same check `dr run deploy` makes: the workload keeps its own API key,
+# never the token of whoever wrote the manifest.
+check-manifest:
+  stage: check
+  image: alpine:3.21
+  rules:
+    - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      exists:
+        - .datarobot.yaml
+  script:
+    - apk add --no-cache bash >/dev/null
+    - bash scripts/workload-config.sh --check

@@ -100,6 +100,8 @@ If the new version never passes its `/health` readiness check, `dr workload up` 
 
 GitHub-hosted runners reach `app.datarobot.com`. For an install on a private network, run the job on a self-hosted runner that reaches it. The action runs the DataRobot CLI from a container image, so the runner must be Linux with Docker.
 
+To deploy from GitLab CI/CD instead, see [Deploy from GitLab CI/CD](docs/GITLAB.md).
+
 ### Fix a failed deploy job
 
 The deploy job fails with one of these messages when the manifest is missing or unsafe:

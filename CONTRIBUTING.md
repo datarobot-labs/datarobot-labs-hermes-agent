@@ -7,6 +7,10 @@ Guidelines for developing and contributing to this project.
 - [Andrii Kislitsyn](https://github.com/andriykislitsyn)
 - [Carson Gee](https://github.com/carsongee)
 
+## Where to contribute
+
+Contribute on GitHub. The GitLab project is a read-only mirror of the GitHub repository, so open issues and pull requests there.
+
 ## Running the tests
 
 Run `task test` (needs only Docker) before you open a pull request. See the "Tests" section of the [README](README.md).

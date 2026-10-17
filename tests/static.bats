@@ -73,7 +73,7 @@ upload_set() {
 
 @test "YAML and JSON files parse" {
     cd /repo
-    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml \
+    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .gitlab-ci.yml \
             .datarobot/cli/versions.yaml .datarobot/cli/prompts.yaml; do
         python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"
     done
@@ -340,6 +340,40 @@ PY
     [ -n "$check" ]
     [ -n "$deploy" ]
     [ "$check" -lt "$deploy" ]
+}
+
+@test "the GitLab pipeline starts no job unless DEPLOY_TO_DATAROBOT is true on the default branch" {
+    run python3 - /repo/.gitlab-ci.yml <<'PY'
+import sys, yaml
+pipeline = yaml.safe_load(open(sys.argv[1]))
+inputs = pipeline["include"][0]["inputs"]
+rules = list(inputs["rules"]) + list(inputs["stop_rules"])
+jobs = {name: job for name, job in pipeline.items() if name not in ("stages", "include")}
+assert jobs, "no job of its own to gate"
+for name, job in jobs.items():
+    assert job.get("rules"), f"{name} has no rules, so it runs on every pipeline"
+    rules += job["rules"]
+for rule in rules:
+    condition = rule.get("if", "")
+    for needed in ('$DEPLOY_TO_DATAROBOT == "true"', "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"):
+        assert needed in condition, f"rule {rule} lacks {needed}"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the GitLab pipeline pins the deploy component to a full commit SHA" {
+    run grep -E '^  - component: .*/datarobot-oss/workload-deploy/deploy@[0-9a-f]{40}$' /repo/.gitlab-ci.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the GitLab pipeline checks the manifest in a stage before the deploy stage" {
+    run python3 - /repo/.gitlab-ci.yml <<'PY'
+import sys, yaml
+pipeline = yaml.safe_load(open(sys.argv[1]))
+stages = pipeline["stages"]
+assert stages.index(pipeline["check-manifest"]["stage"]) < stages.index("deploy"), stages
+PY
+    [ "$status" -eq 0 ]
 }
 
 @test "the dr pinned in the image is at least the minimum that dr start enforces" {
