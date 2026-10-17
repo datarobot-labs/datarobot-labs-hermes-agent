@@ -43,4 +43,8 @@ jobs:
         with:
           version: 3.54.0
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # The token turns on zizmor's online audits, such as impostor commits,
+      # known-vulnerable actions, and a version comment that doesn't match its pin.
       - run: task lint:workflows
+        env:
+          GH_TOKEN: ${{ github.token }}

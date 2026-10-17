@@ -373,6 +373,9 @@ PY
     [ "$status" -eq 0 ]
     run grep -F 'run: task lint:workflows' /repo/.github/workflows/workflow-lint.yml
     [ "$status" -eq 0 ]
+    # The token enables zizmor's online audits, which found a wrong version comment the offline run missed.
+    run grep -F 'GH_TOKEN: ${{ github.token }}' /repo/.github/workflows/workflow-lint.yml
+    [ "$status" -eq 0 ]
 }
 
 @test "every Dependabot ecosystem waits at least a week for a release to age" {
