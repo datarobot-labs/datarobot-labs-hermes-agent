@@ -13,7 +13,7 @@ Contribute on GitHub. The GitLab project is a read-only mirror of the GitHub rep
 
 ## Maintain the GitLab mirror
 
-The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. It pushes over SSH with a deploy key, because GitLab Free doesn't offer project access tokens. A deploy key reaches this one project only. Maintainers set it up once and replace it before it expires.
+The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. A `v*` tag that GitHub no longer has is deleted from GitLab, and no other branch or tag is touched. The workflow runs on pushes to `main`, once a week, and by hand, and never on a tag push, because a tag run would give the deploy key to whatever code the tag points at. A new tag reaches GitLab with the next of those runs, so after you tag a release, run the workflow from `main`. It pushes over SSH with a deploy key, because GitLab Free doesn't offer project access tokens. A deploy key reaches this one project only. Maintainers set it up once and replace it before it expires.
 
 To set up the mirror, complete the following steps.
 
@@ -25,7 +25,7 @@ To set up the mirror, complete the following steps.
 
 2. In the GitLab project, go to **Settings > Repository > Deploy keys**, and select **Add new key**. Paste the contents of `mirror-key.pub`, select **Grant write permissions to this key**, and set an expiration date.
 3. Go to **Settings > Repository > Branch rules**, and open the details of `main`. In **Allowed to push and merge**, select **Edit**, add the deploy key under **Deploy keys**, and save.
-4. In the GitHub repository, go to **Settings > Environments**, and create the environment `gitlab-mirror`. Limit its deployment branches and tags to `main` and `v*`. Add the contents of `mirror-key`, the private half, as the environment secret `GITLAB_MIRROR_KEY`.
+4. In the GitHub repository, go to **Settings > Environments**, and create the environment `gitlab-mirror`. Limit its deployment branches and tags to the branch `main`, with no tag rule. Add the contents of `mirror-key`, the private half, as the environment secret `GITLAB_MIRROR_KEY`.
 5. Delete `mirror-key` and `mirror-key.pub` from your machine.
 6. Run the workflow with **Run workflow**, and check that the GitLab project shows the same commit as `main`.
 

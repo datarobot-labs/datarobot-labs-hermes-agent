@@ -57,6 +57,7 @@ cp "$known" "$STUB_SEEN/known_hosts"
 printf '%s\n' "$strict" > "$STUB_SEEN/strict"
 case "$1" in
     git-receive-pack*) exec sh -c "git receive-pack ${1#git-receive-pack}" ;;
+    git-upload-pack*) exec sh -c "git upload-pack ${1#git-upload-pack}" ;;
 esac
 echo "unexpected command: $1" >&2
 exit 1
@@ -92,12 +93,18 @@ commit_on_gitlab() {
     git -C "$WORK/gitlab-clone" push -q origin main
 }
 
+# Tags the clone's main and pushes the tag to the stand-in for GitHub.
+tag_on_github() {
+    git -C "$CLONE" tag "$1"
+    git -C "$CLONE" push -q origin "$1"
+}
+
 mirror() {
     run sh -c 'cd "$1" && /repo/scripts/mirror-to-gitlab.sh "$2"' _ "$CLONE" "$REMOTE"
 }
 
 @test "pushes main and the v tags to GitLab" {
-    git -C "$CLONE" tag v1.0.0
+    tag_on_github v1.0.0
 
     mirror
     [ "$status" -eq 0 ]
@@ -108,7 +115,7 @@ mirror() {
 @test "leaves other branches and tags without a v prefix on GitHub" {
     git -C "$CLONE" branch feature
     git -C "$CLONE" push -q origin feature
-    git -C "$CLONE" tag nightly
+    tag_on_github nightly
 
     mirror
     [ "$status" -eq 0 ]
@@ -133,12 +140,73 @@ mirror() {
     stray=$(git -C "$GITLAB" rev-parse main)
 
     commit_on_github second
-    git -C "$CLONE" tag v2.0.0
+    tag_on_github v2.0.0
 
     mirror
     [ "$status" -ne 0 ]
     [ "$(git -C "$GITLAB" rev-parse main)" = "$stray" ]
     [ -z "$(git -C "$GITLAB" tag --list v2.0.0)" ]
+}
+
+@test "removes a v tag from GitLab when GitHub no longer has it, and keeps the other v tags" {
+    tag_on_github v1.0.0
+    tag_on_github v1.1.0
+    mirror
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$GITLAB" tag --list 'v*' | wc -l)" -eq 2 ]
+
+    git -C "$CLONE" push -q origin :refs/tags/v1.0.0
+    git -C "$CLONE" tag -d v1.0.0 > /dev/null
+
+    mirror
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$GITLAB" tag --list 'v*')" = v1.1.0 ]
+}
+
+@test "never deletes a tag that is not a v tag, or a branch GitHub lacks" {
+    mirror
+    [ "$status" -eq 0 ]
+    git clone -q "$GITLAB" "$WORK/gitlab-clone" 2> /dev/null
+    git -C "$WORK/gitlab-clone" tag legacy
+    git -C "$WORK/gitlab-clone" push -q origin legacy
+    git -C "$WORK/gitlab-clone" push -q origin main:hotfix
+
+    mirror
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$GITLAB" tag --list legacy)" = legacy ]
+    [ -n "$(git -C "$GITLAB" branch --list hotfix)" ]
+}
+
+@test "deletes nothing when it can't list GitHub's tags" {
+    tag_on_github v1.0.0
+    mirror
+    [ "$status" -eq 0 ]
+
+    git -C "$CLONE" remote set-url origin "$WORK/no-such-repository.git"
+    mirror
+    [ "$status" -ne 0 ]
+    [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
+
+    # Bash ignores `set -e` in a command that sits before `||`, which sh here does not,
+    # so the script's own check has to stop it.
+    run bash -c 'cd "$1" && bash /repo/scripts/mirror-to-gitlab.sh "$2"' _ "$CLONE" "$REMOTE"
+    [ "$status" -ne 0 ]
+    [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
+}
+
+@test "fails on a tag the clone lacks, and deletes nothing from GitLab" {
+    tag_on_github v1.0.0
+    mirror
+    [ "$status" -eq 0 ]
+
+    # A clone made without its tags.
+    git -C "$CLONE" tag -d v1.0.0 > /dev/null
+    commit_on_github second
+
+    mirror
+    [ "$status" -ne 0 ]
+    [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
+    [ "$(git -C "$GITLAB" rev-parse main)" != "$(git -C "$CLONE" rev-parse origin/main)" ]
 }
 
 @test "fails without a key, and pushes nothing" {
@@ -204,9 +272,9 @@ workflow = yaml.safe_load(open(sys.argv[1]))
 on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
 job = workflow["jobs"]["mirror"]
 assert "github.repository ==" in job["if"], job["if"]
+assert "github.ref == 'refs/heads/main'" in job["if"], job["if"]
 assert job["environment"] == "gitlab-mirror", job["environment"]
-assert on["push"]["branches"] == ["main"], on["push"]
-assert on["push"]["tags"] == ["v*"], on["push"]
+assert on["push"] == {"branches": ["main"]}, "a tag push would run the tagged code with the key: " + str(on["push"])
 assert "schedule" in on, "no weekly run to report an expired key"
 assert "pull_request" not in on, "a pull request must not reach the key"
 push = [step for step in job["steps"] if "mirror-to-gitlab.sh" in step.get("run", "")]

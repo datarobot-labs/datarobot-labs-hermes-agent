@@ -15,12 +15,17 @@
 # Keeps the GitLab copy of this repository in step with it: main and the v*
 # tags, code only. It runs in this repository alone, so a clone skips it.
 # CONTRIBUTING.md, "Maintain the GitLab mirror", has the setup.
+#
+# It runs from main only, never on a tag push. A workflow that runs on a tag
+# runs the code in the tagged commit, and anyone who can push to the repository
+# can tag an unreviewed commit, so a tag run would hand the deploy key to that
+# code. A new tag reaches GitLab with the next push to main, the weekly run, or
+# a manual run.
 name: mirror-to-gitlab
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   # A weekly run reports an expired key even when nobody pushes.
   schedule:
     - cron: "17 6 * * 1"
@@ -37,10 +42,10 @@ concurrency:
 
 jobs:
   mirror:
-    if: ${{ github.repository == 'datarobot-labs/datarobot-labs-hermes-agent' }}
+    if: ${{ github.repository == 'datarobot-labs/datarobot-labs-hermes-agent' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Holds the deploy key, and only main and the v* tags can read it.
+    # Holds the deploy key, and only main can read it.
     environment: gitlab-mirror
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

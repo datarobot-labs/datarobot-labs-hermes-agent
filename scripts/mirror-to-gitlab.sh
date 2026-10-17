@@ -13,15 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pushes main and the v* tags of this clone to the GitLab copy over SSH, in one
-# atomic push. The push is a fast-forward and never forces, so a commit made
-# directly on the GitLab main makes it fail instead of overwriting that commit.
-# Every push sends the whole state, so a failed run is caught up by the next
-# one. Other branches stay on GitHub.
+# Makes the GitLab copy match this clone's origin: main and the v* tags, over
+# SSH, in one atomic push. Main moves by fast-forward and never by force, so a
+# commit made directly on the GitLab main makes the push fail instead of being
+# overwritten. A v* tag that origin no longer has is deleted from GitLab, and
+# nothing else is deleted: other branches and other tags stay as they are. Every
+# push sends the whole state, so a failed run is caught up by the next one.
 #
-# Run it in a clone that has every branch and tag, which `actions/checkout`
-# gives with `fetch-depth: 0`. GITLAB_MIRROR_KEY holds the private half of a
-# deploy key with write access, which GitLab allows to push to main.
+# Run it in a clone of origin that has every tag, which `actions/checkout` gives
+# with `fetch-depth: 0`. GITLAB_MIRROR_KEY holds the private half of a deploy key
+# with write access, which GitLab allows to push to main.
 #
 # Usage: GITLAB_MIRROR_KEY=PRIVATE_KEY scripts/mirror-to-gitlab.sh GITLAB_REPOSITORY_URL
 
@@ -48,6 +49,26 @@ printf '%s\n' 'gitlab.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAfuCHKVTjquxvt6CM
 # git runs this string through a shell, so the quotes keep a path with spaces whole.
 export GIT_SSH_COMMAND="ssh -i '$work/key' -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 -o UserKnownHostsFile='$work/known_hosts'"
 
-git push --atomic "$url" \
-    refs/remotes/origin/main:refs/heads/main \
-    'refs/tags/v*:refs/tags/v*'
+# The v* tag names on a repository, one per line. A listing that fails stops the
+# script, because an empty list would read as "no tags" and delete them all.
+tags_on() {
+    listing=$(git ls-remote --tags --refs "$1" 'refs/tags/v*') || return 1
+    printf '%s\n' "$listing" | awk '{ sub("^refs/tags/", "", $2); print $2 }'
+}
+
+# Origin is the source of truth for the tags, not the clone: a clone that lacks a
+# tag makes the push fail on it, and never deletes it from GitLab.
+github_tags=$(tags_on origin) || exit 1
+gitlab_tags=$(tags_on "$url") || exit 1
+
+set -- refs/remotes/origin/main:refs/heads/main
+for tag in $github_tags; do
+    set -- "$@" "refs/tags/$tag:refs/tags/$tag"
+done
+for tag in $gitlab_tags; do
+    if ! printf '%s\n' "$github_tags" | grep -qxF -- "$tag"; then
+        set -- "$@" ":refs/tags/$tag"
+    fi
+done
+
+git push --atomic "$url" "$@"
