@@ -42,7 +42,8 @@ manifest=.datarobot.yaml
 
 # Reads the token's entries in every environmentVars list, and only there:
 # lines at the list's item column (`- name: X`, or the flow `- {name: X}`) and
-# lines at an item's own key column (`name: X` after another key). Text deeper
+# lines at an item's own key column (`name: X` after another key), plus, for
+# the count, entries of a list written on the key's own line. Text deeper
 # than that, say inside a `|` block value, is not an entry, and neither is a
 # comment. MODE "count" prints how many lines name the token. MODE "drop"
 # prints the file without the `- name:` and flow entries: an entry's blank,
@@ -72,6 +73,14 @@ token_entries() {
                 }
                 if (line ~ /^ *(- +)?environmentVars: *(#.*)?$/) {
                     inenv = 1; match(line, /^ *(- +)?/); envcol = RLENGTH; itemcol = -1; keyin = -1
+                } else if (line ~ /^ *(- +)?environmentVars: *[^ #]/) {
+                    # A list on the same line, [{name: X, ...}]. Its entries are
+                    # counted, never dropped, so a token in one fails the check.
+                    # One left open for later lines cannot be read line by line:
+                    # it counts as two, which fails the check whatever it holds.
+                    v = line; sub(/^ *(- +)?environmentVars: */, "", v)
+                    if (v ~ /^\[/ && v !~ /\]/) count += 2
+                    else count += gsub("name: *[\"'\'']?" name "[\"'\'']? *[,}]", "", v)
                 }
             }
             if (dropping && !skip && (blank(line) || indent(line) > dropcol)) skip = 1

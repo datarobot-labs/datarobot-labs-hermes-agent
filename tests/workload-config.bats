@@ -486,6 +486,50 @@ assert envs == [{"name": "DATAROBOT_API_TOKEN", "source": "api-key"}, {"name": "
     [ "$status" -eq 0 ]
 }
 
+# The workload's own key in the primary container, and a sidecar whose
+# environmentVars list sits on the key's own line: $1.
+inline_env_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<YAML
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: hermes
+            primary: true
+            environmentVars:
+              - name: DATAROBOT_API_TOKEN
+                source: api-key
+          - name: sidecar
+            environmentVars: $1
+YAML
+}
+
+@test "a token in a sidecar's one-line environmentVars list fails --check, and a sync won't write" {
+    inline_env_manifest '[{name: DATAROBOT_API_TOKEN, value: "dr-credential:0123456789abcdef01234567/apiToken"}]'
+    configure noop --check
+    [ "$status" -ne 0 ]
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    configure noop --sync-env
+    [ "$status" -ne 0 ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+}
+
+@test "one-line environmentVars lists without the token are fine" {
+    inline_env_manifest '[{name: LOG_LEVEL, value: info}]'
+    configure noop --check
+    [ "$status" -eq 0 ]
+    inline_env_manifest '[]'
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "a one-line environmentVars list continued on later lines fails --check" {
+    inline_env_manifest '[{name: LOG_LEVEL, value: info},'
+    printf '              {name: DATAROBOT_API_TOKEN, value: x}]\n' >> "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}
+
 @test "a caller's --dir is refused before dr runs, in either form" {
     for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
         rm -f "$WORK/seen/env"
