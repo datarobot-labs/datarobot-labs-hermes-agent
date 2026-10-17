@@ -57,7 +57,12 @@ cp "$known" "$STUB_SEEN/known_hosts"
 printf '%s\n' "$strict" > "$STUB_SEEN/strict"
 case "$1" in
     git-receive-pack*) exec sh -c "git receive-pack ${1#git-receive-pack}" ;;
-    git-upload-pack*) exec sh -c "git upload-pack ${1#git-upload-pack}" ;;
+    git-upload-pack*)
+        if [ -n "${STUB_FAIL_LISTING:-}" ]; then
+            echo "listing refused" >&2
+            exit 128
+        fi
+        exec sh -c "git upload-pack ${1#git-upload-pack}" ;;
 esac
 echo "unexpected command: $1" >&2
 exit 1
@@ -219,6 +224,35 @@ mirror() {
     [ "$(git -C "$GITLAB" rev-parse v1.0.0)" = "$(git -C "$CLONE" rev-parse HEAD)" ]
 }
 
+@test "moves a v tag on GitLab when GitHub recreates it at another commit, and still updates main" {
+    tag_on_github v1.0.0
+    mirror
+    [ "$status" -eq 0 ]
+
+    commit_on_github second
+    git -C "$CLONE" push -q origin :refs/tags/v1.0.0
+    git -C "$CLONE" push -q origin HEAD:refs/tags/v1.0.0
+
+    mirror
+    [ "$status" -eq 0 ]
+    [ "$(git -C "$GITLAB" rev-parse v1.0.0)" = "$(git -C "$GITHUB" rev-parse v1.0.0)" ]
+    [ "$(git -C "$GITLAB" rev-parse main)" = "$(git -C "$CLONE" rev-parse origin/main)" ]
+}
+
+@test "stops when it can't list GitLab's tags, even though the push would go through" {
+    tag_on_github v1.0.0
+    mirror
+    [ "$status" -eq 0 ]
+
+    git -C "$CLONE" push -q origin :refs/tags/v1.0.0
+    commit_on_github second
+
+    STUB_FAIL_LISTING=1 mirror
+    [ "$status" -ne 0 ]
+    [ "$(git -C "$GITLAB" tag --list v1.0.0)" = v1.0.0 ]
+    [ "$(git -C "$GITLAB" rev-parse main)" != "$(git -C "$CLONE" rev-parse origin/main)" ]
+}
+
 @test "does not push a v tag that only the clone has" {
     git -C "$CLONE" tag v9.9.9
 
@@ -271,10 +305,11 @@ mirror() {
     [[ "$output" != *canary-key-line* ]]
 }
 
-@test "the push never forces, deletes, or mirrors, and it is atomic" {
+@test "the push never forces main, and never uses force, delete, or mirror flags, and it is atomic" {
     # The forced, pruning fetch only rewrites the local copies of origin's v tags.
     run sh -c "grep -v '^git fetch' /repo/scripts/mirror-to-gitlab.sh | grep -nE -e '--force|--mirror|--prune|--delete|(^|[[:space:]])\+refs'"
     [ "$status" -ne 0 ]
+    grep -qxF 'set -- refs/remotes/origin/main:refs/heads/main' /repo/scripts/mirror-to-gitlab.sh
     grep -q -e '--atomic' /repo/scripts/mirror-to-gitlab.sh
 }
 

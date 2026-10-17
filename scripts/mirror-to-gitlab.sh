@@ -16,9 +16,10 @@
 # Makes the GitLab copy match this clone's origin: main and the v* tags, over
 # SSH, in one atomic push. Main moves by fast-forward and never by force, so a
 # commit made directly on the GitLab main makes the push fail instead of being
-# overwritten. A v* tag that origin no longer has is deleted from GitLab, and
-# nothing else is deleted: other branches and other tags stay as they are. Every
-# push sends the whole state, so a failed run is caught up by the next one.
+# overwritten. The v* tags follow origin exactly: a tag that origin moved is moved
+# on GitLab, and a tag that origin no longer has is deleted. Nothing else is
+# touched: other branches and other tags stay as they are. Every push sends the
+# whole state, so a failed run is caught up by the next one.
 #
 # Run it in a clone of origin, with the full history of main that `actions/checkout`
 # gives with `fetch-depth: 0`. GITLAB_MIRROR_KEY holds the private half of a deploy
@@ -56,11 +57,15 @@ export GIT_SSH_COMMAND="ssh -i '$work/key' -o IdentitiesOnly=yes -o BatchMode=ye
 # fails stops the script before it prunes or deletes anything.
 git fetch --quiet --force --prune origin '+refs/tags/v*:refs/tags/v*'
 github_tags=$(git for-each-ref --format='%(refname:strip=2)' 'refs/tags/v*')
-gitlab_tags=$(git ls-remote --tags --refs "$url" 'refs/tags/v*' | awk '{ sub("^refs/tags/", "", $2); print $2 }')
+# The listing is captured before it goes through awk, because a pipeline reports
+# awk's status and would hide a failed listing as "no tags on GitLab".
+gitlab_listing=$(git ls-remote --tags --refs "$url" 'refs/tags/v*')
+gitlab_tags=$(printf '%s\n' "$gitlab_listing" | awk '{ sub("^refs/tags/", "", $2); print $2 }')
 
+# A tag that origin moved is moved on GitLab too. Main is never forced.
 set -- refs/remotes/origin/main:refs/heads/main
 for tag in $github_tags; do
-    set -- "$@" "refs/tags/$tag:refs/tags/$tag"
+    set -- "$@" "+refs/tags/$tag:refs/tags/$tag"
 done
 for tag in $gitlab_tags; do
     if ! printf '%s\n' "$github_tags" | grep -qxF -- "$tag"; then

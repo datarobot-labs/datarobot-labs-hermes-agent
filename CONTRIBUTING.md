@@ -13,7 +13,7 @@ Contribute on GitHub. The GitLab project is a read-only mirror of the GitHub rep
 
 ## Maintain the GitLab mirror
 
-The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. A `v*` tag that GitHub no longer has is deleted from GitLab, and no other branch or tag is touched. The workflow runs on pushes to `main`, once a week, and by hand, and never on a tag push, because a tag run would give the deploy key to whatever code the tag points at. A new tag reaches GitLab with the next of those runs, so after you tag a release, run the workflow from `main`. It pushes over SSH with a deploy key, because GitLab Free doesn't offer project access tokens. A deploy key reaches this one project only. Maintainers set it up once and replace it before it expires.
+The workflow `.github/workflows/mirror-to-gitlab.yml` keeps the GitLab project in step with this repository: `main` and the `v*` tags, nothing else. The `v*` tags follow GitHub exactly: a tag that GitHub moves is moved on GitLab, and a tag that GitHub no longer has is deleted. No other branch or tag is touched. The workflow runs on pushes to `main`, once a week, and by hand, and never on a tag push, because a tag run would give the deploy key to whatever code the tag points at. A new tag reaches GitLab with the next of those runs, so after you tag a release, run the workflow from `main`. It pushes over SSH with a deploy key, because GitLab Free doesn't offer project access tokens. A deploy key reaches this one project only. Maintainers set it up once and replace it before it expires.
 
 To set up the mirror, complete the following steps.
 

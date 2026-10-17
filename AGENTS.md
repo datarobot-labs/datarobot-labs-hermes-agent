@@ -12,7 +12,7 @@ Guidance for AI coding agents and for people who start here. This repository bui
 
 This is a public repository, and its deploy pipelines are examples. [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) and [`.gitlab-ci.yml`](.gitlab-ci.yml) run only when the variable `DEPLOY_TO_DATAROBOT` is `true`. Don't set that variable here, and don't add a deploy that runs without it.
 
-The GitLab project is a read-only mirror of the GitHub repository. Make every change on GitHub. [`.github/workflows/mirror-to-gitlab.yml`](.github/workflows/mirror-to-gitlab.yml) is the only thing that writes to it, and it never forces. To deploy from GitLab, see [docs/GITLAB.md](docs/GITLAB.md).
+The GitLab project is a read-only mirror of the GitHub repository. Make every change on GitHub. [`.github/workflows/mirror-to-gitlab.yml`](.github/workflows/mirror-to-gitlab.yml) is the only thing that writes to it, and it never forces `main`. To deploy from GitLab, see [docs/GITLAB.md](docs/GITLAB.md).
 
 ## Check your change
 
