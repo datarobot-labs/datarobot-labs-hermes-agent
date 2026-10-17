@@ -31,13 +31,43 @@ set -eu
 image=$1
 skill=$2
 config=$(pwd)/config
+# Marks the install container, so a later run can tell one is still going.
+label=labs-hermes.install-skill
+
+# A run killed between the two renames in the container leaves the previous
+# skills in config/.skills.old, no config/skills, and its lock. With no
+# install running, put them back and drop the stale lock. With config/skills
+# there too, say so rather than pick one.
+if [ -d "$config/.skills.old" ]; then
+    running=$(docker ps -q --filter "label=$label") \
+        || { echo "Could not list running containers to check for another install." >&2; exit 1; }
+    if [ -n "$running" ]; then
+        echo "Another skill install is running. Try again once it has finished." >&2
+        exit 75
+    fi
+    if [ -d "$config/skills" ]; then
+        echo "config/.skills.old is left from an interrupted install, next to config/skills." >&2
+        echo "Keep the one you want, delete the other and config/.skills.lock, then try again." >&2
+        exit 1
+    fi
+    mv "$config/.skills.old" "$config/skills"
+    rmdir "$config/.skills.lock" 2>/dev/null || true
+    echo "Restored config/skills from an interrupted install." >&2
+fi
 
 [ -d "$config/skills" ] || { echo "No config/skills here. Run this from the project root." >&2; exit 1; }
 
-# -t only with a terminal on stdin: `hermes skills install` may ask to
-# confirm, and docker refuses -t without one.
+# `hermes skills install` asks to confirm. With a terminal on stdin, -t lets
+# the caller read its preview and answer. Without one it would read end of
+# input, cancel and still exit 0, so then it gets --yes: running this is the
+# request to install. --yes skips only the prompt; a blocked scan still needs
+# --force, which this never passes.
 tty_flag=
-[ ! -t 0 ] || tty_flag=-t
+install_yes=1
+if [ -t 0 ]; then
+    tty_flag=-t
+    install_yes=
+fi
 
 # Runs inside the container, as root. It builds the complete new skills tree
 # next to the old one and swaps it in by rename, so an upgrade that removed
@@ -66,16 +96,31 @@ fi
 trap "rm -rf \"\$new\"; [ -d \"\$src/skills\" ] || mv \"\$old\" \"\$src/skills\" 2>/dev/null || true; rm -rf \"\$old\"; rmdir \"\$lock\"" EXIT
 trap "exit 130" INT TERM HUP
 rm -rf "$new" "$old" "$data/skills"
-cp -a "$src/." "$data/"
+# Hermes needs the config and skills, not what a local hermes setup leaves
+# in config: host-arch binaries, runtime state and credential files. The
+# exclusions are the ones .dockerignore keeps out of the image, matched at
+# the top of config only, so a skill keeps its own bin or cache folder. An
+# archive file, not a pipe, so a failed create stops the run.
+archive=$(mktemp)
+tar -C "$src" --anchored \
+    --exclude=./.env --exclude=./auth.json --exclude=./auth.lock \
+    --exclude=./bin --exclude=./.local --exclude=./.cua-driver --exclude=./lazy-packages \
+    --exclude="./state.db*" --exclude=./logs --exclude=./sessions --exclude=./cache \
+    --exclude=./.cache --exclude=./backups --exclude=./audio_cache --exclude=./image_cache \
+    --exclude="./config.yaml.bak.*" \
+    --exclude=./.skills.new --exclude=./.skills.old --exclude=./.skills.lock \
+    -cf "$archive" .
+tar -C "$data" -xpf "$archive"
+rm -f "$archive"
 chown -R hermes:hermes "$data"
-hermes skills install "$1"
+hermes skills install ${INSTALL_YES:+--yes} "$1"
 cp -a "$data/skills" "$new"
 chown -R "$HOST_UID:$HOST_GID" "$new"
 mv "$src/skills" "$old"
 mv "$new" "$src/skills"
 '
 
-docker run -i $tty_flag --rm --user 0:0 \
-    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" \
+docker run -i $tty_flag --rm --user 0:0 --label "$label" \
+    -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e INSTALL_YES="$install_yes" \
     -v "$config:/host-config" \
     --entrypoint /bin/sh "$image" -c "$inner" sh "$skill"

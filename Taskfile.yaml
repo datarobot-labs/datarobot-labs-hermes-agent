@@ -53,7 +53,7 @@ tasks:
           'dr self update'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
-      - sh: "! grep -q PLACEHOLDER .datarobot.yaml"
+      - sh: scripts/check-credentials.sh
         msg: >-
           .datarobot.yaml still has a PLACEHOLDER credential, which the deploy
           would refuse. See docs/TROUBLESHOOTING.md, "PLACEHOLDER credentials".
@@ -151,7 +151,7 @@ tasks:
           echo "No .datarobot.yaml yet. Run 'dr start'."
           exit 1
         fi
-        if grep -q PLACEHOLDER .datarobot.yaml; then
+        if ! scripts/check-credentials.sh; then
           echo "A credential is still PLACEHOLDER. See docs/TROUBLESHOOTING.md."
           failed=1
         elif ! scripts/workload-config.sh --check 2>/dev/null; then

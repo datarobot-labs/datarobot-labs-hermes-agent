@@ -45,18 +45,27 @@ fi
 while [ "$endpoint" != "${endpoint%/}" ]; do endpoint=${endpoint%/}; done
 want="$endpoint/genai/llmgw"
 
-if ! grep -qE '^LLM_BASE_URL=' "$env_file"; then
-    printf '\n%s\nLLM_BASE_URL="%s"\n' "$marker" "$want" >> "$env_file"
-    echo "Set LLM_BASE_URL to $want"
-    exit 0
-fi
-
-# The rewrite holds every secret .env does, so it goes to a file only its
-# owner can read, next to .env so the swap below is a rename, and it is
-# removed however the script ends.
+# Every change is written in full to a file only its owner can read, next to
+# .env so the swap is a rename, and removed however the script ends: it holds
+# every secret .env does, and .env is never left half-written.
 tmp=$(mktemp "$(dirname "$env_file")/.env.XXXXXX")
 trap 'rm -f "$tmp"' EXIT
 trap 'exit 130' INT TERM HUP
+
+# Replace .env with $tmp whole, keeping .env's permissions. GNU stat first:
+# BSD stat rejects -c, while GNU's -f is filesystem status, not an error.
+replace_env() {
+    mode=$(stat -c %a "$env_file" 2>/dev/null || stat -f %Lp "$env_file")
+    chmod "$mode" "$tmp"
+    mv -f "$tmp" "$env_file"
+}
+
+if ! grep -qE '^LLM_BASE_URL=' "$env_file"; then
+    { cat "$env_file"; printf '\n%s\nLLM_BASE_URL="%s"\n' "$marker" "$want"; } > "$tmp"
+    replace_env
+    echo "Set LLM_BASE_URL to $want"
+    exit 0
+fi
 
 status=0
 awk -v marker="$marker" -v want="$want" '
@@ -72,11 +81,7 @@ awk -v marker="$marker" -v want="$want" '
 case $status in
     0) ;;
     10)
-        # Replace .env whole, keeping its permissions. GNU stat first: BSD
-        # stat rejects -c, while GNU's -f is filesystem status, not an error.
-        mode=$(stat -c %a "$env_file" 2>/dev/null || stat -f %Lp "$env_file")
-        chmod "$mode" "$tmp"
-        mv -f "$tmp" "$env_file"
+        replace_env
         echo "LLM_BASE_URL now follows DATAROBOT_ENDPOINT: $want"
         # `dr run env` sets LLM_GATEWAY_SYNCING: it carries the change over next.
         [ -n "${LLM_GATEWAY_SYNCING:-}" ] ||
