@@ -248,6 +248,28 @@ PY
     [ "$status" -ne 0 ]
 }
 
+@test "Hermes' runtime state from a skill install is neither committed nor uploaded" {
+    cd /repo
+    paths='config/skills/.usage.json
+config/skills/.usage.json.lock
+config/skills/.hub/audit.log
+config/skills/.hub/index-cache/x
+config/skills/.hub/quarantine/x
+config/skills/.hub/scan-cache/x'
+    # git: every one ignored.
+    run git check-ignore --no-index --stdin <<< "$paths"
+    [ "$(echo "$output" | grep -c .)" = 6 ]
+    # dr workload up reads .drignore alone.
+    scratch=$(mktemp -d)
+    git -C "$scratch" init -q
+    cp .drignore "$scratch/.gitignore"
+    run git -C "$scratch" check-ignore --no-index --stdin <<< "$paths"
+    [ "$(echo "$output" | grep -c .)" = 6 ]
+    # What an install should leave to commit is not ignored by either.
+    ! git check-ignore -q --no-index config/skills/.hub/lock.json
+    ! git -C "$scratch" check-ignore -q --no-index config/skills/.hub/lock.json
+}
+
 @test "the upload set stays under the 1000 file limit and holds no secret files" {
     cd /repo
     scratch=$(mktemp -d)
@@ -309,6 +331,17 @@ PY
         END { exit !(seen["deploy:"] && seen["env:"]) }
     ' /repo/Taskfile.yaml
     [ "$status" -eq 0 ]
+}
+
+@test "deploy and doctor check for PLACEHOLDER credentials with the shared script only" {
+    run awk '
+        /^  [a-z_:*-]+:$/ { task = $1 }
+        /scripts\/check-credentials.sh/ { seen[task] = 1 }
+        END { exit !(seen["deploy:"] && seen["doctor:"]) }
+    ' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -n 'grep -q PLACEHOLDER' /repo/Taskfile.yaml
+    [ "$status" -ne 0 ]
 }
 
 @test "git ignores the deploy manifest and the upload record, and tracks dr start's setup" {

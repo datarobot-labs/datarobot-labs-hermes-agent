@@ -113,6 +113,40 @@ no_leftovers() {
     cmp "$WORK/before" "$ENV"
 }
 
+@test "the first write keeps .env's permissions and leaves nothing behind" {
+    chmod 640 "$ENV"
+    gateway
+    [ "$status" -eq 0 ]
+    grep -qx 'LLM_BASE_URL="https://one.example.com/api/v2/genai/llmgw"' "$ENV"
+    grep -qx 'SLACK_BOT_TOKEN="secret-canary"' "$ENV"
+    [ "$(stat -c %a "$ENV")" = 640 ]
+    no_leftovers
+}
+
+@test "an interrupted first write leaves .env as it was and no copy of it behind" {
+    cp "$ENV" "$WORK/before"
+    # A cat that hangs, so the run can be stopped while it builds the new .env.
+    mkdir "$WORK/bin"
+    printf '#!/bin/sh\nexec sleep 30\n' > "$WORK/bin/cat"
+    chmod +x "$WORK/bin/cat"
+
+    PATH="$WORK/bin:$PATH" sh /repo/scripts/llm-gateway-url.sh "$ENV" 3>&- &
+    pid=$!
+    for _ in $(seq 50); do
+        tmp=$(find "$WORK" -name '.env.*' | head -n 1)
+        [ -z "$tmp" ] || break
+        sleep 0.1
+    done
+    [ -n "$tmp" ]
+    [ "$(stat -c %a "$tmp")" = 600 ]
+
+    kill -TERM "$pid"
+    pkill -f 'sleep 30' || true
+    wait "$pid" || true
+    no_leftovers
+    cmp "$WORK/before" "$ENV"
+}
+
 @test "under dr run env, the move is reported without the 'run dr run env' hint" {
     gateway
     sed -i 's#^DATAROBOT_ENDPOINT=.*#DATAROBOT_ENDPOINT="https://two.example.com/api/v2"#' "$ENV"

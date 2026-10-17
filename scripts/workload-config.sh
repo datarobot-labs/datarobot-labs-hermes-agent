@@ -40,18 +40,68 @@ set -eu
 token=DATAROBOT_API_TOKEN
 manifest=.datarobot.yaml
 
-# Lines that name the token as an entry, in block (`- name: X`, `name: X`) or
-# flow (`- {name: X, ...}`) style.
+# Reads the token's entries in every environmentVars list, and only there:
+# lines at the list's item column (`- name: X`, or the flow `- {name: X}`) and
+# lines at an item's own key column (`name: X` after another key), plus, for
+# the count, entries of a list written on the key's own line. Text deeper
+# than that, say inside a `|` block value, is not an entry, and neither is a
+# comment. MODE "count" prints how many lines name the token. MODE "drop"
+# prints the file without the `- name:` and flow entries: an entry's blank,
+# comment and more-indented lines go with it, up to the next other line at or
+# above its column. Anything else naming the token is left for
+# is_workload_key to refuse afterwards, rather than guessed at.
+token_entries() {
+    awk -v name="$token" -v mode="$1" '
+        function indent(s) { match(s, /^ */); return RLENGTH }
+        function blank(s) { return s ~ /^[[:space:]]*(#.*)?$/ }
+        BEGIN { itemcol = -1; keyin = -1 }
+        {
+            line = $0; skip = 0
+            if (!blank(line)) {
+                i = indent(line)
+                if (inenv && (i < envcol || (i == envcol && line !~ /^ *- /))) inenv = 0
+                if (dropping && i <= dropcol) dropping = 0
+                if (inenv && line ~ /^ *- / && (itemcol < 0 || i == itemcol)) {
+                    itemcol = i; match(line, /^ *- +/); keyin = RLENGTH
+                    if (line ~ ("^ *- +name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                        count++; skip = 1; dropping = 1; dropcol = i
+                    } else if (line ~ ("^ *- *[{].*name: *[\"'\'']?" name "[\"'\'']? *[,}]")) {
+                        count++; skip = 1
+                    }
+                } else if (inenv && i == keyin && line ~ ("^ *name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                    count++
+                }
+                if (line ~ /^ *(- +)?environmentVars: *(#.*)?$/) {
+                    inenv = 1; match(line, /^ *(- +)?/); envcol = RLENGTH; itemcol = -1; keyin = -1
+                } else if (line ~ /^ *(- +)?environmentVars: *[^ #]/) {
+                    # A list on the same line, [{name: X, ...}]. Its entries are
+                    # counted, never dropped, so a token in one fails the check.
+                    # One left open for later lines cannot be read line by line:
+                    # it counts as two, which fails the check whatever it holds.
+                    v = line; sub(/^ *(- +)?environmentVars: */, "", v)
+                    if (v ~ /^\[/ && v !~ /\]/) count += 2
+                    else count += gsub("name: *[\"'\'']?" name "[\"'\'']? *[,}]", "", v)
+                }
+            }
+            if (dropping && !skip && (blank(line) || indent(line) > dropcol)) skip = 1
+            if (mode == "drop" && !skip) print line
+        }
+        END { if (mode == "count") print count + 0 }
+    ' "$2"
+}
+
 names_token() {
-    grep -cE "(^|[{,[:space:]])name:[[:space:]]*[\"']?${token}[\"']?[[:space:]]*([,}#]|\$)" "$1" || true
+    token_entries count "$1"
 }
 
 # Finds the environmentVars of Hermes' container under `artifact:`: the one
 # built from this repo's Dockerfile (`dockerfile: source: provided`; only one
 # container can be), else the single one marked `primary: true` (each
 # container group has its own primary), else the only container. Prints
-# "<line of the environmentVars key> <its column> <1 if it holds the api-key
-# entry, else 0>". The api-key entry counts only when `source: api-key` is its
+# "<line of the environmentVars key> <its column> <the column of its items>
+# <1 if it holds the api-key entry, else 0>". The items' column is two past the
+# key's when the list is empty, and the key's own for an indentationless list.
+# The api-key entry counts only when `source: api-key` is its
 # one key besides name: no value, no other source. Exits 2 when none of those
 # rules picks one container, and 3 when it has no environmentVars key. A
 # line-based reading of the block style dr writes, kept to the keys that
@@ -69,9 +119,11 @@ primary_env() {
             closetok()
             if (!initem) return
             items++
-            if (built) { builts++; b_env = env; b_col = envcol; b_pair = pair }
-            if (isprim) { prims++; p_env = env; p_col = envcol; p_pair = pair }
-            if (items == 1) { f_env = env; f_col = envcol; f_pair = pair }
+            # The column its items use; with none yet, two under the key.
+            it = (eitem >= 0) ? eitem : envcol + 2
+            if (built) { builts++; b_env = env; b_col = envcol; b_it = it; b_pair = pair }
+            if (isprim) { prims++; p_env = env; p_col = envcol; p_it = it; p_pair = pair }
+            if (items == 1) { f_env = env; f_col = envcol; f_it = it; f_pair = pair }
             initem = 0; inenv = 0
         }
         /^[[:space:]]*(#.*)?$/ { next }
@@ -95,7 +147,10 @@ primary_env() {
                         next
                     }
                     closetok()
-                    if ($0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
+                    # Only at the column of the list items: a deeper "- name:"
+                    # is text inside some value, not an entry.
+                    if (eitem < 0 && $0 ~ /^ *- /) eitem = i
+                    if (i == eitem && $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$")) {
                         intok = 1; tokcol = i; tsrc = 0; tother = 0
                     }
                     next
@@ -106,7 +161,7 @@ primary_env() {
             if (first || i == keycol) {
                 kv = substr($0, keycol + 1)
                 if (kv ~ /^primary: *true *(#.*)?$/) isprim = 1
-                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1 }
+                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1; eitem = -1 }
             }
             next
         }
@@ -115,12 +170,12 @@ primary_env() {
         }
         END {
             finish()
-            if (builts == 1) { e = b_env; c = b_col; p = b_pair }
-            else if (prims == 1) { e = p_env; c = p_col; p = p_pair }
-            else if (prims == 0 && items == 1) { e = f_env; c = f_col; p = f_pair }
+            if (builts == 1) { e = b_env; c = b_col; t = b_it; p = b_pair }
+            else if (prims == 1) { e = p_env; c = p_col; t = p_it; p = p_pair }
+            else if (prims == 0 && items == 1) { e = f_env; c = f_col; t = f_it; p = f_pair }
             else exit 2
             if (!e) exit 3
-            print e, c, p
+            print e, c, t, p
         }
     ' "$1"
 }
@@ -133,35 +188,20 @@ is_workload_key() {
     [ "${loc##* }" = 1 ]
 }
 
-# Drops every entry for the token: a `- name:` block with the lines indented
-# under it, or a flow-style one-liner. Anything else naming it is caught by
-# is_workload_key afterwards, which fails the run rather than guess.
 remove_token_entries() {
-    awk -v name="$token" '
-        function indent(s) { match(s, /^[[:space:]]*/); return RLENGTH }
-        # Inside an entry being dropped, blank lines and anything indented
-        # under its `- name:` go with it; the next line at or above that
-        # indentation ends it.
-        skipping && ($0 ~ /^[[:space:]]*$/ || indent($0) > entry) { next }
-        { skipping = 0 }
-        $0 ~ "^[[:space:]]*- name:[[:space:]]*[\"'\'']?" name "[\"'\'']?[[:space:]]*(#.*)?$" {
-            skipping = 1; entry = indent($0); next
-        }
-        $0 ~ "^[[:space:]]*-[[:space:]]*[{].*name:[[:space:]]*[\"'\'']?" name "[\"'\'']?[[:space:]]*[,}]" { next }
-        { print }
-    ' "$1"
+    token_entries drop "$1"
 }
 
 # Puts the api-key entry first in the primary container's environmentVars,
 # and nowhere else.
 add_api_key_entry() {
     loc=$(primary_env "$1") || return
-    awk -v name="$token" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f2)" '
+    awk -v name="$token" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f3)" '
         { print }
         NR == at {
             pad = sprintf("%" col "s", "")
-            print pad "  - name: " name
-            print pad "    source: api-key"
+            print pad "- name: " name
+            print pad "  source: api-key"
         }
     ' "$1"
 }

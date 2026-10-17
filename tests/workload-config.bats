@@ -381,6 +381,155 @@ YAML
     [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
 }
 
+@test "a commented-out token entry is not an entry: --check passes and a sync keeps it" {
+    configure write --yes
+    sed -i 's#^\( *\)- name: SLACK_HOME_CHANNEL$#\1\# - name: DATAROBOT_API_TOKEN\n\1\#   value: dr-credential:0123456789abcdef01234567/apiToken\n&#' \
+        "$PROJECT/.datarobot.yaml"
+    grep -q '^ *# - name: DATAROBOT_API_TOKEN$' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -eq 0 ]
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -q '^ *# - name: DATAROBOT_API_TOKEN$' "$PROJECT/.datarobot.yaml"
+    python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$PROJECT/.datarobot.yaml"
+}
+
+@test "a credential entry with a comment inside is replaced whole" {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+              - name: DATAROBOT_API_TOKEN
+              # rotated by hand
+                value: dr-credential:0123456789abcdef01234567/apiToken
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$PROJECT/.datarobot.yaml"
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -A1 'name: SLACK_HOME_CHANNEL' "$PROJECT/.datarobot.yaml" | grep -q 'value: C123'
+}
+
+# The workload's own key, plus a variable whose block value mentions the token.
+block_value_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+              - name: DATAROBOT_API_TOKEN
+                source: api-key
+              - name: SETUP_NOTES
+                value: |
+                  - name: DATAROBOT_API_TOKEN
+                    value: example
+              - name: SLACK_HOME_CHANNEL
+                value: C123
+YAML
+}
+
+@test "the token named inside another variable's block value is not an entry, and a sync keeps the value" {
+    block_value_manifest
+    configure noop --check
+    [ "$status" -eq 0 ]
+    python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"][1]["value"], end="")' \
+        "$PROJECT/.datarobot.yaml" > "$WORK/notes.before"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    [ "$(api_key_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    python3 -c 'import sys, yaml
+envs = yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"]
+print(next(e["value"] for e in envs if e["name"] == "SETUP_NOTES"), end="")' "$PROJECT/.datarobot.yaml" > "$WORK/notes.after"
+    cmp "$WORK/notes.before" "$WORK/notes.after"
+}
+
+@test "an entry that names the token after another key still counts, so --check fails" {
+    configure write --yes
+    sed -i 's#^\( *\)- name: SLACK_HOME_CHANNEL$#\1- value: dr-credential:0123456789abcdef01234567/apiToken\n\1  name: DATAROBOT_API_TOKEN\n&#' \
+        "$PROJECT/.datarobot.yaml"
+    grep -q '^ *name: DATAROBOT_API_TOKEN$' "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}
+
+@test "in an indentationless list, the key goes in at the column of the other items" {
+    cat > "$PROJECT/.datarobot.yaml" <<'YAML'
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - environmentVars:
+            - name: DATAROBOT_API_TOKEN
+              value: dr-credential:0123456789abcdef01234567/apiToken
+            - name: SLACK_HOME_CHANNEL
+              value: C123
+YAML
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    run grep -c dr-credential "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    grep -qx '            - name: DATAROBOT_API_TOKEN' "$PROJECT/.datarobot.yaml"
+    grep -qx '              source: api-key' "$PROJECT/.datarobot.yaml"
+    python3 -c 'import sys, yaml
+envs = yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"]
+assert envs == [{"name": "DATAROBOT_API_TOKEN", "source": "api-key"}, {"name": "SLACK_HOME_CHANNEL", "value": "C123"}], envs' \
+        "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+# The workload's own key in the primary container, and a sidecar whose
+# environmentVars list sits on the key's own line: $1.
+inline_env_manifest() {
+    cat > "$PROJECT/.datarobot.yaml" <<YAML
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: hermes
+            primary: true
+            environmentVars:
+              - name: DATAROBOT_API_TOKEN
+                source: api-key
+          - name: sidecar
+            environmentVars: $1
+YAML
+}
+
+@test "a token in a sidecar's one-line environmentVars list fails --check, and a sync won't write" {
+    inline_env_manifest '[{name: DATAROBOT_API_TOKEN, value: "dr-credential:0123456789abcdef01234567/apiToken"}]'
+    configure noop --check
+    [ "$status" -ne 0 ]
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    configure noop --sync-env
+    [ "$status" -ne 0 ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+}
+
+@test "one-line environmentVars lists without the token are fine" {
+    inline_env_manifest '[{name: LOG_LEVEL, value: info}]'
+    configure noop --check
+    [ "$status" -eq 0 ]
+    inline_env_manifest '[]'
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "a one-line environmentVars list continued on later lines fails --check" {
+    inline_env_manifest '[{name: LOG_LEVEL, value: info},'
+    printf '              {name: DATAROBOT_API_TOKEN, value: x}]\n' >> "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -ne 0 ]
+}
+
 @test "a caller's --dir is refused before dr runs, in either form" {
     for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
         rm -f "$WORK/seen/env"
