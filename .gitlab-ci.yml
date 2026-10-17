@@ -26,6 +26,10 @@ include:
   - component: $CI_SERVER_FQDN/datarobot-oss/workload-deploy/deploy@0c6bce5f5af5436b2584a2ae9ac46386ced5c3c4
     inputs:
       environment: datarobot
+      # Alpine 3.21, pinned by digest like every image here. The deploy job
+      # holds the API token, so a moved tag must not change what it runs.
+      # Dependabot doesn't read this file, so update the digest by hand.
+      image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
       rules:
         - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       # GitLab rejects a pipeline that has the deploy job but not its stop job,
@@ -38,11 +42,10 @@ include:
 # never the token of whoever wrote the manifest.
 check-manifest:
   stage: check
-  image: alpine:3.21
+  image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
   rules:
     - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       exists:
         - .datarobot.yaml
   script:
-    - apk add --no-cache bash >/dev/null
-    - bash scripts/workload-config.sh --check
+    - sh scripts/workload-config.sh --check

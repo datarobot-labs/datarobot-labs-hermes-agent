@@ -396,6 +396,19 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "the GitLab pipeline pins the image of every job by digest" {
+    run python3 - /repo/.gitlab-ci.yml <<'PY'
+import re, sys, yaml
+pipeline = yaml.safe_load(open(sys.argv[1]))
+images = {"deploy and stop jobs": pipeline["include"][0]["inputs"]["image"]}
+images.update({name: job["image"] for name, job in pipeline.items() if isinstance(job, dict) and "image" in job})
+assert len(images) > 1, "no job of its own to check"
+for name, image in images.items():
+    assert re.search(r"@sha256:[0-9a-f]{64}$", image), f"{name} runs {image}, which a tag can move"
+PY
+    [ "$status" -eq 0 ]
+}
+
 @test "the GitLab pipeline checks the manifest in a stage before the deploy stage" {
     run python3 - /repo/.gitlab-ci.yml <<'PY'
 import sys, yaml

@@ -43,6 +43,8 @@ To roll out your own deployment from GitLab, complete the following steps.
 3. In **Settings > CI/CD > Variables**, add two variables:
    - `DATAROBOT_ENDPOINT`: the URL of your DataRobot install, for example `https://app.datarobot.com`. Leave the variable unmasked, because GitLab hides a masked value in every log line.
    - `DATAROBOT_API_TOKEN`: an API key of the account that ran `dr start`. Mask and protect the variable.
+
+   Set the environment scope of both variables to `datarobot`. Only the deploy and stop jobs run in that environment, so `check-manifest` never sees the token.
 4. Add the variable `DEPLOY_TO_DATAROBOT` with the value `true`.
 5. Push to the default branch. The pipeline rolls the workload, and the `datarobot` environment shows its endpoint.
 
@@ -52,7 +54,7 @@ GitLab Free doesn't enforce approvals on environments. To limit who can deploy, 
 
 ## Update the component
 
-The include in `.gitlab-ci.yml` pins the component to a full commit SHA, and the comment next to it names the release. To update the component, read the [release notes](https://gitlab.com/datarobot-oss/workload-deploy/-/releases), then replace the SHA with the commit of the new release.
+The include in `.gitlab-ci.yml` pins the component to a full commit SHA, and the comment next to it names the release. The file pins the job images by digest too, and Dependabot doesn't update them, so update the digests by hand when the base image needs a fix. To update the component, read the [release notes](https://gitlab.com/datarobot-oss/workload-deploy/-/releases), then replace the SHA with the commit of the new release.
 
 The component runs the DataRobot CLI at the version it pins. A release of the component changes that version, so review the change before you merge it.
 
