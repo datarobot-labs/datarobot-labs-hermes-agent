@@ -24,7 +24,6 @@ on:
       - .dockerignore
       - docker/**
       - config/**
-      - vendor/**
       - tests/smoke.sh
       - Taskfile.yaml
       - .github/workflows/image.yml
@@ -35,7 +34,6 @@ on:
       - .dockerignore
       - docker/**
       - config/**
-      - vendor/**
       - tests/smoke.sh
       - Taskfile.yaml
       - .github/workflows/image.yml

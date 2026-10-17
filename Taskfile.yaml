@@ -36,15 +36,14 @@ tasks:
       - dr dotenv setup --if-needed
       - task: _llm-gateway-url
       - task: _manifest
-      - echo "Ready. Deploy with 'dr run deploy'."
+      - echo "Ready. Deploy with 'dr workload up'."
       - echo "To deploy from CI, commit the manifest with 'git add -f .datarobot.yaml' in a private repo. See README.md, 'Deploying from CI'."
 
   deploy:
     desc: >-
       Deploy the workload, or roll out what changed since the last deploy,
-      with `dr workload up`. Extra arguments go to it, e.g.
-      `dr run deploy -- --dry-run`, or `dr run deploy -- --promote` to keep a
-      draft from being stopped after 8 hours.
+      with `dr workload up`, after checking the manifest. Extra arguments go
+      to it, e.g. `dr run deploy -- --dry-run`.
     aliases: [up]
     interactive: true
     preconditions:
@@ -73,14 +72,14 @@ tasks:
           done
         msg: >-
           --sync-env would replace the workload's own key with your token from
-          .env. Run 'dr run env' to bring .env changes over, then 'dr run deploy'.
+          .env. Run 'dr run env' to bring .env changes over, then 'dr workload up'.
     cmds:
       - dr workload up {{.CLI_ARGS}}
 
   env:
     silent: true
     desc: >-
-      Copy changes in .env into .datarobot.yaml, so the next `dr run deploy`
+      Copy changes in .env into .datarobot.yaml, so the next `dr workload up`
       ships them. New variables become literals or credentials, the way
       `dr start` wrote the first ones.
     interactive: true
@@ -105,7 +104,7 @@ tasks:
       Add a skill to config/skills/ with `hermes skills install`, e.g.
       `dr run install:official/creative/ascii-art` for one of Hermes' optional
       skills, or `dr run install:<owner>/<repo>/<path>` for one on GitHub.
-      Needs Docker. Skills are baked into the image, so `dr run deploy` after.
+      Needs Docker. Skills are baked into the image, so `dr workload up` after.
     interactive: true
     vars:
       SKILL: "{{index .MATCH 0}}"
@@ -116,7 +115,7 @@ tasks:
       # Through a script: the image writes as its own uid, which a normal
       # Linux checkout doesn't let write into ./config directly.
       - scripts/install-skill.sh {{shellQuote .HERMES_IMAGE}} {{shellQuote .SKILL}}
-      - echo "Installed into config/skills/. Run 'dr run deploy' to ship it."
+      - echo "Installed into config/skills/. Run 'dr workload up' to ship it."
 
   doctor:
     silent: true
@@ -158,13 +157,13 @@ tasks:
         elif ! scripts/workload-config.sh --check 2>/dev/null; then
           echo "DATAROBOT_API_TOKEN isn't the workload's own key (source: api-key),"
           echo "so the agent may be running with your token. Run 'dr run env', then"
-          echo "'dr run deploy'. See docs/TROUBLESHOOTING.md."
+          echo "'dr workload up'. See docs/TROUBLESHOOTING.md."
           failed=1
         else
           echo ".datarobot.yaml is complete."
         fi
         if ! grep -q '^workloadId:' .datarobot.yaml; then
-          echo "Not deployed yet. Run 'dr run deploy'."
+          echo "Not deployed yet. Run 'dr workload up'."
           exit "$failed"
         fi
 
@@ -262,30 +261,6 @@ tasks:
     cmds:
       - shellcheck -s sh -S warning -x -a -P SCRIPTDIR docker/entrypoint.sh
       - shellcheck scripts/*.sh
-  vendor:dr-sync:
-    desc: >
-      Refresh vendor/dr-sync/ from the latest datarobot/datarobot-sync
-      release. Private repo -- needs `gh` authenticated against the
-      datarobot org. See docs/ARCHITECTURE.md "Why dr-sync is vendored
-      instead of downloaded".
-    cmds:
-      - |
-        set -euo pipefail
-        version=$(gh release list --repo datarobot/datarobot-sync --limit 1 \
-            --json tagName -q '.[0].tagName' | sed 's/^v//')
-        for arch in amd64 arm64; do
-          dir="vendor/dr-sync/linux_${arch}"
-          mkdir -p "$dir"
-          asset="dr-sync_${version}_linux_${arch}.tar.gz"
-          gh release download "v${version}" --repo datarobot/datarobot-sync \
-              --pattern "${asset}" --clobber -D "$dir"
-          tar -xzf "${dir}/${asset}" -C "$dir" dr-sync
-          chmod 0755 "${dir}/dr-sync"
-          rm -f "${dir}/${asset}"
-        done
-        echo "${version}" > vendor/dr-sync/VERSION
-        echo "Vendored dr-sync ${version} for linux/amd64 and linux/arm64"
-
   skills:datarobot:
     desc: >
       Sync config/skills/datarobot/ from the datarobot-oss/datarobot-agent-skills

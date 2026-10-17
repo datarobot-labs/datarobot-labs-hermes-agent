@@ -2,7 +2,7 @@
 # Locally: license-eye -c .licenserc.yaml header check   (or "header fix")
 #
 # Covers the code and test scripts listed under paths. Not covered: the vendored skills under
-# config/skills/ and the vendor/ binaries (upstream headers), the config/ seed data, the test
+# config/skills/ (upstream headers), the config/ seed data, the test
 # fixtures (small stubs), and dotfiles and data files.
 #
 # The header text, year included, must match exactly. A pattern that accepts any year stops

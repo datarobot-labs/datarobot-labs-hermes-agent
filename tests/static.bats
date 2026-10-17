@@ -113,7 +113,7 @@ import sys, yaml
 workflow = yaml.safe_load(open(sys.argv[1]))
 on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
 for event in ("pull_request", "push"):
-    missing = {"Dockerfile", ".dockerignore", "docker/**", "config/**", "vendor/**", "Taskfile.yaml"} - set(on[event]["paths"])
+    missing = {"Dockerfile", ".dockerignore", "docker/**", "config/**", "Taskfile.yaml"} - set(on[event]["paths"])
     assert not missing, f"{event} does not trigger on {sorted(missing)}"
 assert "schedule" in on, "no scheduled build"
 PY
@@ -133,10 +133,10 @@ PY
 }
 
 @test "every pinned build tool has a checksum for both architectures" {
-    for tool in GO GH GLAB YQ TASK KUBECTL HELM PULUMI; do
+    for tool in GO GH GLAB YQ TASK KUBECTL HELM PULUMI DR_SYNC; do
         version=$(sed -nE "s/^ARG ${tool}_VERSION=(.+)$/\\1/p" /repo/Dockerfile)
         [ -n "$version" ]
-        name=$(echo "$tool" | tr 'A-Z' 'a-z')
+        name=$(echo "$tool" | tr 'A-Z_' 'a-z-')
         for arch in amd64 arm64; do
             grep -qE "^[0-9a-f]{64}  ${name}-${version}-${arch}$" /repo/docker/tool-checksums.txt
         done
