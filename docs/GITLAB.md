@@ -1,29 +1,41 @@
 # Deploy from GitLab CI/CD
 
-A GitLab CI/CD pipeline can roll out the Hermes Agent workload on every push to the default branch. The file [`.gitlab-ci.yml`](../.gitlab-ci.yml) includes the [`workload-deploy`](https://gitlab.com/datarobot-oss/workload-deploy) component, which runs `dr workload up` for the workload that `.datarobot.yaml` names. The pipeline is off until a project sets a CI/CD variable.
+A GitLab CI/CD pipeline can roll out the Hermes Agent workload on every push to the default branch. The file [`.gitlab-ci.yml`](../.gitlab-ci.yml) includes the [`workload-deploy`](https://gitlab.com/datarobot-oss/workload-deploy) component, which runs `dr workload up` for the workload that `.datarobot.yaml` names. The deploy jobs are off until a project sets a CI/CD variable.
 
 The GitHub equivalent is the `deploy.yml` workflow, described in the "Deploying from CI" section of the [README](../README.md).
 
-## Use the GitLab project as a mirror
+## Keep a GitLab project in step with GitHub
 
-The GitLab project is a read-only mirror of the GitHub repository. It carries the code, not the issues or the pull requests. Open issues and pull requests on GitHub.
+The GitLab project of this repository is a read-only copy of the GitHub repository. It carries the code, not the issues or the pull requests. Open issues and pull requests on GitHub.
 
-The workflow [`mirror-to-gitlab.yml`](../.github/workflows/mirror-to-gitlab.yml) pushes `main` and the `v*` tags to the mirror on every push to `main`, once a week, and when a maintainer runs it. A new tag reaches the mirror with the next of those runs. The push moves `main` by fast-forward and never forces it, so a commit made directly on the default branch of the mirror makes every later push fail. The `v*` tags follow GitHub exactly: a tag that GitHub moves is moved on the mirror, and a tag that GitHub deletes is deleted. For the setup, see "Maintain the GitLab mirror" in [CONTRIBUTING.md](../CONTRIBUTING.md).
+A scheduled pipeline in the GitLab project pulls the code. The job `sync-from-github` fetches `main` and the `v*` tags from GitHub and pushes them to the project with the job token, in one atomic push. It moves `main` by fast-forward and never forces it, so a commit made directly on the default branch of the project makes every later sync fail. The `v*` tags follow GitHub exactly: a tag that GitHub moves is moved, and a tag that GitHub deletes is deleted. The job touches nothing else.
 
-To deploy, create your own private GitLab project from this code. The mirror itself never deploys, because it doesn't set the variable that turns the pipeline on.
+The same job keeps your own copy or fork on GitLab current. It's off until a project sets `SYNC_FROM_GITHUB` to `true`, so a fresh fork never pulls. To turn it on, complete the following steps.
+
+1. In **Settings > CI/CD > Job token permissions**, turn on **Allow Git push requests to the repository**. This setting needs GitLab 18.4 or later.
+2. In **Settings > CI/CD > Variables**, add `SYNC_FROM_GITHUB` with the value `true`. To pull from another repository, add `SYNC_SOURCE_URL` with its HTTPS URL. The runner must read that URL without credentials.
+3. In **Build > Pipeline schedules**, select **New schedule**. Set the target branch to the default branch and the interval to `17 6 * * *`. The schedule runs with the rights of its owner, and the default branch accepts pushes from Maintainers, so the owner needs the Maintainer role.
+4. Select **Run schedule**, and check that the project shows the same commit as GitHub.
+
+A sync starts no pipeline, because GitLab doesn't start one for a push made with the job token. A project that deploys from the synced branch needs a manual pipeline after a sync. A scheduled pipeline never runs the deploy jobs, so the sync can't deploy by accident.
+
+Each run uses about a minute of shared runner time, and GitLab Free limits those minutes each month, so a daily schedule is enough. If the owner of the schedule loses access to the project, the sync fails until a Maintainer selects **Take ownership** on the schedule.
+
+To deploy, create your own private GitLab project from this code. The synced copy never deploys, because it doesn't set the variable that turns the deploy on.
 
 ## How it works
 
-The pipeline follows the same rules as the GitHub workflow:
+The deploy jobs follow the same rules as the GitHub workflow:
 
 - CI never creates a workload. The first deploy runs on your machine, and the manifest it writes holds the workload ID that CI rolls from then on.
-- The pipeline runs only on the default branch, and only when `DEPLOY_TO_DATAROBOT` is `true`. Without the variable, the project starts no pipeline.
+- The deploy jobs run only on the default branch, only when `DEPLOY_TO_DATAROBOT` is `true`, and never in a scheduled pipeline. Without the variable, the project starts no deploy pipeline.
 - The workload keeps its own API key. Before the deploy, the `check-manifest` job fails the pipeline if the manifest gives the workload the token of whoever wrote it.
 
 The following table lists the jobs.
 
 | Job | Stage | What it does |
 | --- | --- | --- |
+| `sync-from-github` | `sync` | Pulls `main` and the `v*` tags from GitHub when `SYNC_FROM_GITHUB` is `true`. Runs in scheduled pipelines and when you run a pipeline by hand. |
 | `check-manifest` | `check` | Runs `scripts/workload-config.sh --check` when the project has a committed `.datarobot.yaml`. |
 | `datarobot-deploy` | `deploy` | Installs the pinned DataRobot CLI and runs `dr workload up`. The job links the `datarobot` environment to the endpoint of the workload. |
 | `datarobot-stop` | `deploy` | Runs `dr workload stop`. GitLab runs it when the `datarobot` environment stops, and it is also a manual job in the pipeline. Stopping doesn't delete the workload. |
@@ -68,7 +80,10 @@ The following table lists common failures.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| No pipeline starts. | `DEPLOY_TO_DATAROBOT` isn't `true`, or the push isn't to the default branch. | Add the variable, then push to the default branch. |
+| No deploy pipeline starts. | `DEPLOY_TO_DATAROBOT` isn't `true`, or the push isn't to the default branch. | Add the variable, then push to the default branch. |
+| No sync pipeline starts. | `SYNC_FROM_GITHUB` isn't `true`, or the schedule is inactive. | Add the variable, and check that the schedule is active. |
+| The sync job fails with `You are not allowed to push code to protected branches` or HTTP 403. | The project doesn't allow Git push requests from job tokens, or the schedule owner isn't a Maintainer. | Turn on the job token setting, and select **Take ownership** on the schedule as a Maintainer. |
+| The sync job fails with `non-fast-forward`. | The default branch has a commit that GitHub lacks. | Move that commit to GitHub, or remove it from the project. |
 | GitLab asks to verify the account before the pipeline runs. | GitLab.com requires identity verification before it runs jobs on shared runners. | Verify the account, or register your own runner. |
 | `No workloadId found in .datarobot.yaml` | The commit has no manifest with a workload ID. Git ignores the file by default. | Run the first deploy, then commit the manifest with `git add -f`. |
 | `doesn't declare DATAROBOT_API_TOKEN as the workload's own key` | The manifest gives the workload the token of whoever wrote it. | Run `dr run env`, then commit the manifest. |

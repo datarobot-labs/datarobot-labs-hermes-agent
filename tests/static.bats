@@ -375,13 +375,14 @@ config/skills/.hub/scan-cache/x'
     [ "$check" -lt "$deploy" ]
 }
 
-@test "the GitLab pipeline starts no job unless DEPLOY_TO_DATAROBOT is true on the default branch" {
+@test "the GitLab deploy jobs start no job unless DEPLOY_TO_DATAROBOT is true on the default branch" {
     run python3 - /repo/.gitlab-ci.yml <<'PY'
 import sys, yaml
 pipeline = yaml.safe_load(open(sys.argv[1]))
 inputs = pipeline["include"][0]["inputs"]
 rules = list(inputs["rules"]) + list(inputs["stop_rules"])
-jobs = {name: job for name, job in pipeline.items() if name not in ("stages", "include")}
+# The sync job has its own gate, which tests/sync-from-github.bats checks.
+jobs = {name: job for name, job in pipeline.items() if name not in ("stages", "include", "sync-from-github")}
 assert jobs, "no job of its own to gate"
 for name, job in jobs.items():
     assert job.get("rules"), f"{name} has no rules, so it runs on every pipeline"

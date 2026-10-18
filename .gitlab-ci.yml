@@ -15,8 +15,13 @@
 # Rolls the workload that the committed .datarobot.yaml names. Off until a
 # clone sets the CI/CD variable DEPLOY_TO_DATAROBOT to true, so this project
 # and every fresh clone or fork skip it and start no pipeline. It runs only on
-# the default branch. docs/GITLAB.md has the setup.
+# the default branch, and never in a scheduled pipeline, which only syncs.
+#
+# The sync job pulls main and the v* tags from GitHub. It is off until a project
+# sets SYNC_FROM_GITHUB to true and schedules a pipeline. docs/GITLAB.md has the
+# setup for both.
 stages:
+  - sync
   - check
   - deploy
 
@@ -31,12 +36,29 @@ include:
       # Dependabot doesn't read this file, so update the digest by hand.
       image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
       rules:
-        - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+        - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       # GitLab rejects a pipeline that has the deploy job but not its stop job,
       # so the stop job follows the same gate. It stays a manual job.
       stop_rules:
-        - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+        - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
           when: manual
+
+# Pushes main and the v* tags from GitHub to this project with the job token.
+# The project must allow Git push requests from job tokens. A push made with the
+# job token starts no pipeline, so a sync never triggers a deploy by itself.
+# SYNC_SOURCE_URL is the repository to pull from. A project variable of the same
+# name replaces the default.
+sync-from-github:
+  stage: sync
+  image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
+  variables:
+    SYNC_SOURCE_URL: https://github.com/datarobot-labs/datarobot-labs-hermes-agent.git
+  rules:
+    - if: $SYNC_FROM_GITHUB == "true" && ($CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web")
+  before_script:
+    - apk add --no-cache git
+  script:
+    - sh scripts/sync-from-github.sh "$SYNC_SOURCE_URL" "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
 
 # The same check `dr run deploy` makes: the workload keeps its own API key,
 # never the token of whoever wrote the manifest.
@@ -44,7 +66,7 @@ check-manifest:
   stage: check
   image: alpine:3.21@sha256:ce64758a109eb420d874a118f87920e625e12d3634e03b4a5573fd9f6e5d3507
   rules:
-    - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $DEPLOY_TO_DATAROBOT == "true" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE != "schedule"
       exists:
         - .datarobot.yaml
   script:
