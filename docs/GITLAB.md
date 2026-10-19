@@ -10,7 +10,7 @@ The GitLab project of this repository is a read-only copy of the GitHub reposito
 
 A scheduled pipeline in the GitLab project pulls the code. The job `sync-from-github` fetches `main` and the `v*` tags from GitHub and pushes them to the project with the job token, in one atomic push. It moves `main` by fast-forward and never forces it, so a commit made directly on the default branch of the project makes every later sync fail. The `v*` tags follow GitHub exactly: a tag that GitHub moves is moved, and a tag that GitHub deletes is deleted. The job touches nothing else.
 
-The same job keeps your own copy or fork on GitLab current. It's off until a project sets `SYNC_FROM_GITHUB` to `true`, so a fresh fork never pulls. To turn it on, complete the following steps.
+The same job keeps your own copy or fork on GitLab current. It's off until a project sets `SYNC_FROM_GITHUB` to `true`, so a fresh fork never pulls. The job lives in the `.gitlab-ci.yml` of the project, so a project created empty, not forked, needs one manual push of `main` from GitHub before the first sync. To turn it on, complete the following steps.
 
 1. In **Settings > CI/CD > Job token permissions**, turn on **Allow Git push requests to the repository**. This setting needs GitLab 18.4 or later.
 2. In **Settings > CI/CD > Variables**, add `SYNC_FROM_GITHUB` with the value `true`. To pull from another repository, add `SYNC_SOURCE_URL` with its HTTPS URL. The runner must read that URL without credentials.
