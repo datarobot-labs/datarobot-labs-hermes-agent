@@ -84,6 +84,20 @@ manifest_value() {
 persist=$(env_value PERSIST_STATE)
 case $(printf '%s' "$persist" | tr '[:upper:]' '[:lower:]') in
     no | false | 0 | off)
+        # The image persists whenever it is given a store id, whatever
+        # PERSIST_STATE says, so off holds only once the id is gone too.
+        still=
+        [ -z "$(env_value DR_SYNC_CATALOG_ID)" ] || still=" $env_file"
+        if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *$' "$manifest"; then
+            still="$still .datarobot.yaml"
+        fi
+        if [ -n "$still" ]; then
+            echo "PERSIST_STATE=$persist, but DR_SYNC_CATALOG_ID is still set in$still, so the workload" >&2
+            echo "still keeps its state. To turn it off, delete that line from $env_file, then run" >&2
+            echo "'dr run env' and 'dr workload up' (docs/ARCHITECTURE.md, \"Turning persistence on\")." >&2
+            [ -z "$check" ] || exit 1
+            exit 0
+        fi
         echo "Persistence is off (PERSIST_STATE=$persist): the workload starts fresh on every restart."
         exit 0
         ;;
