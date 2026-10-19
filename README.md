@@ -16,6 +16,8 @@ A long-running, autonomous agent remembers last Tuesday and acts while you're aw
 
 You get a Hermes Agent with a web UI on the workload's endpoint, an optional Slack bot, and tools for coding, git and working with DataRobot itself, on DataRobot's LLM gateway.
 
+A [workload](https://docs.datarobot.com/en/docs/workload-api/create-workloads/workload-concepts.html) is how DataRobot runs a container: a stable identity and endpoint, with governance and monitoring around the running instances. The [Workload API documentation](https://docs.datarobot.com/en/docs/workload-api/index.html) covers the full model.
+
 Hermes Agent is a project of Nous Research. This repository is not affiliated with or endorsed by Nous Research.
 
 ## The controls
@@ -34,7 +36,7 @@ Built on the Agent Workforce Platform, in three groups.
 
 ## Deploy your own
 
-You need a DataRobot account with Workloads enabled, and the DataRobot CLI (`dr`) v0.14.1 or later, logged in to that install:
+You need a DataRobot account with [Workloads](https://docs.datarobot.com/en/docs/workload-api/index.html) enabled, and the DataRobot CLI (`dr`) v0.14.1 or later, logged in to that install:
 
 ```sh
 brew install datarobot-oss/taps/dr-cli          # or: curl -fsSL https://cli.datarobot.com/install | sh
@@ -96,7 +98,9 @@ CI never creates a workload. The first deploy runs on your machine, and the mani
 4. Add the repository variable `DEPLOY_TO_DATAROBOT` with the value `true`.
 5. Push to `main`. The deploy job rolls the workload and prints its endpoint in the job summary.
 
-The `.env` file stays on your machine. To change a setting, run `dr run env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment.
+The `.env` file stays on your machine, in plain text and ignored by git, so it never reaches the image or the repository. The first deploy copies each secret in it into a DataRobot credential, and the manifest refers to the credential by ID. CI reads only the manifest and the two `datarobot` environment secrets, so it never sees `.env` or the values in it. The only credential on GitHub is `DATAROBOT_API_TOKEN`, and CI deploys as the account that owns it.
+
+To change a setting, run `dr run env`, which reads `.env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment.
 
 If the new version never passes its `/health` readiness check, `dr workload up` fails the job and the version already serving keeps serving; `dr run doctor` checks the live endpoint from outside. To see the plan on pull requests without deploying, run the action with `dry_run: "true"`, as in its [plan-and-apply example](https://github.com/datarobot-oss/workload-deploy-github/blob/ef184a69a02243bdeda2dd0fa354930a1902ec30/examples/plan-and-apply.yml).
 
