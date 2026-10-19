@@ -109,6 +109,18 @@ no_leftovers() {
     cmp "$WORK/after-first" "$ENV"
 }
 
+@test "duplicate DR_SYNC_CATALOG_ID lines become the one new id, and a re-run reuses it" {
+    printf 'DR_SYNC_CATALOG_ID=\nSLACK_HOME_CHANNEL=C1\nDR_SYNC_CATALOG_ID=\n' >> "$ENV"
+    store
+    [ "$status" -eq 0 ]
+    [ "$(grep -c '^DR_SYNC_CATALOG_ID=' "$ENV")" = 1 ]
+    grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
+    grep -qx 'SLACK_HOME_CHANNEL=C1' "$ENV"
+    store
+    [ "$status" -eq 0 ]
+    [ "$(inits)" = 1 ]
+}
+
 @test "an empty DR_SYNC_CATALOG_ID line is filled in place, not added twice" {
     echo 'DR_SYNC_CATALOG_ID=' >> "$ENV"
     store

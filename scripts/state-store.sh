@@ -154,9 +154,11 @@ fi
 # .env so the swap is a rename: it holds every secret .env does.
 set_env_id() {
     tmp=$(mktemp "$(dirname "$env_file")/.env.XXXXXX")
-    # Fills an empty DR_SYNC_CATALOG_ID= line if there is one, else appends.
+    # One DR_SYNC_CATALOG_ID line, where the first one was, or appended. Later
+    # ones go: env_value reads the last, so a leftover empty one would hide
+    # the id and make the next run create yet another store.
     awk -v id="$1" '
-        /^DR_SYNC_CATALOG_ID=/ && !done { print "DR_SYNC_CATALOG_ID=\"" id "\""; done = 1; next }
+        /^DR_SYNC_CATALOG_ID=/ { if (!done) print "DR_SYNC_CATALOG_ID=\"" id "\""; done = 1; next }
         { print }
         END {
             if (!done) {
