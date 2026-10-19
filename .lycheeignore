@@ -1,0 +1,5 @@
+# One regular expression per line. lychee reads this file from the repo root.
+
+# GitLab draws the page headings in the browser, so lychee can't find these
+# anchors in the HTML. Both headings exist in the README.
+^https://gitlab\.com/datarobot-oss/workload-deploy#
