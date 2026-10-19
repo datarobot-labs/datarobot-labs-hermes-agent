@@ -530,6 +530,76 @@ YAML
     [ "$status" -ne 0 ]
 }
 
+# The state store's id from scripts/state-store.sh: hex, so dr's detector
+# would take it for a secret.
+STORE=0123456789abcdef01234567
+
+store_entries() {
+    grep -cE '^ *- name: DR_SYNC_CATALOG_ID$' "$1" || true
+}
+
+@test "dr never sees the state store's id, and the manifest declares it once, as a plain value" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$PROJECT/.env"
+    configure write --yes
+    [ "$status" -eq 0 ]
+    ! grep -q DR_SYNC_CATALOG_ID "$WORK/seen/env" || false
+    [ "$(store_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -A1 -E '^ *- name: DR_SYNC_CATALOG_ID$' "$PROJECT/.datarobot.yaml" | grep -qx "                value: \"$STORE\""
+    run grep -c 'dr-credential' "$PROJECT/.datarobot.yaml"
+    [ "$output" = 0 ]
+    python3 -c 'import sys, yaml
+envs = yaml.safe_load(open(sys.argv[1]))["artifact"]["spec"]["containerGroups"][0]["containers"][0]["environmentVars"]
+assert {"name": "DR_SYNC_CATALOG_ID", "value": sys.argv[2]} in envs, envs' "$PROJECT/.datarobot.yaml" "$STORE"
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
+@test "a store id the manifest holds as a credential becomes the plain value, hidden from dr" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$PROJECT/.env"
+    configure write --yes
+    sed -i "s#^\( *\)value: \"$STORE\"\$#\1value: dr-credential:abcabcabcabcabcabcabcabc/apiToken#" "$PROJECT/.datarobot.yaml"
+    grep -q 'dr-credential:abcabcabcabcabcabcabcabc' "$PROJECT/.datarobot.yaml"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    ! grep -q DR_SYNC_CATALOG_ID "$WORK/seen/manifest" || false
+    ! grep -q 'dr-credential:abcabcabcabcabcabcabcabc' "$PROJECT/.datarobot.yaml" || false
+    [ "$(store_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -q "value: \"$STORE\"" "$PROJECT/.datarobot.yaml"
+}
+
+@test "with the store id already right, the manifest is left byte for byte" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$PROJECT/.env"
+    configure write --yes
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+}
+
+@test "a changed store id in .env is carried over, and one gone from .env is removed" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$PROJECT/.env"
+    configure write --yes
+    sed -i 's/^DR_SYNC_CATALOG_ID=.*/DR_SYNC_CATALOG_ID=fedcba9876543210fedcba98/' "$PROJECT/.env"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    [ "$(store_entries "$PROJECT/.datarobot.yaml")" = 1 ]
+    grep -q 'value: "fedcba9876543210fedcba98"' "$PROJECT/.datarobot.yaml"
+
+    sed -i '/^DR_SYNC_CATALOG_ID=/d' "$PROJECT/.env"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    [ "$(store_entries "$PROJECT/.datarobot.yaml")" = 0 ]
+}
+
+@test "a store id that can't be one is refused before dr runs" {
+    printf 'DR_SYNC_CATALOG_ID="abc\" injected"\n' >> "$PROJECT/.env"
+    configure write --yes
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"isn't a store id"* ]]
+    [ ! -e "$WORK/seen/env" ]
+    [ ! -e "$PROJECT/.datarobot.yaml" ]
+}
+
 @test "a caller's --dir is refused before dr runs, in either form" {
     for args in "--yes --dir ." "--yes --dir=." "--sync-env --dir=$PROJECT"; do
         rm -f "$WORK/seen/env"
