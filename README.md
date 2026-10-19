@@ -8,6 +8,8 @@
 > [!NOTE]
 > Experimental and community maintained. Not an officially supported DataRobot product, and provided as is with no support commitment.
 
+https://github.com/user-attachments/assets/1fc91835-d00b-4ea6-b28d-d05a09798235
+
 Autonomy where it pays off. Control where it counts.
 
 A long-running, autonomous agent remembers last Tuesday and acts while you're away. That takes controls a one-shot pipeline never needed. This repository runs [Hermes Agent](https://github.com/NousResearch/hermes-agent), an open, long-running agent, as a DataRobot workload, inside a perimeter that supplies them. Read the thinking behind it in [Autonomous Agents with Control](https://labs.datarobot.com/blog/persistent-autonomous-agents/).
