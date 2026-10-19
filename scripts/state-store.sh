@@ -70,11 +70,11 @@ manifest_value() {
     [ -f "$manifest" ] || return 0
     awk -v name="$1" '
         function indent(s) { match(s, /^ */); return RLENGTH }
-        $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *$") { entry = indent($0); inside = 1; next }
+        $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$") { entry = indent($0); inside = 1; next }
         inside && /^ *(#.*)?$/ { next }
         inside && indent($0) <= entry { inside = 0 }
         inside && /^ *value:/ {
-            v = $0; sub(/^ *value: */, "", v); gsub(/^["'\'']|["'\'']$/, "", v)
+            v = $0; sub(/^ *value: */, "", v); sub(/[ \t]+#.*$/, "", v); gsub(/^["'\'']|["'\'']$/, "", v)
             if (v !~ /^dr-credential:/) print v
             exit
         }
@@ -88,7 +88,7 @@ case $(printf '%s' "$persist" | tr '[:upper:]' '[:lower:]') in
         # PERSIST_STATE says, so off holds only once the id is gone too.
         still=
         [ -z "$(env_value DR_SYNC_CATALOG_ID)" ] || still=" $env_file"
-        if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *$' "$manifest"; then
+        if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *(#.*)?$' "$manifest"; then
             still="$still .datarobot.yaml"
         fi
         if [ -n "$still" ]; then
@@ -190,7 +190,7 @@ fi
 # Declared, but not as a literal: most likely dr stored the id as a credential.
 # Its value can't be read back here, and creating a store now would make a
 # second one for the same workload.
-if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *$' "$manifest"; then
+if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *(#.*)?$' "$manifest"; then
     echo ".datarobot.yaml declares DR_SYNC_CATALOG_ID, but not as a plain value this can read." >&2
     echo "Put the store's id in $env_file as DR_SYNC_CATALOG_ID and run this again." >&2
     exit 1

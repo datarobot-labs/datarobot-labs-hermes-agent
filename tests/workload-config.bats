@@ -576,6 +576,19 @@ assert {"name": "DR_SYNC_CATALOG_ID", "value": sys.argv[2]} in envs, envs' "$PRO
     cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
 }
 
+@test "a store entry with YAML comments is read as right, and kept byte for byte with them" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$PROJECT/.env"
+    configure write --yes
+    sed -i "s#^\( *\)- name: DR_SYNC_CATALOG_ID\$#\1- name: DR_SYNC_CATALOG_ID   \# the state store#; s#^\( *\)value: \"$STORE\"\$#\1value: \"$STORE\"   \# from dr start#" "$PROJECT/.datarobot.yaml"
+    grep -q 'DR_SYNC_CATALOG_ID   # the state store' "$PROJECT/.datarobot.yaml"
+    cp "$PROJECT/.datarobot.yaml" "$WORK/manifest.before"
+    configure noop --sync-env
+    [ "$status" -eq 0 ]
+    cmp "$WORK/manifest.before" "$PROJECT/.datarobot.yaml"
+    configure noop --check
+    [ "$status" -eq 0 ]
+}
+
 @test "a changed store id in .env is carried over, and one gone from .env is removed" {
     printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$PROJECT/.env"
     configure write --yes

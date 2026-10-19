@@ -128,6 +128,16 @@ no_leftovers() {
     grep -q "catalogItems/$STORE/" "$STUB_LOG"
 }
 
+@test "a manifest entry with YAML comments is still read, so no second store is made" {
+    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID   # the state store
+                value: \"$STORE\"   # from dr start"
+    store
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"from .datarobot.yaml"* ]]
+    [ "$(inits)" = 0 ]
+    grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
+}
+
 @test "an id dr stored in .datarobot.yaml as a credential stops the run instead of making a second store" {
     manifest hermes-agent '              - name: DR_SYNC_CATALOG_ID
                 value: dr-credential:0123456789abcdef01234567/apiToken'

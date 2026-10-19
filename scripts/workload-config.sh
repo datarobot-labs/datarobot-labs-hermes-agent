@@ -214,10 +214,10 @@ esac
 store_value() {
     awk -v name="$store" '
         function indent(s) { match(s, /^ */); return RLENGTH }
-        $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *$") { entry = indent($0); inside = 1; next }
+        $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$") { entry = indent($0); inside = 1; next }
         inside && /^ *(#.*)?$/ { next }
         inside && indent($0) <= entry { inside = 0 }
-        inside && /^ *value:/ { v = $0; sub(/^ *value: */, "", v); gsub(/^["'\'']|["'\'']$/, "", v); print v; exit }
+        inside && /^ *value:/ { v = $0; sub(/^ *value: */, "", v); sub(/[ \t]+#.*$/, "", v); gsub(/^["'\'']|["'\'']$/, "", v); print v; exit }
     ' "$1"
 }
 
