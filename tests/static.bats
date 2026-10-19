@@ -424,6 +424,18 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "the link check reads hidden directories, so the Markdown under .github is checked" {
+    run grep -F -e '--hidden' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+}
+
+@test "every .lycheeignore entry matches one whole URL, not a prefix" {
+    entries=$(grep -vE '^\s*(#|$)' /repo/.lycheeignore)
+    [ -n "$entries" ]
+    unanchored=$(printf '%s\n' "$entries" | grep -vE '^\^.*\$$' || true)
+    [ -z "$unanchored" ]
+}
+
 @test "every Dependabot ecosystem waits at least a week for a release to age" {
     run python3 - /repo/.github/dependabot.yml <<'PY'
 import sys, yaml
