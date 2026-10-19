@@ -274,6 +274,19 @@ tasks:
     cmds:
       - docker run --rm --volume {{shellQuote (print .ROOT_DIR ":/repo:ro")}} --env GH_TOKEN {{.ZIZMOR}} --no-progress /repo
       - docker run --rm --volume {{shellQuote (print .ROOT_DIR ":/repo:ro")}} --workdir /repo {{.ACTIONLINT}} -color
+  lint:links:
+    desc: >
+      Check every link in the repo's Markdown files with lychee, in an image
+      pinned by digest. The synced skills in config/skills are skipped. Needs
+      Docker and network access. Set GITHUB_TOKEN to lift the GitHub API rate
+      limit for github.com links.
+    vars:
+      # lychee 0.24.2. Update the digest and this comment together.
+      LYCHEE: lycheeverse/lychee@sha256:eaff3e0a13603c9a701accfcc84f44158bb77bf36ecfa4622b626056c3463892
+    cmds:
+      # 429 counts as alive, because a rate limit says nothing about the link.
+      # .lycheeignore lists the links it can't check.
+      - docker run --rm --volume {{shellQuote (print .ROOT_DIR ":/repo:ro")}} --workdir /repo --env GITHUB_TOKEN {{.LYCHEE}} --no-progress --accept "200..=299,429" --max-retries 3 --include-fragments --hidden --exclude-path config/skills "./**/*.md"
   skills:datarobot:
     desc: >
       Sync config/skills/datarobot/ from the datarobot-oss/datarobot-agent-skills

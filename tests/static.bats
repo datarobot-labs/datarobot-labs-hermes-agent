@@ -412,6 +412,30 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "the link check runs lychee from an image pinned by digest, through the task, and skips the synced skills" {
+    run grep -E '^      LYCHEE: lycheeverse/lychee@sha256:[0-9a-f]{64}$' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -F -e '--exclude-path config/skills' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -F 'run: task lint:links' /repo/.github/workflows/link-check.yml
+    [ "$status" -eq 0 ]
+    # The token lifts the GitHub API rate limit for github.com links.
+    run grep -F 'GITHUB_TOKEN: ${{ github.token }}' /repo/.github/workflows/link-check.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the link check reads hidden directories, so the Markdown under .github is checked" {
+    run grep -F -e '--hidden' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+}
+
+@test "every .lycheeignore entry matches one whole URL, not a prefix" {
+    entries=$(grep -vE '^\s*(#|$)' /repo/.lycheeignore)
+    [ -n "$entries" ]
+    unanchored=$(printf '%s\n' "$entries" | grep -vE '^\^.*\$$' || true)
+    [ -z "$unanchored" ]
+}
+
 @test "every Dependabot ecosystem waits at least a week for a release to age" {
     run python3 - /repo/.github/dependabot.yml <<'PY'
 import sys, yaml
