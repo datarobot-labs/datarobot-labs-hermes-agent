@@ -35,6 +35,7 @@ tasks:
     cmds:
       - dr dotenv setup --if-needed
       - task: _llm-gateway-url
+      - task: _state-store
       - task: _manifest
       - echo "Ready. Deploy with 'dr workload up'."
       - echo "To deploy from CI, commit the manifest with 'git add -f .datarobot.yaml' in a private repo. See README.md, 'Deploying from CI'."
@@ -162,6 +163,10 @@ tasks:
         else
           echo ".datarobot.yaml is complete."
         fi
+
+        step "State store"
+        scripts/state-store.sh --check || failed=1
+
         if ! grep -q '^workloadId:' .datarobot.yaml; then
           echo "Not deployed yet. Run 'dr workload up'."
           exit "$failed"
@@ -212,6 +217,14 @@ tasks:
     # shell doesn't support. See scripts/llm-gateway-url.sh.
     cmds:
       - LLM_GATEWAY_SYNCING={{shellQuote (.SYNCING | default "")}} scripts/llm-gateway-url.sh
+
+  # Before _manifest, so a new manifest carries DR_SYNC_CATALOG_ID. A script:
+  # it needs signal traps. See scripts/state-store.sh.
+  _state-store:
+    silent: true
+    internal: true
+    cmds:
+      - scripts/state-store.sh
 
   _manifest:
     silent: true
