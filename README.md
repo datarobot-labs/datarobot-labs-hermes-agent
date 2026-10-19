@@ -66,6 +66,15 @@ only what changed. Add `--dry-run` to preview a deploy. `dr run deploy` is the
 same deploy, run through this repo's task, which first refuses a manifest that
 would give the workload your own token.
 
+### Draft or permanent
+
+A first `dr workload up` creates a draft workload. DataRobot stops a draft workload after 8 hours, whether or not anyone uses it. Choose which you want:
+
+- **Try it.** Run `dr workload up` as shown. The workload stops by itself after 8 hours.
+- **Keep it.** Add `--promote`, which locks the version and makes the workload permanent: `dr workload up --promote`, or `dr run deploy -- --promote` through this repo's task. To make a draft that is already running permanent, run `dr workload promote`.
+
+Promoting is one-way. The artifact stays locked, and DataRobot refuses to delete a locked artifact, so a later `--purge` keeps it. [Start over](docs/TROUBLESHOOTING.md#start-over) covers that case. The deploy from CI, described in [Deploying from CI](#deploying-from-ci), promotes by default.
+
 To open the web UI, open the URL `dr workload endpoint` prints, with its
 trailing slash. To check that everything is healthy:
 
@@ -96,7 +105,7 @@ CI never creates a workload. The first deploy runs on your machine, and the mani
    - `DATAROBOT_ENDPOINT`: the URL of your DataRobot install, for example `https://app.datarobot.com`.
    - `DATAROBOT_API_TOKEN`: an API key of the account that ran `dr start`.
 4. Add the repository variable `DEPLOY_TO_DATAROBOT` with the value `true`.
-5. Push to `main`. The deploy job rolls the workload and prints its endpoint in the job summary.
+5. Push to `main`. The deploy job rolls the workload, promotes the version it rolled out so that the workload becomes permanent, and prints its endpoint in the job summary.
 
 The `.env` file stays on your machine, in plain text. Git ignores it, and `.drignore` and `.dockerignore` keep it out of the upload and the image, so don't force-add it to git. `dr start` stores each secret in it, except your own `DATAROBOT_API_TOKEN`, as a DataRobot credential and writes the credential IDs into the manifest, and the first `dr workload up` deploys that manifest. The workload gets its own API key from the platform instead of your token. CI doesn't need `.env`: it checks out the repository and passes only the two `datarobot` environment secrets to the deploy. The only credential on GitHub is the `DATAROBOT_API_TOKEN` environment secret, and CI deploys as the account that owns that key.
 
