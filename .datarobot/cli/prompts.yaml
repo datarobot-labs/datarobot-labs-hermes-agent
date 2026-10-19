@@ -69,15 +69,16 @@ slack_everyone:
     help: "Lets every member of the workspace use the bot."
 
 # Whether `dr start` gives the workload a dr-sync state store, so its
-# sessions, memory and installed skills survive a restart
-# (scripts/state-store.sh). An env prompt rather than a `key:` one, so the
+# sessions and memory survive a restart (scripts/state-store.sh). Skills are
+# not kept: they come from the image on every boot. An env prompt rather than a `key:` one, so the
 # script can read the answer back from .env.
 persistence:
   - env: PERSIST_STATE
     help: >-
-      Keep the bot's sessions, memory and installed skills across restarts?
-      dr start then creates a DataRobot file container to hold them. Choose
-      "No" for a bot that starts fresh every time; you can turn it on later.
+      Keep the bot's sessions and memory across restarts? dr start then
+      creates a DataRobot file container to hold them. Choose "No" for a bot
+      that starts fresh every time; you can turn it on later. (Skills come
+      from the image either way: add them with `dr run install:<skill>`.)
     default: "yes"
     options:
       - name: "Yes, keep them"

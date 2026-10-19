@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Gives the workload a dr-sync state store, so its sessions, memories and
-# skills survive a restart, and puts the store's id in .env as
+# Gives the workload a dr-sync state store, so its sessions and memory
+# survive a restart, and puts the store's id in .env as
 # DR_SYNC_CATALOG_ID. `dr start` runs it; `dr run doctor` runs it with --check.
 #
 # One store per workload, and safe to re-run: the id already in .env, else the

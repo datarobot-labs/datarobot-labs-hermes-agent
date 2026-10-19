@@ -218,8 +218,8 @@ persistence.
 
 ### Turning persistence on
 
-`dr start` does it. It asks once whether to keep the bot's sessions, memory
-and installed skills across restarts (`PERSIST_STATE`, default yes), then
+`dr start` does it. It asks once whether to keep the bot's sessions and
+memory across restarts (`PERSIST_STATE`, default yes), then
 `scripts/state-store.sh`:
 
 - reuses the store `.env` names as `DR_SYNC_CATALOG_ID`, else the one
@@ -234,6 +234,11 @@ manifest that already exists, run `dr run env` after `dr start` to carry
 `DR_SYNC_CATALOG_ID` over, then `dr workload up`. `dr run doctor` tells you
 whether the store is in place. datarobot-sync also uses `DATAROBOT_ENDPOINT`
 and `DATAROBOT_API_TOKEN`, which the workload already has.
+
+Skills are not part of it: `.drsyncignore` leaves `skills/` out and every boot
+seeds them from the image, so a skill installed into the running agent is gone
+after a restart. Add skills with `dr run install:<skill>` and redeploy
+(README.md, "Adding skills").
 
 To turn persistence off, set `PERSIST_STATE=no` in `.env`, delete the
 `DR_SYNC_CATALOG_ID` line, and run `dr run env` and `dr workload up`. The store
