@@ -10,16 +10,19 @@
     "e15": "DataRobot Gateway\n~Access via DataRobot sharing",
     "e21": "Hermes Agent\n~Container workload",
     "e23": "datarobot-sync\n~State sync sidecar",
-    "e25": "Credentials Store\n~App secrets",
-    "e29": "Observability\n~Tracing",
+    "e25": "Credentials Store\n~App secrets, injected as env vars",
+    "e29": "Observability\n~Receives traces",
     "e8": "GitHub / GitLab\n~Repo + pipeline",
-    "e43": "env vars",
-    "e48": "LLM calls"
+    "e43": "",
+    "e48": "",
+    "e50": "",
+    "e52": "",
+    "e27": "LLM Gateway\n~Receives LLM calls",
+    "e31": "Files API\n~Persists agent state",
+    "e33": "",
+    "e39": "",
+    "e2": "Slack users\n~Connect over WebSocket"
   },
-  "rewire": {
-    "e43": {
-      "from": "e25",
-      "to": "e17"
-    }
-  }
+  "aspect": "none",
+  "compact": false
 }
