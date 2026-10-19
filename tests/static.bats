@@ -231,6 +231,13 @@ PY
     [ "$status" -ne 0 ]
 }
 
+@test "a local compose run never writes to the deployed workload's state store" {
+    run python3 -c 'import sys, yaml
+svc = yaml.safe_load(open(sys.argv[1]))["services"]["hermes"]
+assert svc["environment"]["DR_SYNC_CATALOG_ID"] == "${LOCAL_DR_SYNC_CATALOG_ID:-}", svc.get("environment")' /repo/compose.yaml
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+}
+
 @test "compose publishes the gateway port on loopback only" {
     grep -qE '"127\.0\.0\.1:8642:8642"' /repo/compose.yaml
     run grep -nE '^\s+- "8642:8642"' /repo/compose.yaml
