@@ -291,12 +291,14 @@ cp Dockerfile "$work/"
 # grep exits 1 when nothing is left (fine) and 2 when it can't read .env: an
 # unreadable .env must not pass for an empty one, which --sync-env would
 # take as every setting removed.
-case $store_id in
-    *[!A-Za-z0-9_-]*)
-        echo "$store in .env isn't a store id ($store_id), so nothing was changed." >&2
-        exit 1
-        ;;
-esac
+# Empty removes the entry. Anything else must look like the id dr-sync init
+# prints: a typo would reach the workload, which then can't download its state
+# and refuses to boot.
+if [ -n "$store_id" ] && ! printf '%s' "$store_id" | grep -qE '^[0-9a-f]{24}$'; then
+    echo "$store in .env isn't a store id ($store_id): dr-sync prints 24 lowercase hex" >&2
+    echo "characters. Nothing was changed." >&2
+    exit 1
+fi
 
 status=0
 grep -v -e "^${token}=" -e "^${store}=" .env > "$work/.env" || status=$?
