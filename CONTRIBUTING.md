@@ -15,7 +15,7 @@ Contribute on GitHub. The GitLab project is a read-only mirror of the GitHub rep
 
 A scheduled pipeline in the GitLab project keeps it in step with this repository: `main` and the `v*` tags, nothing else. The job `sync-from-github` in [`.gitlab-ci.yml`](.gitlab-ci.yml) pulls them and pushes them with the job token, so no key or token is stored on GitHub. The `v*` tags follow GitHub exactly: a tag that GitHub moves is moved on GitLab, and a tag that GitHub no longer has is deleted. No other branch or tag is touched. After you tag a release, run the schedule from **Build > Pipeline schedules** to publish the tag at once.
 
-The setup is in "Keep a GitLab project in step with GitHub" in [docs/GITLAB.md](docs/GITLAB.md). For the project of this repository, set `SYNC_FROM_GITHUB` to `true` and keep the schedule owned by a Maintainer.
+The setup is in "Keep a GitLab project in step with GitHub" in [docs/GITLAB.md](docs/GITLAB.md). For the project of this repository, set `SYNC_FROM_GITHUB` to `true` and keep the schedule owned by a Maintainer. The job lives in the project's own `.gitlab-ci.yml`, so a project that doesn't have the file yet needs one manual push of `main` from GitHub before the first sync.
 
 The sync is a fast-forward, so a commit made directly on the GitLab default branch makes every later run fail. To recover, remove that commit from GitLab, which needs a temporary **Allow force push** on the protected branch, and run the schedule again.
 
