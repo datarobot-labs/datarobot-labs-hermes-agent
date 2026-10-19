@@ -34,6 +34,7 @@ header:
     - "tests/**"
     - ".github/workflows/*.yml"
     - ".github/workflows/*.yaml"
+    - ".gitlab-ci.yml"
   paths-ignore:
     - "tests/fixtures/**"
     # Generated and parsed by the Dockerfile's checksum verification.

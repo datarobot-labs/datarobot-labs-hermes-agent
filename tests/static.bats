@@ -73,7 +73,7 @@ upload_set() {
 
 @test "YAML and JSON files parse" {
     cd /repo
-    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml \
+    for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .github/zizmor.yml .gitlab-ci.yml \
             .datarobot/cli/versions.yaml .datarobot/cli/prompts.yaml; do
         python3 -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' "$f"
     done
@@ -373,6 +373,87 @@ config/skills/.hub/scan-cache/x'
     [ -n "$check" ]
     [ -n "$deploy" ]
     [ "$check" -lt "$deploy" ]
+}
+
+@test "the GitLab deploy jobs start no job unless DEPLOY_TO_DATAROBOT is true on the default branch" {
+    run python3 - /repo/.gitlab-ci.yml <<'PY'
+import sys, yaml
+pipeline = yaml.safe_load(open(sys.argv[1]))
+inputs = pipeline["include"][0]["inputs"]
+rules = list(inputs["rules"]) + list(inputs["stop_rules"])
+# The sync job has its own gate, which tests/sync-from-github.bats checks.
+jobs = {name: job for name, job in pipeline.items() if name not in ("stages", "include", "sync-from-github")}
+assert jobs, "no job of its own to gate"
+for name, job in jobs.items():
+    assert job.get("rules"), f"{name} has no rules, so it runs on every pipeline"
+    rules += job["rules"]
+for rule in rules:
+    condition = rule.get("if", "")
+    for needed in ('$DEPLOY_TO_DATAROBOT == "true"', "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"):
+        assert needed in condition, f"rule {rule} lacks {needed}"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the GitLab pipeline pins the deploy component to a full commit SHA" {
+    run grep -E '^  - component: .*/datarobot-oss/workload-deploy/deploy@[0-9a-f]{40}$' /repo/.gitlab-ci.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "the workflow lint runs zizmor and actionlint from images pinned by digest, through the task" {
+    run grep -E '^      ZIZMOR: ghcr\.io/zizmorcore/zizmor@sha256:[0-9a-f]{64}$' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -E '^      ACTIONLINT: rhysd/actionlint@sha256:[0-9a-f]{64}$' /repo/Taskfile.yaml
+    [ "$status" -eq 0 ]
+    run grep -F 'run: task lint:workflows' /repo/.github/workflows/workflow-lint.yml
+    [ "$status" -eq 0 ]
+    # The token enables zizmor's online audits, which found a wrong version comment the offline run missed.
+    run grep -F 'GH_TOKEN: ${{ github.token }}' /repo/.github/workflows/workflow-lint.yml
+    [ "$status" -eq 0 ]
+}
+
+@test "every Dependabot ecosystem waits at least a week for a release to age" {
+    run python3 - /repo/.github/dependabot.yml <<'PY'
+import sys, yaml
+for update in yaml.safe_load(open(sys.argv[1]))["updates"]:
+    days = update.get("cooldown", {}).get("default-days", 0)
+    assert days >= 7, f"{update['package-ecosystem']} {update['directory']} waits {days} days"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the zizmor ignores name only the shared Review Router workflow" {
+    run python3 - /repo/.github/zizmor.yml <<'PY'
+import sys, yaml
+rules = yaml.safe_load(open(sys.argv[1]))["rules"]
+assert rules, "no ignores, so this file is not needed"
+for rule, settings in rules.items():
+    assert settings["ignore"] == ["review-router.yml"], f"{rule} ignores {settings['ignore']}"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the GitLab pipeline pins the image of every job by digest" {
+    run python3 - /repo/.gitlab-ci.yml <<'PY'
+import re, sys, yaml
+pipeline = yaml.safe_load(open(sys.argv[1]))
+images = {"deploy and stop jobs": pipeline["include"][0]["inputs"]["image"]}
+images.update({name: job["image"] for name, job in pipeline.items() if isinstance(job, dict) and "image" in job})
+assert len(images) > 1, "no job of its own to check"
+for name, image in images.items():
+    assert re.search(r"@sha256:[0-9a-f]{64}$", image), f"{name} runs {image}, which a tag can move"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the GitLab pipeline checks the manifest in a stage before the deploy stage" {
+    run python3 - /repo/.gitlab-ci.yml <<'PY'
+import sys, yaml
+pipeline = yaml.safe_load(open(sys.argv[1]))
+stages = pipeline["stages"]
+assert stages.index(pipeline["check-manifest"]["stage"]) < stages.index("deploy"), stages
+PY
+    [ "$status" -eq 0 ]
 }
 
 @test "the dr pinned in the image is at least the minimum that dr start enforces" {

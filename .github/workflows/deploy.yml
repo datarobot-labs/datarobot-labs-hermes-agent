@@ -47,7 +47,7 @@ jobs:
       - name: Check that the workload keeps its own API key
         if: ${{ hashFiles('.datarobot.yaml') != '' }}
         run: scripts/workload-config.sh --check
-      - uses: datarobot-oss/workload-deploy-github@11f728fce23b7121f1e5dd8866961204ff6b4d95  # v2.0.0
+      - uses: datarobot-oss/workload-deploy-github@ef184a69a02243bdeda2dd0fa354930a1902ec30  # v2.1.0
         with:
           datarobot_endpoint: ${{ secrets.DATAROBOT_ENDPOINT }}
           datarobot_api_token: ${{ secrets.DATAROBOT_API_TOKEN }}

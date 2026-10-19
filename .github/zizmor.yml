@@ -1,0 +1,27 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Settings for zizmor, which `task lint:workflows` and the workflow-lint
+# workflow run. Every ignore names one file and says why. tests/static.bats
+# fails when an ignore names any other file.
+rules:
+  # review-router.yml calls the shared Review Router workflow of the
+  # datarobot-oss organization, which needs these triggers, the secrets
+  # inheritance, and a commit pin that the organization sets.
+  dangerous-triggers:
+    ignore:
+      - review-router.yml
+  secrets-inherit:
+    ignore:
+      - review-router.yml
