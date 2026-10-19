@@ -143,6 +143,16 @@ PY
     done
 }
 
+@test "dr-sync has a checksum for every machine dr start may create the state store on" {
+    # scripts/state-store.sh downloads the version the image pins, for the
+    # developer's own machine: linux keys as above, darwin ones besides.
+    version=$(sed -nE 's/^ARG DR_SYNC_VERSION=(.+)$/\1/p' /repo/Dockerfile)
+    [ -n "$version" ]
+    for arch in amd64 arm64; do
+        grep -qE "^[0-9a-f]{64}  dr-sync-${version}-darwin-${arch}$" /repo/docker/tool-checksums.txt
+    done
+}
+
 @test "the web UI is fetched by commit" {
     grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
 }
