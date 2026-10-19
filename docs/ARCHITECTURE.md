@@ -218,27 +218,43 @@ persistence.
 
 ### Turning persistence on
 
-`dr start` doesn't create the state container yet: the `dr sync` plugin isn't
-in the public `dr` plugin registry. With the plugin installed, create the Files
-API container once:
+`dr start` does it. It asks once whether to keep the bot's sessions, memory
+and installed skills across restarts (`PERSIST_STATE`, default yes), then
+`scripts/state-store.sh`:
+
+- reuses the store `.env` names as `DR_SYNC_CATALOG_ID`, else the one
+  `.datarobot.yaml` declares, after checking that DataRobot still has it;
+- otherwise creates one named `<workload name>-state` with `dr-sync init`. It
+  uses the dr-sync release the image pins, downloaded for your machine and
+  checked against `docker/tool-checksums.txt`; nothing gets installed.
+
+That makes one store per workload. Re-running `dr start` reuses it, and a
+project without a manifest is a new workload with a store of its own. With a
+manifest that already exists, run `dr run env` after `dr start` to carry
+`DR_SYNC_CATALOG_ID` over, then `dr workload up`. `dr run doctor` tells you
+whether the store is in place. datarobot-sync also uses `DATAROBOT_ENDPOINT`
+and `DATAROBOT_API_TOKEN`, which the workload already has.
+
+To turn persistence off, set `PERSIST_STATE=no` in `.env`, delete the
+`DR_SYNC_CATALOG_ID` line, and run `dr run env` and `dr workload up`. The store
+stays in DataRobot until you delete it.
+
+Never point two running copies at one store: a second writer's fresh state
+competes with the pod's. So `compose.yaml` leaves a local `docker compose up`
+without a store, whatever `.env` says. To give a local run one of its own,
+create a separate store (for example `dr-sync init --name hermes-local`) and
+pass its id on the command line, not in `.env`, where `dr run env` would carry
+it into the deployed workload:
 
 ```sh
-dr sync init --name "hermes-workload-state"
-# create  container <id>
-# ...
-# export DR_SYNC_CATALOG_ID=<id>
+LOCAL_DR_SYNC_CATALOG_ID=<id> docker compose up
 ```
 
-Then add `DR_SYNC_CATALOG_ID=<id>` to `.env`, and run `dr run env` and
-`dr workload up`. datarobot-sync also uses `DATAROBOT_ENDPOINT` and
-`DATAROBOT_API_TOKEN`, which the workload already has.
-
-Never point a local `.env` at the production container: a local
-`docker compose up` becomes a second writer and its fresh state competes with
-the pod's. Create a throwaway container for local runs with `dr sync init
---name hermes-local`.
-
 ### Checking and recovering state
+
+These use the `dr sync` plugin. With the
+[dr-sync release](https://github.com/datarobot-labs/datarobot-sync/releases)
+binary instead, run `dr-sync` with the same subcommands.
 
 ```sh
 # Did the pod restart? One line per boot:

@@ -138,6 +138,32 @@ install's host before deploying. To find any others:
 grep -rn 'app\.datarobot\.com' config/config.yaml
 ```
 
+## State store not found
+
+**Symptom.** `dr start` or `dr run doctor` says `DataRobot has no state store
+<id> (HTTP 404)` (or 410), or the workload restarts in a loop and its log
+shows `FATAL: dr-sync download failed after 5 attempts; refusing to start
+with empty state`.
+
+**Why.** `DR_SYNC_CATALOG_ID` names a store DataRobot doesn't have: deleted,
+from another install or account, or mistyped. The image won't boot with an
+empty state when it was told there is one, and `dr start` won't replace the id
+on its own, since a new store means starting from nothing.
+
+**Fix**, one of:
+
+1. **Point at the right store.** Put its id in `.env` as `DR_SYNC_CATALOG_ID`,
+   then `dr run env` and `dr workload up`.
+2. **Start fresh.** Delete the `DR_SYNC_CATALOG_ID` line from `.env`, run
+   `dr run env` so `.datarobot.yaml` drops it too, then `dr start` (which
+   creates a new store), `dr run env` again and `dr workload up`. The agent
+   starts without its earlier sessions and memory.
+
+If `dr run doctor` finds the store but the workload still can't download it,
+the store exists but the workload can't read it. `doctor` checks with your
+login, and the workload reads with its own key; the lines before the FATAL
+one in `dr workload logs` show what dr-sync was told.
+
 ## `LLM_MODEL` ended up as a credential
 
 `dr` decides which `.env` values are secrets partly by how random they look,
