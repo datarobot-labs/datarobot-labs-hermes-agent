@@ -98,7 +98,7 @@ CI never creates a workload. The first deploy runs on your machine, and the mani
 4. Add the repository variable `DEPLOY_TO_DATAROBOT` with the value `true`.
 5. Push to `main`. The deploy job rolls the workload and prints its endpoint in the job summary.
 
-The `.env` file stays on your machine, in plain text and ignored by git, so it never reaches the image or the repository. The first deploy copies each secret in it, except your own `DATAROBOT_API_TOKEN`, into a DataRobot credential, and the manifest refers to the credential by ID. The workload gets its own API key from the platform instead of your token. CI reads only the manifest and the two `datarobot` environment secrets, so it never sees `.env` or the values in it. The only credential on GitHub is the `DATAROBOT_API_TOKEN` environment secret, and CI deploys as the account that owns that key.
+The `.env` file stays on your machine, in plain text. Git, `.drignore` and `.dockerignore` all exclude it, so it doesn't reach the repository, the upload or the image, unless you force-add it to git. `dr start` stores each secret in it, except your own `DATAROBOT_API_TOKEN`, as a DataRobot credential and writes the credential IDs into the manifest, and the first `dr workload up` deploys that manifest. The workload gets its own API key from the platform instead of your token. CI doesn't need `.env`: it checks out the repository and passes only the two `datarobot` environment secrets to the deploy. The only credential on GitHub is the `DATAROBOT_API_TOKEN` environment secret, and CI deploys as the account that owns that key.
 
 To change a setting, run `dr run env`, which reads `.env`, commit the updated manifest, and push. To approve each deploy, add required reviewers to the `datarobot` environment.
 
