@@ -215,5 +215,5 @@ run_inner() {
     [ "$status" -eq 0 ]
     grep -qx -- 'INSTALL_YES=1' "$WORK/args"
     [ "$(cat "$WORK/hermes-args")" = "$(printf 'skills\ninstall\n--yes\ncat/demo')" ]
-    ! grep -qx -- '--force' "$WORK/hermes-args"
+    ! grep -qx -- '--force' "$WORK/hermes-args" || false
 }

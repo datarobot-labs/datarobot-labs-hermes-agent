@@ -109,7 +109,7 @@ smoke() {
     [[ "$output" == *" --tmpfs /tmp:exec,mode=1777 "* ]]
     [[ "$output" =~ " --mount type=volume,source=labs-hermes-smoke-"[0-9]+"-data,target=/opt/data,readonly " ]]
     [[ "$output" == *" labs-hermes:test" ]]
-    ! grep -q '^docker build ' "$STUB_LOG"
+    ! grep -q '^docker build ' "$STUB_LOG" || false
     grep -q '^docker rm --force --volumes ' "$STUB_LOG"
     grep -q '^docker volume rm labs-hermes-smoke-[0-9]*-data$' "$STUB_LOG"
 }
@@ -125,13 +125,13 @@ smoke() {
     SMOKE_IMAGE= STUB_BUILD_STATUS=1 smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: the image did not build"* ]]
-    ! grep -q '^docker run ' "$STUB_LOG"
+    ! grep -q '^docker run ' "$STUB_LOG" || false
 }
 
 @test "every canary reaches the container through --env NAME, never on docker's command line" {
     smoke
     [ "$status" -eq 0 ]
-    ! grep -q CANARY "$STUB_LOG"
+    ! grep -q CANARY "$STUB_LOG" || false
     grep -qx 'SLACK_BOT_TOKEN=xoxb-CANARYSLACKBOT' "$WORK/run.env"
     grep -qx 'SLACK_APP_TOKEN=xapp-CANARYSLACKAPP' "$WORK/run.env"
     grep -qx 'DATAROBOT_API_TOKEN=CANARYDRTOKEN' "$WORK/run.env"

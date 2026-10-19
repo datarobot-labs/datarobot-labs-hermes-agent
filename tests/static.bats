@@ -71,6 +71,13 @@ upload_set() {
     [ "$status" -eq 0 ]
 }
 
+@test "no bats test negates a command without '|| false'" {
+    # Bash's set -e ignores a command run under !, so a bare "! grep ..." line
+    # passes whatever grep finds. "! grep ... || false" fails as meant.
+    run grep -nE '^[[:space:]]+! ' /repo/tests/*.bats
+    [ -z "$(grep -v '|| false$' <<< "$output")" ] || { grep -v '|| false$' <<< "$output"; false; }
+}
+
 @test "YAML and JSON files parse" {
     cd /repo
     for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .github/zizmor.yml .gitlab-ci.yml \
@@ -283,8 +290,8 @@ config/skills/.hub/scan-cache/x'
     run git -C "$scratch" check-ignore --no-index --stdin <<< "$paths"
     [ "$(echo "$output" | grep -c .)" = 6 ]
     # What an install should leave to commit is not ignored by either.
-    ! git check-ignore -q --no-index config/skills/.hub/lock.json
-    ! git -C "$scratch" check-ignore -q --no-index config/skills/.hub/lock.json
+    ! git check-ignore -q --no-index config/skills/.hub/lock.json || false
+    ! git -C "$scratch" check-ignore -q --no-index config/skills/.hub/lock.json || false
 }
 
 @test "the upload set stays under the 1000 file limit and holds no secret files" {

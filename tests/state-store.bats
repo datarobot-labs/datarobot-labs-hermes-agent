@@ -167,7 +167,7 @@ no_leftovers() {
     [ "$status" -eq 0 ]
     store
     [ "$status" -eq 0 ]
-    ! grep -q "$TOKEN" "$STUB_LOG"
+    ! grep -q "$TOKEN" "$STUB_LOG" || false
     [[ "$output" != *"$TOKEN"* ]]
     grep -qx "Authorization: Bearer $TOKEN" "$WORK/curl.stdin"
     [ "$(cat "$WORK/dr-sync.token")" = "$TOKEN" ]
