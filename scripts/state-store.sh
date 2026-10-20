@@ -159,9 +159,18 @@ id=$(env_value DR_SYNC_CATALOG_ID)
 if [ -n "$id" ]; then
     verify "$id" "in $env_file"
     echo "State store $id (DR_SYNC_CATALOG_ID in $env_file) is in place."
-    if [ -n "$check" ] && [ -f "$manifest" ] && [ "$(manifest_value DR_SYNC_CATALOG_ID)" != "$id" ]; then
-        echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
-        exit 1
+    if [ -f "$manifest" ] && [ "$(manifest_value DR_SYNC_CATALOG_ID)" != "$id" ]; then
+        if [ -n "$check" ]; then
+            echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
+            exit 1
+        fi
+        # Not declared at all, dr start's own manifest step names it. Declared
+        # as another store, nothing else would say so, and the next deploy
+        # would use that one: deleted, the workload can't boot.
+        if manifest_mentions DR_SYNC_CATALOG_ID; then
+            echo ".datarobot.yaml names a different state store than $env_file, and the next" >&2
+            echo "deploy uses the manifest's. Run 'dr run env' before you deploy." >&2
+        fi
     fi
     exit 0
 fi

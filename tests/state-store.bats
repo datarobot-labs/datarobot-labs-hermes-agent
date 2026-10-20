@@ -310,6 +310,33 @@ no_leftovers() {
     [ ! -s "$STUB_LOG" ]
 }
 
+@test "a manifest naming a different store than .env is pointed out, not changed" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    manifest hermes-agent '              - name: DR_SYNC_CATALOG_ID
+                value: "abcabcabcabcabcabcabcabc"'
+    cp "$WORK/.datarobot.yaml" "$WORK/before"
+    store
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"names a different state store than $ENV"* ]]
+    [[ "$output" == *"Run 'dr run env' before you deploy"* ]]
+    cmp "$WORK/before" "$WORK/.datarobot.yaml"
+    [ "$(inits)" = 0 ]
+
+    # The same store: nothing to say.
+    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
+                value: \"$STORE\""
+    store
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"different state store"* ]]
+
+    # Not declared at all: dr start's manifest step already names it.
+    manifest hermes-agent '              - name: SLACK_HOME_CHANNEL
+                value: C123'
+    store
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"different state store"* ]]
+}
+
 @test "--check reports, and never creates a store or touches .env" {
     cp "$ENV" "$WORK/before"
     store --check
