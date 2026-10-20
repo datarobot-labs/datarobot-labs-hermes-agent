@@ -161,6 +161,34 @@ no_leftovers() {
     cmp "$WORK/before" "$ENV"
 }
 
+@test "an id declared in another YAML layout stops the run instead of making a second store" {
+    for entry in "              - {name: DR_SYNC_CATALOG_ID, value: \"$STORE\"}" \
+        "              - value: \"$STORE\"
+                name: DR_SYNC_CATALOG_ID"; do
+        manifest hermes-agent "$entry"
+        cp "$ENV" "$WORK/before"
+        store
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"declares DR_SYNC_CATALOG_ID, but not as a plain value"* ]]
+        [ "$(inits)" = 0 ]
+        cmp "$WORK/before" "$ENV"
+
+        # And it still counts as set when persistence is turned off.
+        printf 'PERSIST_STATE=no\n' >> "$ENV"
+        store --check
+        [ "$status" -eq 1 ]
+        [[ "$output" == *"still set in .datarobot.yaml"* ]]
+        cp "$WORK/before" "$ENV"
+    done
+}
+
+@test "a comment naming DR_SYNC_CATALOG_ID in .datarobot.yaml is not a declaration" {
+    manifest hermes-agent '              # DR_SYNC_CATALOG_ID is added by dr start'
+    store
+    [ "$status" -eq 0 ]
+    [ "$(inits)" = 1 ]
+}
+
 @test "an id DataRobot no longer knows stops the run and is never replaced" {
     for code in 404 410; do
         printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"

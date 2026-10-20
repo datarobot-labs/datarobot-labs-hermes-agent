@@ -81,6 +81,15 @@ manifest_value() {
     ' "$manifest"
 }
 
+# Whether .datarobot.yaml mentions NAME anywhere outside a comment. It's broader
+# than manifest_value on purpose: a flow mapping (`- {name: NAME, ...}`) or an
+# entry with `value:` before `name:` is still the workload's declaration, which
+# this mustn't mistake for none and so make a second store.
+manifest_mentions() {
+    [ -f "$manifest" ] &&
+        grep -v '^ *#' "$manifest" | grep -qE "(^|[^A-Za-z0-9_])$1([^A-Za-z0-9_]|\$)"
+}
+
 persist=$(env_value PERSIST_STATE)
 case $(printf '%s' "$persist" | tr '[:upper:]' '[:lower:]') in
     no | false | 0 | off)
@@ -88,7 +97,7 @@ case $(printf '%s' "$persist" | tr '[:upper:]' '[:lower:]') in
         # PERSIST_STATE says, so off holds only once the id is gone too.
         still=
         [ -z "$(env_value DR_SYNC_CATALOG_ID)" ] || still=" $env_file"
-        if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *(#.*)?$' "$manifest"; then
+        if manifest_mentions DR_SYNC_CATALOG_ID; then
             still="$still .datarobot.yaml"
         fi
         if [ -n "$still" ]; then
@@ -189,11 +198,13 @@ if [ -n "$id" ]; then
     exit 0
 fi
 
-# Declared, but not as a literal: most likely dr stored the id as a credential.
-# Its value can't be read back here, and creating a store now would make a
-# second one for the same workload.
-if [ -f "$manifest" ] && grep -qE '^ *- name: *["'"'"']?DR_SYNC_CATALOG_ID["'"'"']? *(#.*)?$' "$manifest"; then
-    echo ".datarobot.yaml declares DR_SYNC_CATALOG_ID, but not as a plain value this can read." >&2
+# Declared, but not as a literal this reads: most likely dr stored the id as a
+# credential, or the entry is in another YAML layout. Its value can't be read
+# back here, and creating a store now would make a second one for the same
+# workload.
+if manifest_mentions DR_SYNC_CATALOG_ID; then
+    echo ".datarobot.yaml declares DR_SYNC_CATALOG_ID, but not as a plain value this can read" >&2
+    echo "(a '- name:' entry with a 'value:' line)." >&2
     echo "Put the store's id in $env_file as DR_SYNC_CATALOG_ID and run this again." >&2
     exit 1
 fi
