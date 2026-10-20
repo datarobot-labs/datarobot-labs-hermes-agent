@@ -98,8 +98,8 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
   ```
 
   This key is separate from yours, and you can revoke it on its own. It isn't
-  scoped down, though: DataRobot creates it under the account that created the
-  workload, so it has that account's permissions. Create the workload with an
+  scoped down, though: DataRobot creates it under the account that deploys the
+  workload, so it has that account's permissions. Run `dr workload up` with an
   account that has only the access the agent needs.
 
   `dr workload config` can't be told to skip one name, and `--sync-env` drops
@@ -146,12 +146,12 @@ adds no sandbox. Treat every value in the table as readable.
 
 | Variable | What it grants | Lifetime | How to rotate |
 | --- | --- | --- | --- |
-| `DATAROBOT_API_TOKEN` | The permissions of the account that created the workload. | Until the key that DataRobot created for the workload is deleted. | Delete that key in the creator's API keys, then run `dr workload up`. |
+| `DATAROBOT_API_TOKEN` | The permissions of the account that last deployed the workload. | Until the key that DataRobot created for the workload is deleted. | Delete that key in the API keys of the account that deployed the workload, then run `dr workload up`. |
 | `SLACK_BOT_TOKEN` | Acting as the bot in every channel it joined. | Until revoked in the Slack app. | Create a new token in the Slack app, then follow the steps to rotate a secret. |
 | `SLACK_APP_TOKEN` | Opening the app's Socket Mode connection. | Until revoked in the Slack app. | Generate a new app-level token, revoke the old one, then follow the steps to rotate a secret. |
-| `LLM_API_KEY` | On the DataRobot gateway, a copy of `DATAROBOT_API_TOKEN` with the same permissions, also exported as `<PROVIDER>_API_KEY` when `LLM_PROVIDER` is set. On another gateway, spending on that gateway. | On the DataRobot gateway, the same as `DATAROBOT_API_TOKEN`. On another gateway, until revoked there. | On the DataRobot gateway, rotate `DATAROBOT_API_TOKEN`. On another gateway, create a new key there, then follow the steps to rotate a secret. |
+| `LLM_API_KEY` | Spending on the LLM gateway. On the DataRobot gateway, unless you set a key, it is a copy of `DATAROBOT_API_TOKEN` with the same permissions. Also exported as `<PROVIDER>_API_KEY` when `LLM_PROVIDER` is set. | A copy lasts as long as `DATAROBOT_API_TOKEN`. A key you set lasts until revoked at the gateway that issued it. | A copy rotates with `DATAROBOT_API_TOKEN`. For a key you set, create a new key at the gateway, then follow the steps to rotate a secret. |
 | `GH_TOKEN`, `GITLAB_TOKEN` | Whatever the token grants on GitHub or GitLab. Set only when you pass one. | Until it expires or you revoke it at the host. | Create a new token at the host, then follow the steps to rotate a secret. |
-| `API_SERVER_KEY` | Calls to the Hermes API server inside the container. The entrypoint generates it at each boot unless you set it. | One boot. | Restart the workload. |
+| `API_SERVER_KEY` | Calls to the Hermes API server inside the container. The entrypoint generates it at each boot unless you set one. | A generated key lasts one boot. A key you set lasts until you change it. | Restart the workload to replace a generated key. For a key you set, change it in `./.env`, then follow the steps to rotate a secret. |
 | `GITHUB_PRIVATE_KEY` | Signing in as the GitHub App and minting installation tokens for every installation, with the App's permissions. | Until the key is deleted in the App settings. | Generate a new private key, follow the steps to rotate a secret, then delete the old key. |
 
 Installation tokens last about an hour, and the agent mints them on demand, so
