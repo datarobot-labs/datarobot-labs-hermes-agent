@@ -97,8 +97,8 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
     source: api-key
   ```
 
-  DataRobot creates this key for the workload and doesn't scope it down: it has
-  the permissions of the account that deploys the workload. Run
+  DataRobot creates this key for the workload on your behalf and doesn't scope
+  it down: it has the permissions of the account that deploys the workload. Run
   `dr workload up` with an account that has only the access the agent needs.
 
   `dr workload config` can't be told to skip one name, and `--sync-env` drops
