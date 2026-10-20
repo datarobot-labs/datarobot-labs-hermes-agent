@@ -97,10 +97,6 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
     source: api-key
   ```
 
-  DataRobot creates this key for the workload on your behalf and doesn't scope
-  it down: it has the permissions of the account that deploys the workload. Run
-  `dr workload up` with an account that has only the access the agent needs.
-
   `dr workload config` can't be told to skip one name, and `--sync-env` drops
   any entry `.env` doesn't name, so `dr start` and `dr run env` call it through
   `scripts/workload-config.sh`, which shows it a copy of the project without
@@ -145,7 +141,7 @@ adds no sandbox. Treat every value in the table as readable.
 
 | Variable | What it grants | Lifetime | How to rotate |
 | --- | --- | --- | --- |
-| `DATAROBOT_API_TOKEN` | The permissions of the account that last deployed the workload. | Until the key that DataRobot created for the workload is deleted. | Delete that key in the API keys of the account that deployed the workload, then run `dr workload up`. |
+| `DATAROBOT_API_TOKEN` | The key DataRobot creates for the workload. Its permissions, lifetime, and rotation follow the Workload API, so check the Workload API documentation. | Set by DataRobot. | See the Workload API documentation. |
 | `SLACK_BOT_TOKEN` | Acting as the bot in every channel it joined. | Until revoked in the Slack app. | Create a new token in the Slack app, then follow the steps to rotate a secret. |
 | `SLACK_APP_TOKEN` | Opening the app's Socket Mode connection. | Until revoked in the Slack app. | Generate a new app-level token, revoke the old one, then follow the steps to rotate a secret. |
 | `LLM_API_KEY` | Spending on the LLM gateway. On the DataRobot gateway, unless you set a key, it is a copy of `DATAROBOT_API_TOKEN` with the same permissions. Also exported as `<PROVIDER>_API_KEY` when `LLM_PROVIDER` is set. | A copy lasts as long as `DATAROBOT_API_TOKEN`. A key you set lasts until revoked at the gateway that issued it. | A copy rotates with `DATAROBOT_API_TOKEN`. For a key you set, create a new key at the gateway, then follow the steps to rotate a secret. |
