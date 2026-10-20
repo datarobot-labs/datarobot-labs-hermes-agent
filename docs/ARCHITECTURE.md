@@ -100,7 +100,7 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
   This key is separate from yours, and you can revoke it on its own. It isn't
   scoped down, though: DataRobot creates it under the account that created the
   workload, so it has that account's permissions. Create the workload with an
-  account that has only the access the agent needs, such as a service account.
+  account that has only the access the agent needs.
 
   `dr workload config` can't be told to skip one name, and `--sync-env` drops
   any entry `.env` doesn't name, so `dr start` and `dr run env` call it through
