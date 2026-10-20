@@ -141,7 +141,7 @@ adds no sandbox. Treat every value in the table as readable.
 
 | Variable | What it grants | Lifetime | How to rotate |
 | --- | --- | --- | --- |
-| `DATAROBOT_API_TOKEN` | The key DataRobot creates for the workload. Its permissions, lifetime, and rotation follow the Workload API, so check the Workload API documentation. | Set by DataRobot. | See the Workload API documentation. |
+| `DATAROBOT_API_TOKEN` | The permissions of the user who deploys the workload. The Security section of [Workload API best practices](https://docs.datarobot.com/en/docs/workload-api/get-started-workloads/best-practices.html) describes this key. | Managed by DataRobot. | Managed by DataRobot. |
 | `SLACK_BOT_TOKEN` | Acting as the bot in every channel it joined. | Until revoked in the Slack app. | Create a new token in the Slack app, then follow the steps to rotate a secret. |
 | `SLACK_APP_TOKEN` | Opening the app's Socket Mode connection. | Until revoked in the Slack app. | Generate a new app-level token, follow the steps to rotate a secret, then revoke the old one. |
 | `LLM_API_KEY` | Spending on the LLM gateway. On the DataRobot gateway, unless you set a key, it is a copy of `DATAROBOT_API_TOKEN` with the same permissions. Also exported as `<PROVIDER>_API_KEY` when `LLM_PROVIDER` is set. | A copy lasts as long as `DATAROBOT_API_TOKEN`. A key you set lasts until revoked at the gateway that issued it. | A copy rotates with `DATAROBOT_API_TOKEN`. For a key you set, create a new key at the gateway, then follow the steps to rotate a secret. |
