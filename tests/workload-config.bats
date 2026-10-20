@@ -605,12 +605,13 @@ assert {"name": "DR_SYNC_CATALOG_ID", "value": sys.argv[2]} in envs, envs' "$PRO
 }
 
 @test "a store id that can't be one is refused before dr runs" {
-    for bad in 'abc" injected' not-a-store 0123456789ABCDEF01234567 0123456789abcdef0123456; do
+    for bad in 'abc" injected' not-a-store "$CANARY" 0123456789ABCDEF01234567 0123456789abcdef0123456; do
         sed -i '/^DR_SYNC_CATALOG_ID=/d' "$PROJECT/.env"
         printf 'DR_SYNC_CATALOG_ID="%s"\n' "$bad" >> "$PROJECT/.env"
         configure write --yes
         [ "$status" -ne 0 ]
         [[ "$output" == *"isn't a store id"* ]]
+        [[ "$output" != *"$bad"* ]]
         [ ! -e "$WORK/seen/env" ]
         [ ! -e "$PROJECT/.datarobot.yaml" ]
     done

@@ -295,8 +295,9 @@ cp Dockerfile "$work/"
 # prints: a typo would reach the workload, which then can't download its state
 # and refuses to boot.
 if [ -n "$store_id" ] && ! printf '%s' "$store_id" | grep -qE '^[0-9a-f]{24}$'; then
-    echo "$store in .env isn't a store id ($store_id): dr-sync prints 24 lowercase hex" >&2
-    echo "characters. Nothing was changed." >&2
+    # Not the value itself: it came from .env, and may be a pasted secret.
+    echo "$store in .env isn't a store id: dr-sync prints 24 lowercase hex characters." >&2
+    echo "Nothing was changed." >&2
     exit 1
 fi
 

@@ -130,8 +130,15 @@ probe() {
             "$endpoint/catalogItems/$1/" 2>/dev/null || true
 }
 
-# Exits unless DataRobot knows store $1.
+# Exits unless DataRobot knows store $1. Its shape is checked first, without
+# printing it: a value that isn't an id may be a secret pasted into the wrong
+# line, which must reach neither the terminal nor a request URL.
 verify() {
+    if ! printf '%s' "$1" | grep -qE '^[0-9a-f]{24}$'; then
+        echo "DR_SYNC_CATALOG_ID $2 isn't a store id: dr-sync prints 24 lowercase hex" >&2
+        echo "characters. Nothing was changed." >&2
+        exit 1
+    fi
     code=$(probe "$1")
     case $code in
         200) return 0 ;;

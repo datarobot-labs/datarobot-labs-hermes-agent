@@ -189,6 +189,27 @@ no_leftovers() {
     [ "$(inits)" = 1 ]
 }
 
+@test "a DR_SYNC_CATALOG_ID that isn't an id is refused unprinted, and never sent" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$TOKEN" >> "$ENV"
+    cp "$ENV" "$WORK/before"
+    store
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"DR_SYNC_CATALOG_ID in $ENV isn't a store id"* ]]
+    [[ "$output" != *"$TOKEN"* ]]
+    [ ! -s "$STUB_LOG" ]
+    cmp "$WORK/before" "$ENV"
+
+    # The same from .datarobot.yaml, with no id in .env.
+    sed -i '/^DR_SYNC_CATALOG_ID=/d' "$ENV"
+    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
+                value: \"$TOKEN\""
+    store
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"DR_SYNC_CATALOG_ID in .datarobot.yaml isn't a store id"* ]]
+    [[ "$output" != *"$TOKEN"* ]]
+    [ ! -s "$STUB_LOG" ]
+}
+
 @test "an id DataRobot no longer knows stops the run and is never replaced" {
     for code in 404 410; do
         printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
