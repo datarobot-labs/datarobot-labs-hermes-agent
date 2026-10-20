@@ -97,6 +97,11 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
     source: api-key
   ```
 
+  This key is separate from yours, and you can revoke it on its own. It isn't
+  scoped down, though: DataRobot creates it under the account that created the
+  workload, so it has that account's permissions. Create the workload with an
+  account that has only the access the agent needs, such as a service account.
+
   `dr workload config` can't be told to skip one name, and `--sync-env` drops
   any entry `.env` doesn't name, so `dr start` and `dr run env` call it through
   `scripts/workload-config.sh`, which shows it a copy of the project without
@@ -124,6 +129,31 @@ one. Hermes reads these keys straight from the real environment
 
 To rotate a secret: change it in `./.env`, then `dr run env` (it re-sends the
 credentials behind the secrets) and `dr workload up`.
+
+## What the agent can read
+
+Hermes runs the agent's commands in a shell that runs as the same user as Hermes
+itself. Anything in the workload's environment is therefore readable by the
+agent, and by anything that steers it, such as a prompt injection or a skill.
+
+Hermes removes the variables it knows about, such as the Slack tokens, from the
+environment of that shell. This stops casual leaks only. Linux lets a process
+read the environment of any other process that runs as the same user, for
+example `/proc/1/environ`. The
+[Hermes security policy](https://github.com/NousResearch/hermes-agent/blob/main/SECURITY.md)
+names the operating system as the only security boundary, and this deployment
+adds no sandbox. Treat every value in the table as readable.
+
+| Variable | What it grants | Lifetime | How to rotate |
+| --- | --- | --- | --- |
+| `DATAROBOT_API_TOKEN` | The permissions of the account that created the workload. | Until the key that DataRobot created for the workload is deleted. | Delete that key in the creator's API keys, then run `dr workload up`. |
+| `SLACK_BOT_TOKEN` | Acting as the bot in every channel it joined. | Until revoked in the Slack app. | Create a new token in the Slack app, then follow the steps to rotate a secret. |
+| `SLACK_APP_TOKEN` | Opening the app's Socket Mode connection. | Until revoked in the Slack app. | Generate a new app-level token, revoke the old one, then follow the steps to rotate a secret. |
+| `LLM_API_KEY` | Spending on the LLM gateway it belongs to. Unset on the DataRobot gateway. | Until revoked at the gateway. | Create a new key at the gateway, then follow the steps to rotate a secret. |
+| `GITHUB_PRIVATE_KEY` | Signing in as the GitHub App and minting installation tokens for every installation, with the App's permissions. | Until the key is deleted in the App settings. | Generate a new private key, follow the steps to rotate a secret, then delete the old key. |
+
+Installation tokens last about an hour, and the agent mints them on demand, so
+they need no rotation.
 
 ## Running under the Workload API's constraints
 
