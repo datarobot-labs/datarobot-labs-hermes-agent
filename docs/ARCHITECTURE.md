@@ -233,8 +233,9 @@ Skills and plugins are part of it, so what the agent learns or adds survives a
 restart. On every boot, after the download, the ones this repo's image ships
 (`config/skills/`, the plugins in the seed) are laid over the stored copies, so
 the current image's version wins, and the ones an earlier image shipped but
-this one doesn't are removed: the store keeps a list of what the last image
-shipped (`.dr-sync-shipped`). Hermes' own bundled skills follow its
+this one doesn't are removed: the store keeps a list of every file an image
+shipped to it (`.dr-sync-shipped`). An upload never deletes from the store, so
+a dropped skill's file stays there, and every boot removes it again. Hermes' own bundled skills follow its
 `skills_sync.py`: an unmodified one is updated to the new image's version, one
 the agent changed is kept, and one Hermes dropped stays.
 

@@ -209,7 +209,30 @@ STUB
     [ "$(cat /tmp/hermes/skills/kept/SKILL.md)" = new ]
     [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
     [ "$(cat /tmp/hermes/sessions/chat.json)" = chat ]
-    [ "$(cat /tmp/hermes/.dr-sync-shipped)" = skills/kept/SKILL.md ]
+    # The dropped skill stays listed: the store keeps its file, and the next
+    # download brings it back.
+    grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
+    grep -qx 'skills/kept/SKILL.md' /tmp/hermes/.dr-sync-shipped
+    ! grep -qx 'skills/learned/SKILL.md' /tmp/hermes/.dr-sync-shipped || false
+}
+
+@test "a skill dropped two images ago, still in the store, is removed again" {
+    mkdir -p "$SEED/skills/kept" "$WORK/bin" "$WORK/stored/skills/dropped"
+    echo new > "$SEED/skills/kept/SKILL.md"
+    echo old > "$WORK/stored/skills/dropped/SKILL.md"
+    # The previous image already didn't ship it; the list still has it.
+    printf '%s\n' skills/dropped/SKILL.md skills/kept/SKILL.md > "$WORK/stored/.dr-sync-shipped"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/hermes/skills/dropped ]
+    grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
 }
 
 @test "a download that keeps failing is fatal and the gateway never starts" {
