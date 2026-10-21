@@ -150,17 +150,22 @@ PY
     done
 }
 
-@test "dr start installs the dr sync plugin from the dr-sync release the image pins" {
+@test "dr start installs the dr sync plugin from the release the image pins, checked against one sha256" {
     version=$(sed -nE 's/^ARG DR_SYNC_VERSION=(.+)$/\1/p' /repo/Dockerfile)
     [ -n "$version" ]
     run python3 - /repo/.datarobot/cli/versions.yaml "$version" <<'PY'
-import sys, yaml
+import re, sys, yaml
 sync = yaml.safe_load(open(sys.argv[1]))["sync"]
 assert sync["command"] == "dr plugin version sync", sync
 url = f"https://github.com/datarobot-labs/datarobot-sync/releases/download/v{sys.argv[2]}/"
-for platform in ("macos", "linux", "windows"):
-    cmd = sync["install"][platform]
-    assert cmd.startswith("dr plugin install sync --url " + url), (platform, cmd)
+install = sync["install"]
+for platform in ("macos", "linux"):
+    m = re.fullmatch(r"sh scripts/install-sync-plugin\.sh (\S+) ([0-9a-f]{64})", install[platform])
+    assert m and m.group(1).startswith(url), (platform, install[platform])
+    archive, sha = m.groups()
+# Windows checks the same archive against the same sha256.
+assert f"-Uri '{archive}'" in install["windows"] and f"-ne '{sha}'" in install["windows"], install["windows"]
+assert install["windows"].endswith("dr plugin install sync --file $f\""), install["windows"]
 PY
     [ "$status" -eq 0 ] || { echo "$output"; false; }
 }

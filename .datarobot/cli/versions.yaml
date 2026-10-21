@@ -25,18 +25,19 @@ dr:
 # dr-sync as a dr plugin, so `dr sync` runs with the login dr already has:
 # dr start uses it to create the workload's state store. The release is the
 # one the image pins (the Dockerfile's DR_SYNC_VERSION); bump them together.
-# The plugin isn't in dr's registry, so it comes from that release, and its
-# manifest still says 0.1.0 whatever the release, so the minimum can't tell
-# releases apart.
+# The plugin isn't in dr's registry, so it comes from that release. `dr plugin
+# install --url` checks nothing, so the archive's sha256 is pinned here and
+# checked before it's installed. Its manifest still says 0.1.0 whatever the
+# release, so the minimum can't tell releases apart.
 sync:
   name: datarobot-sync dr plugin
   minimum-version: 0.1.0
   command: dr plugin version sync
   url: https://github.com/datarobot-labs/datarobot-sync#install
   install:
-    macos: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
-    linux: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
-    windows: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
+    macos: sh scripts/install-sync-plugin.sh https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz cca5464ffe7543ece1485bffbb2fa181281fd9aa443bb37fad879b56475d75f5
+    linux: sh scripts/install-sync-plugin.sh https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz cca5464ffe7543ece1485bffbb2fa181281fd9aa443bb37fad879b56475d75f5
+    windows: powershell -NoProfile -Command "$f = Join-Path $env:TEMP 'sync-0.1.0.tar.xz'; Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne 'cca5464ffe7543ece1485bffbb2fa181281fd9aa443bb37fad879b56475d75f5') { throw 'The dr sync plugin does not match its sha256 in .datarobot/cli/versions.yaml' }; dr plugin install sync --file $f"
 task:
   name: Task
   # Task `aliases`.
