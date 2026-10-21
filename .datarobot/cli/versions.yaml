@@ -1,5 +1,7 @@
 # Tools `dr start` checks for (and offers to install) before it runs the
-# Taskfile's `start` task. `dr deps check` runs the same checks on their own.
+# Taskfile's `start` task. `dr dependencies check` runs the same checks on
+# their own, and `dr run deploy` and `dr run env` run it first; `dr run install`
+# installs what's missing.
 #
 # This file is also what marks the repo as a `dr` project: without a
 # non-empty .datarobot/cli/, `dr run`, `dr start` and `dr dotenv` all refuse

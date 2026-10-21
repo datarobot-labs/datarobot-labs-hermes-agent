@@ -40,6 +40,13 @@ tasks:
       - echo "Ready. Deploy with 'dr workload up'."
       - echo "To deploy from CI, commit the manifest with 'git add -f .datarobot.yaml' in a private repo. See README.md, 'Deploying from CI'."
 
+  install:
+    desc: >-
+      Install or update the tools .datarobot/cli/versions.yaml lists: dr,
+      Task and the dr sync plugin. `dr start` offers the same.
+    cmds:
+      - dr dependencies install --yes
+
   deploy:
     desc: >-
       Deploy the workload, or roll out what changed since the last deploy,
@@ -48,10 +55,10 @@ tasks:
     aliases: [up]
     interactive: true
     preconditions:
-      - sh: scripts/check-dr-version.sh
+      - sh: dr dependencies check
         msg: >-
-          dr is older than the minimum in .datarobot/cli/versions.yaml. Run
-          'dr self update'.
+          A tool .datarobot/cli/versions.yaml asks for is missing or too old
+          (see above). Run 'dr run install'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
       - sh: scripts/check-credentials.sh
@@ -85,10 +92,10 @@ tasks:
       `dr start` wrote the first ones.
     interactive: true
     preconditions:
-      - sh: scripts/check-dr-version.sh
+      - sh: dr dependencies check
         msg: >-
-          dr is older than the minimum in .datarobot/cli/versions.yaml. Run
-          'dr self update'.
+          A tool .datarobot/cli/versions.yaml asks for is missing or too old
+          (see above). Run 'dr run install'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
     cmds:

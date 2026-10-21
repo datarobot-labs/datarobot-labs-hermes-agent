@@ -353,13 +353,15 @@ config/skills/.hub/scan-cache/x'
     [ ! -e .wapiignore ]
 }
 
-@test "the deploy and env tasks refuse a dr older than the minimum" {
-    run awk '
-        /^  [a-z_:*-]+:$/ { task = $1 }
-        /scripts\/check-dr-version.sh/ { seen[task] = 1 }
-        END { exit !(seen["deploy:"] && seen["env:"]) }
-    ' /repo/Taskfile.yaml
-    [ "$status" -eq 0 ]
+@test "the deploy and env tasks check the tools with dr dependencies, and install installs them" {
+    run python3 - /repo/Taskfile.yaml <<'PY'
+import sys, yaml
+tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
+for name in ("deploy", "env"):
+    assert tasks[name]["preconditions"][0]["sh"] == "dr dependencies check", tasks[name]["preconditions"]
+assert tasks["install"]["cmds"] == ["dr dependencies install --yes"], tasks["install"]
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
 @test "dr start always sets up the state store, before writing the manifest, and doctor checks it" {
