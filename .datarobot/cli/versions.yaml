@@ -20,6 +20,21 @@ dr:
   install:
     macos: brew install datarobot-oss/taps/dr-cli
     linux: curl -fsSL https://cli.datarobot.com/install | sh
+# dr-sync as a dr plugin, so `dr sync` runs with the login dr already has:
+# dr start uses it to create the workload's state store. The release is the
+# one the image pins (the Dockerfile's DR_SYNC_VERSION); bump them together.
+# The plugin isn't in dr's registry, so it comes from that release, and its
+# manifest still says 0.1.0 whatever the release, so the minimum can't tell
+# releases apart.
+sync:
+  name: datarobot-sync dr plugin
+  minimum-version: 0.1.0
+  command: dr plugin version sync
+  url: https://github.com/datarobot-labs/datarobot-sync#install
+  install:
+    macos: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
+    linux: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
+    windows: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
 task:
   name: Task
   # Wildcard task names (`install:*`) and `aliases`.

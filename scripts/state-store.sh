@@ -26,14 +26,11 @@
 # refuses to boot without its state (docker/entrypoint.d/20-state-sync.sh), and
 # a new store would mean starting from nothing.
 #
-# The store is created with `dr-sync init`, from the dr-sync release the
-# Dockerfile pins, downloaded for this machine and checked against
-# docker/tool-checksums.txt. Nothing is installed.
+# The store is created with `dr sync init`: the dr-sync plugin, which dr start
+# installs from .datarobot/cli/versions.yaml, run with dr's own login.
 #
 # Usage: scripts/state-store.sh [--check] [env file, default .env]
 #   --check  report only: never create a store or change .env
-#
-# DR_SYNC_BIN runs that dr-sync instead of downloading one (tests use it).
 
 set -eu
 
@@ -44,13 +41,11 @@ if [ "${1:-}" = --check ]; then
 fi
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
-root=$(cd "$(dirname "$0")/.." && pwd)
 
-# A rewrite of .env and a dr-sync download both hold something worth not
-# leaving behind; whatever was made goes, however the script ends.
+# A rewrite of .env holds every secret .env does; it goes, however the
+# script ends.
 tmp=
-dl=
-trap 'rm -rf "$tmp" "$dl"' EXIT
+trap 'rm -f "$tmp"' EXIT
 trap 'exit 130' INT TERM HUP
 
 # The last value .env gives NAME, without the quotes dotenv allows.
@@ -207,53 +202,12 @@ if [ -n "$check" ]; then
     exit 1
 fi
 
-# dr-sync for this machine: DR_SYNC_BIN, else the release the Dockerfile pins.
-fetch_dr_sync() {
-    if [ -n "${DR_SYNC_BIN:-}" ]; then
-        bin=$DR_SYNC_BIN
-        return
-    fi
-    version=$(sed -nE 's/^ARG DR_SYNC_VERSION=(.+)$/\1/p' "$root/Dockerfile")
-    case $(uname -s) in
-        Darwin) os=darwin ;;
-        Linux) os=linux ;;
-        *) echo "No dr-sync release for $(uname -s)." >&2; exit 1 ;;
-    esac
-    case $(uname -m) in
-        x86_64 | amd64) arch=amd64 ;;
-        arm64 | aarch64) arch=arm64 ;;
-        *) echo "No dr-sync release for $(uname -m)." >&2; exit 1 ;;
-    esac
-    # The linux keys are the ones the Dockerfile's own download uses.
-    key="dr-sync-$version-$arch"
-    [ "$os" = linux ] || key="dr-sync-$version-$os-$arch"
-    sum=$(sed -nE "s/^([0-9a-f]{64})  $key\$/\\1/p" "$root/docker/tool-checksums.txt")
-    if [ -z "$version" ] || [ -z "$sum" ]; then
-        echo "docker/tool-checksums.txt has no checksum for $key." >&2
-        exit 1
-    fi
-    dl=$(mktemp -d)
-    url="https://github.com/datarobot-labs/datarobot-sync/releases/download/v$version/dr-sync_${version}_${os}_$arch.tar.gz"
-    echo "Downloading dr-sync $version to create the state store."
-    curl -fsSL -o "$dl/dr-sync.tar.gz" "$url"
-    got=$( (sha256sum "$dl/dr-sync.tar.gz" 2>/dev/null || shasum -a 256 "$dl/dr-sync.tar.gz") | cut -d' ' -f1)
-    if [ "$got" != "$sum" ]; then
-        echo "dr-sync download doesn't match its checksum in docker/tool-checksums.txt; not running it." >&2
-        exit 1
-    fi
-    tar -xzf "$dl/dr-sync.tar.gz" -C "$dl" dr-sync
-    bin=$dl/dr-sync
-}
-
 name=$(sed -nE 's/^name: *["'\'']?([^"'\'' #]+).*$/\1/p' "$manifest" 2>/dev/null | head -n 1)
 name=${name:-${WORKLOAD_NAME:-hermes-agent}}
 
-fetch_dr_sync
-# The token reaches dr-sync through its environment, never its arguments.
-id=$(DATAROBOT_ENDPOINT=$endpoint DATAROBOT_API_TOKEN=$token \
-    "$bin" init --name "$name-state" --tag hermes_state)
+id=$(dr sync init --name "$name-state" --tag hermes_state)
 if ! printf '%s' "$id" | grep -qE '^[0-9a-f]{24}$'; then
-    echo "dr-sync init didn't print a store id; nothing was written to $env_file." >&2
+    echo "dr sync init didn't print a store id; nothing was written to $env_file." >&2
     exit 1
 fi
 set_env_id "$id"

@@ -150,14 +150,19 @@ PY
     done
 }
 
-@test "dr-sync has a checksum for every machine dr start may create the state store on" {
-    # scripts/state-store.sh downloads the version the image pins, for the
-    # developer's own machine: linux keys as above, darwin ones besides.
+@test "dr start installs the dr sync plugin from the dr-sync release the image pins" {
     version=$(sed -nE 's/^ARG DR_SYNC_VERSION=(.+)$/\1/p' /repo/Dockerfile)
     [ -n "$version" ]
-    for arch in amd64 arm64; do
-        grep -qE "^[0-9a-f]{64}  dr-sync-${version}-darwin-${arch}$" /repo/docker/tool-checksums.txt
-    done
+    run python3 - /repo/.datarobot/cli/versions.yaml "$version" <<'PY'
+import sys, yaml
+sync = yaml.safe_load(open(sys.argv[1]))["sync"]
+assert sync["command"] == "dr plugin version sync", sync
+url = f"https://github.com/datarobot-labs/datarobot-sync/releases/download/v{sys.argv[2]}/"
+for platform in ("macos", "linux", "windows"):
+    cmd = sync["install"][platform]
+    assert cmd.startswith("dr plugin install sync --url " + url), (platform, cmd)
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
 @test "the web UI is fetched by commit" {

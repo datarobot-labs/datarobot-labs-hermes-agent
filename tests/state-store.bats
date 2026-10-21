@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Behaviour of scripts/state-store.sh against stub curl and dr-sync: a store
+# Behaviour of scripts/state-store.sh against stub curl and dr: a store
 # id already known is checked and reused, a new one is created only when there
 # is none, an id DataRobot doesn't know stops the run, and the token never
 # reaches a command line.
@@ -46,14 +46,15 @@ case " $* " in
         ;;
 esac
 STUB
-    # dr-sync: records its arguments and the token it was given, prints STUB_ID.
-    cat > "$WORK/bin/dr-sync" <<'STUB'
+    # dr: records its arguments and the token it was handed, if any;
+    # `dr sync init` prints STUB_ID.
+    cat > "$WORK/bin/dr" <<'STUB'
 #!/bin/sh
-echo "dr-sync $*" >> "$STUB_LOG"
-echo "$DATAROBOT_API_TOKEN" > "$STUB_DIR/dr-sync.token"
+echo "dr $*" >> "$STUB_LOG"
+echo "${DATAROBOT_API_TOKEN:-}" > "$STUB_DIR/dr.token"
 echo "${STUB_ID-0123456789abcdef01234567}"
 STUB
-    chmod +x "$WORK/bin/curl" "$WORK/bin/dr-sync"
+    chmod +x "$WORK/bin/curl" "$WORK/bin/dr"
 }
 
 teardown() {
@@ -62,12 +63,11 @@ teardown() {
 
 # store [--check]: run the script on $ENV with the stubs.
 store() {
-    PATH="$WORK/bin:$PATH" DR_SYNC_BIN="${DR_SYNC_BIN-$WORK/bin/dr-sync}" \
-        run sh /repo/scripts/state-store.sh "$@" "$ENV"
+    PATH="$WORK/bin:$PATH" DATAROBOT_API_TOKEN= run sh /repo/scripts/state-store.sh "$@" "$ENV"
 }
 
 inits() {
-    grep -c '^dr-sync init' "$STUB_LOG" || true
+    grep -c '^dr sync init' "$STUB_LOG" || true
 }
 
 manifest() {
@@ -83,7 +83,7 @@ no_leftovers() {
     store
     [ "$status" -eq 0 ]
     [[ "$output" == *"Created state store $STORE (\"hermes-agent-state\")"* ]]
-    grep -qx "dr-sync init --name hermes-agent-state --tag hermes_state" "$STUB_LOG"
+    grep -qx "dr sync init --name hermes-agent-state --tag hermes_state" "$STUB_LOG"
     grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
     grep -qx "DATAROBOT_API_TOKEN=\"$TOKEN\"" "$ENV"
     [ "$(stat -c %a "$ENV")" = 600 ]
@@ -95,7 +95,7 @@ no_leftovers() {
                 value: C123'
     store
     [ "$status" -eq 0 ]
-    grep -qx "dr-sync init --name my-bot-state --tag hermes_state" "$STUB_LOG"
+    grep -qx "dr sync init --name my-bot-state --tag hermes_state" "$STUB_LOG"
 }
 
 @test "a re-run reuses the store it created and creates no second one" {
@@ -226,7 +226,7 @@ no_leftovers() {
     cmp "$WORK/before" "$ENV"
 }
 
-@test "the token reaches curl on stdin and dr-sync in its environment, never a command line" {
+@test "the token reaches curl on stdin only, and dr sync gets dr's own login, not .env's token" {
     store
     [ "$status" -eq 0 ]
     store
@@ -234,26 +234,16 @@ no_leftovers() {
     ! grep -q "$TOKEN" "$STUB_LOG" || false
     [[ "$output" != *"$TOKEN"* ]]
     grep -qx "Authorization: Bearer $TOKEN" "$WORK/curl.stdin"
-    [ "$(cat "$WORK/dr-sync.token")" = "$TOKEN" ]
+    [ -z "$(cat "$WORK/dr.token")" ]
 }
 
-@test "a dr-sync that prints no store id leaves .env alone" {
+@test "a dr sync init that prints no store id leaves .env alone" {
     cp "$ENV" "$WORK/before"
     STUB_ID='Error: something went wrong' store
     [ "$status" -eq 1 ]
     [[ "$output" == *"didn't print a store id"* ]]
     cmp "$WORK/before" "$ENV"
     no_leftovers
-}
-
-@test "a downloaded dr-sync that fails its checksum is never run" {
-    cp "$ENV" "$WORK/before"
-    DR_SYNC_BIN= store
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"doesn't match its checksum"* ]]
-    grep -q '^curl -fsSL -o .*/dr-sync.tar.gz https://github.com/datarobot-labs/datarobot-sync/releases/download/v' "$STUB_LOG"
-    [ "$(inits)" = 0 ]
-    cmp "$WORK/before" "$ENV"
 }
 
 @test "without DataRobot credentials in .env it stops before calling anything" {
