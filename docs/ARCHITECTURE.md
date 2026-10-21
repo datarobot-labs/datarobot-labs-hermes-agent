@@ -255,6 +255,14 @@ it into the deployed workload:
 LOCAL_DR_SYNC_CATALOG_ID=<id> docker compose up
 ```
 
+A rolling redeploy is the one time the workload itself has two writers: the
+new pod boots and downloads the store while the old one still runs, and the old
+one uploads once more on shutdown. dr-sync guards each upload with a lease and
+a head check, so the store doesn't get corrupted, but it doesn't merge: what
+one pod wrote during the overlap, usually the old pod's last minutes, can be
+missing afterwards. Redeploy while the bot is idle. A handoff between the two
+pods is a known follow-up.
+
 ### Checking and recovering state
 
 These use the `dr sync` plugin. With the
