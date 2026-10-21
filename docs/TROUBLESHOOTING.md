@@ -140,29 +140,20 @@ grep -rn 'app\.datarobot\.com' config/config.yaml
 
 ## State store not found
 
-**Symptom.** `dr start` or `dr run doctor` says `DataRobot has no state store
-<id> (HTTP 404)` (or 410), or the workload restarts in a loop and its log
-shows `FATAL: dr-sync download failed after 5 attempts; refusing to start
-with empty state`.
+**Symptom.** `dr start` or `dr run doctor` says `DataRobot can't give state
+store <id>`, or the workload restarts in a loop and its log shows `FATAL:
+dr-sync download failed`.
 
-**Why.** `DR_SYNC_CATALOG_ID` names a store DataRobot doesn't have: deleted,
-from another install or account, or mistyped. The image won't boot with an
-empty state when it was told there is one, and `dr start` won't replace the id
-on its own, since a new store means starting from nothing.
+**Why.** `DR_SYNC_CATALOG_ID` in `.env` names a store DataRobot doesn't have:
+deleted, from another install, or mistyped. `dr start` won't replace it on its
+own, since a new store starts from nothing.
 
-**Fix**, one of:
-
-1. **Point at the right store.** Put its id in `.env` as `DR_SYNC_CATALOG_ID`,
-   then `dr run env` and `dr workload up`.
-2. **Start fresh.** Delete the `DR_SYNC_CATALOG_ID` line from `.env`, run
-   `dr run env` so `.datarobot.yaml` drops it too, then `dr start` (which
-   creates a new store), `dr run env` again and `dr workload up`. The agent
-   starts without its earlier sessions and memory.
-
-If `dr run doctor` finds the store but the workload still can't download it,
-the store exists but the workload can't read it. `doctor` checks with your
-login, and the workload reads with its own key; the lines before the FATAL
-one in `dr workload logs` show what dr-sync was told.
+**Fix.** Put the right store's id in `.env` as `DR_SYNC_CATALOG_ID`, or delete
+the line and run `dr start` to create a new store. Then `dr run env` and
+`dr workload up`. The workload logs the id it uses on every boot:
+`dr workload logs | grep dr_sync_catalog=`. That's also where to find it when
+`dr start` says `.datarobot.yaml` already gives the workload a store but `.env`
+has none.
 
 ## `dr dotenv validate` printed my token
 
