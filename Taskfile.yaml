@@ -107,24 +107,6 @@ tasks:
       # DATAROBOT_API_TOKEN in the workload. See scripts/workload-config.sh.
       - scripts/workload-config.sh --sync-env
 
-  install:*:
-    desc: >-
-      Add a skill to config/skills/ with `hermes skills install`, e.g.
-      `dr run install:official/creative/ascii-art` for one of Hermes' optional
-      skills, or `dr run install:<owner>/<repo>/<path>` for one on GitHub.
-      Needs Docker. Skills are baked into the image, so `dr workload up` after.
-    interactive: true
-    vars:
-      SKILL: "{{index .MATCH 0}}"
-    preconditions:
-      - sh: docker info >/dev/null 2>&1
-        msg: "Installing a skill runs Hermes in Docker, and Docker isn't running."
-    cmds:
-      # Through a script: the image writes as its own uid, which a normal
-      # Linux checkout doesn't let write into ./config directly.
-      - scripts/install-skill.sh {{shellQuote .HERMES_IMAGE}} {{shellQuote .SKILL}}
-      - echo "Installed into config/skills/. Run 'dr workload up' to ship it."
-
   doctor:
     silent: true
     desc: >-

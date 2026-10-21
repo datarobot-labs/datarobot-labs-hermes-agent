@@ -7,8 +7,8 @@
 # non-empty .datarobot/cli/, `dr run`, `dr start` and `dr dotenv` all refuse
 # to run here. It replaces dr's built-in defaults (Python, uv, Pulumi), none
 # of which deploying Hermes needs. Docker is left out on purpose: the image
-# builds server-side, so only local runs and `dr run install:*` need it, and
-# those tasks check for it themselves.
+# builds server-side, so only local runs need it, and those tasks check for it
+# themselves.
 dr:
   name: DataRobot CLI
   # The release the deploy docs and tasks are written for. It has
@@ -39,7 +39,7 @@ sync:
     windows: dr plugin install sync --url https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz
 task:
   name: Task
-  # Wildcard task names (`install:*`) and `aliases`.
+  # Task `aliases`.
   minimum-version: 3.40.0
   command: task --version
   url: https://taskfile.dev/installation/

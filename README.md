@@ -140,20 +140,11 @@ Slack needs no inbound URL: the bot connects out over Socket Mode.
 
 ## Adding skills
 
-Skills are baked into the image from `config/skills/`. Install one, commit it,
-and deploy:
-
-```sh
-dr run install:official/communication/one-three-one-rule   # one of Hermes' optional skills
-dr run install:<owner>/<repo>/<path>                       # a skill on GitHub
-dr workload up
-```
-
-`install` runs `hermes skills install` in the pinned Hermes image, so it needs
-Docker. From a terminal it shows Hermes' preview and asks you to confirm;
-without one (CI, a script) it confirms for you, since running it is the
-request. Commit the new skill and `config/skills/.hub/lock.json`. To see
-what's available, run `task hermes -- skills browse`. The
+Skills are baked into the image from `config/skills/`. To add one, put its
+directory, with its `SKILL.md`, under `config/skills/<category>/`, commit it and
+run `dr workload up`. Skills the agent writes or installs while it runs are kept
+in its state store, so they survive a restart too. To see what Hermes offers,
+run `task hermes -- skills browse`. The
 DataRobot skills in `config/skills/datarobot/` come from
 [datarobot-agent-skills](https://github.com/datarobot-oss/datarobot-agent-skills);
 `dr run skills:datarobot` refreshes them.
