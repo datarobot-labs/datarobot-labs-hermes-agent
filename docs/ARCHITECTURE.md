@@ -54,11 +54,12 @@ default in the Dockerfile. `LLM_BASE_URL`, unless set, is derived at boot from
 `DATAROBOT_ENDPOINT` (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so any run, a local
 `docker compose up` included, uses the gateway of the install it points at.
 
-- **`LLM_BASE_URL`** is set by `dr start` to the gateway of the install `.env`
-  points at (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so a deployment on staging or
-  on-prem talks to its own gateway. A marker comment above the line in `.env`
-  tells `dr start` the value is its own, and it recomputes it whenever
-  `DATAROBOT_ENDPOINT` changes; delete the marker to set a value by hand.
+- **`LLM_BASE_URL`** is set by `dr start` to `$DATAROBOT_ENDPOINT/genai/llmgw`,
+  as written. `dr workload config` and docker compose expand it, so a
+  deployment on staging or on-prem talks to its own gateway, and it follows a
+  changed `DATAROBOT_ENDPOINT` after `dr run env`. Replace it to use another
+  gateway.
+- **`LLM_MODEL`** is picked by `dr start` from the gateway's model catalog.
 - **`LLM_API_KEY`** is optional for the DataRobot LLM gateway: when
   `LLM_BASE_URL` is on the same host as `DATAROBOT_ENDPOINT`, the entrypoint
   defaults it to `DATAROBOT_API_TOKEN`, which that gateway accepts. Any other
@@ -113,10 +114,9 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
 
 `dr` tells the two apart from the name and the value, and it can be wrong. A
 model id like `anthropic/claude-opus-4-8` looks random enough to be filed as a
-secret, which is why `dr start` doesn't ask for `LLM_MODEL`. The state store's
-id, `DR_SYNC_CATALOG_ID`, is 24 hex characters and is filed as one too; the
-workload reads a credential the same as a literal, so that only changes how the
-manifest shows it. After adding a setting, check that `.datarobot.yaml` has the
+secret, and so does the state store's id, `DR_SYNC_CATALOG_ID`, 24 hex
+characters. The workload reads a credential the same as a literal, so that only
+changes how the manifest shows them. After adding a setting, check that `.datarobot.yaml` has the
 form you expect.
 
 Nothing needs a `.env` on disk in the container, and the entrypoint never writes

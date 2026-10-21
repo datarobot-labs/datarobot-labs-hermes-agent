@@ -375,10 +375,12 @@ import sys, yaml
 tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
 start = [c.get("task") if isinstance(c, dict) else c for c in tasks["start"]["cmds"]]
 assert start.index("_state-store") < start.index("_manifest"), start
-assert start.index("_llm-gateway-url") < start.index("_state-store"), start
 assert "scripts/state-store.sh" in tasks["_state-store"]["cmds"], tasks["_state-store"]
 assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
 prompts = yaml.safe_load(open(sys.argv[2]))
+llm = {p["env"]: p for p in prompts["llm"]}
+assert llm["LLM_BASE_URL"]["default"] == "$DATAROBOT_ENDPOINT/genai/llmgw", llm
+assert llm["LLM_MODEL"]["type"] == "llmgw_catalog" and llm["LLM_MODEL"]["default"], llm
 # No question that could turn it off: every workload keeps its state.
 assert not [p for section in prompts.values() for p in section if p.get("env") == "PERSIST_STATE"]
 PY

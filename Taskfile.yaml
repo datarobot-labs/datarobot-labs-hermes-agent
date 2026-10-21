@@ -34,7 +34,6 @@ tasks:
     interactive: true
     cmds:
       - dr dotenv setup --if-needed
-      - task: _llm-gateway-url
       - task: _state-store
       - task: _manifest
       - echo "Ready. Deploy with 'dr workload up'."
@@ -99,10 +98,6 @@ tasks:
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
     cmds:
-      # First, so a DATAROBOT_ENDPOINT changed since `dr start` takes the
-      # LLM_BASE_URL that start manages along with it.
-      - task: _llm-gateway-url
-        vars: {SYNCING: "1"}
       # Not `dr workload config --sync-env` directly: that would put your own
       # DATAROBOT_API_TOKEN in the workload. See scripts/workload-config.sh.
       - scripts/workload-config.sh --sync-env
@@ -199,14 +194,6 @@ tasks:
         exit "$failed"
 
   # Not run directly; `start` calls these.
-  _llm-gateway-url:
-    silent: true
-    internal: true
-    # A script rather than inline: it needs signal traps, which Task's own
-    # shell doesn't support. See scripts/llm-gateway-url.sh.
-    cmds:
-      - LLM_GATEWAY_SYNCING={{shellQuote (.SYNCING | default "")}} scripts/llm-gateway-url.sh
-
   # Before _manifest, so a new manifest carries DR_SYNC_CATALOG_ID. A script:
   # it needs signal traps. See scripts/state-store.sh.
   _state-store:

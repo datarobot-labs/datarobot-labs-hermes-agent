@@ -164,14 +164,6 @@ the store exists but the workload can't read it. `doctor` checks with your
 login, and the workload reads with its own key; the lines before the FATAL
 one in `dr workload logs` show what dr-sync was told.
 
-## `LLM_MODEL` ended up as a credential
-
-`dr` decides which `.env` values are secrets partly by how random they look,
-and a model id like `anthropic/claude-opus-4-8` passes for a token. If
-`.datarobot.yaml` shows `LLM_MODEL` as `dr-credential:...`, it still works, but
-changing the model then means updating a credential. Replace that line's value
-with the plain model id.
-
 ## `dr dotenv validate` printed my token
 
 It prints every value it checks, `DATAROBOT_API_TOKEN` included. Use

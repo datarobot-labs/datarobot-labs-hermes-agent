@@ -10,11 +10,23 @@
 # `dr workload config` writes .datarobot.yaml, so only runtime settings
 # belong here.
 #
-# LLM_MODEL is deliberately not asked for. dr's secret detector reads a value
-# like "anthropic/claude-opus-4-8" as a random token, and
-# `dr workload config --yes` would then store the model name as a credential.
-# The Dockerfile's default applies instead; README.md "Changing settings"
-# covers overriding it.
+# The LLM gateway and model. LLM_BASE_URL stays "$DATAROBOT_ENDPOINT/..." in
+# .env: `dr workload config` and docker compose expand it, so it follows the
+# install you log in to. LLM_MODEL is picked from that gateway's catalog; its
+# default answers a run without a terminal. dr files a model id as a secret,
+# which the workload reads the same as a literal.
+llm:
+  - env: LLM_BASE_URL
+    default: "$DATAROBOT_ENDPOINT/genai/llmgw"
+    help: >-
+      The LLM gateway URL. The default is the gateway of the DataRobot install
+      you're logged in to. Another gateway needs its own LLM_API_KEY in .env.
+  - env: LLM_MODEL
+    type: "llmgw_catalog"
+    default: "anthropic/claude-opus-4-8"
+    optional: false
+    help: "Choose the model from the LLM gateway catalog."
+
 slack:
   - key: enable_slack
     # Optional because dr stores a `key:` answer as a comment, which
