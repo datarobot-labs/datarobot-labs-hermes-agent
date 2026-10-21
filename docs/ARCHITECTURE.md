@@ -230,8 +230,13 @@ manifest `dr start` writes carries it; for a manifest that already exists, run
 `dr run env`, then `dr workload up`. `dr run doctor` checks the store too.
 
 Skills and plugins are part of it, so what the agent learns or adds survives a
-restart. The ones the image ships are laid over the stored copies on every
-boot, so the current image's version always wins.
+restart. On every boot, after the download, the ones this repo's image ships
+(`config/skills/`, the plugins in the seed) are laid over the stored copies, so
+the current image's version wins, and the ones an earlier image shipped but
+this one doesn't are removed: the store keeps a list of what the last image
+shipped (`.dr-sync-shipped`). Hermes' own bundled skills follow its
+`skills_sync.py`: an unmodified one is updated to the new image's version, one
+the agent changed is kept, and one Hermes dropped stays.
 
 Never point two running copies at one store: a second writer's fresh state
 competes with the pod's. So `compose.yaml` leaves a local `docker compose up`

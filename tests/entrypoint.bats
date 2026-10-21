@@ -179,6 +179,37 @@ STUB
     [ "$(cat /tmp/hermes/skills/shipped/SKILL.md)" = image ]
     [ "$(cat /tmp/hermes/plugins/otel/plugin.yaml)" = image ]
     [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
+    # What this image shipped, for the next boot to compare with.
+    grep -qx 'skills/shipped/SKILL.md' /tmp/hermes/.dr-sync-shipped
+    grep -qx 'plugins/otel/plugin.yaml' /tmp/hermes/.dr-sync-shipped
+}
+
+@test "after an image bump, a skill the new image no longer ships is removed, and nothing outside skills/ is" {
+    mkdir -p "$SEED/skills/kept" "$WORK/bin" "$WORK/stored/skills/kept" "$WORK/stored/skills/dropped/sub" \
+        "$WORK/stored/skills/learned" "$WORK/stored/sessions"
+    echo new > "$SEED/skills/kept/SKILL.md"
+    echo old > "$WORK/stored/skills/kept/SKILL.md"
+    echo old > "$WORK/stored/skills/dropped/SKILL.md"
+    echo old > "$WORK/stored/skills/dropped/sub/notes.md"
+    echo agent > "$WORK/stored/skills/learned/SKILL.md"
+    echo chat > "$WORK/stored/sessions/chat.json"
+    # The list the earlier image wrote, plus entries that must never be acted on.
+    printf '%s\n' skills/dropped/SKILL.md skills/dropped/sub/notes.md skills/kept/SKILL.md \
+        sessions/chat.json skills/../sessions/chat.json > "$WORK/stored/.dr-sync-shipped"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/hermes/skills/dropped ]
+    [ "$(cat /tmp/hermes/skills/kept/SKILL.md)" = new ]
+    [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
+    [ "$(cat /tmp/hermes/sessions/chat.json)" = chat ]
+    [ "$(cat /tmp/hermes/.dr-sync-shipped)" = skills/kept/SKILL.md ]
 }
 
 @test "a download that keeps failing is fatal and the gateway never starts" {
