@@ -203,10 +203,11 @@ instead:
   paths.
 - **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
   excludes what's baked from the image — `config.yaml`, `SOUL.md`,
-  `slack-manifest.json`, `skills/`, `plugins/`, the optional browser-use
-  install and the file itself — so a stale download can never clobber what
-  the current image just shipped, plus pure caches and logs that aren't worth
-  persisting.
+  `slack-manifest.json`, the optional browser-use install and the file
+  itself — so a stale download can never clobber what the current image just
+  shipped, plus pure caches and logs that aren't worth persisting. `skills/`
+  and `plugins/` are synced, and the image's own are laid over them after the
+  download.
 - **Retention** is `--keep-generations 144` (about a day of 10-minute
   uploads), so a bad overwrite can be rolled back (see below).
 
@@ -218,32 +219,19 @@ sync strategy needs revisiting first.
 Without `DR_SYNC_CATALOG_ID` the entrypoint logs a notice and boots without
 persistence.
 
-### Turning persistence on
+### How `dr start` sets it up
 
-`dr start` does it. It asks once whether to keep the bot's sessions and
-memory across restarts (`PERSIST_STATE`, default yes), then
-`scripts/state-store.sh`:
-
-- reuses the store `.env` names as `DR_SYNC_CATALOG_ID`, else the one
-  `.datarobot.yaml` declares, after checking that DataRobot still has it;
-- otherwise creates one named `<workload name>-state` with `dr-sync init`. It
-  uses the dr-sync release the image pins, downloaded for your machine and
-  checked against `docker/tool-checksums.txt`; nothing gets installed.
-
-That makes one store per workload. Re-running `dr start` reuses it, and a
-project without a manifest is a new workload with a store of its own. With a
-manifest that already exists, run `dr run env` after `dr start` to carry
-`DR_SYNC_CATALOG_ID` over, then `dr workload up`. `dr run doctor` tells you
-whether the store is in place. datarobot-sync also uses `DATAROBOT_ENDPOINT`
-and `DATAROBOT_API_TOKEN`, which the workload already has.
+Every workload gets a store; there's nothing to turn on. `dr start` installs
+the `dr sync` plugin (`.datarobot/cli/versions.yaml`), then
+`scripts/state-store.sh` keeps the store `.env` names as `DR_SYNC_CATALOG_ID`,
+once `dr sync inspect` confirms DataRobot has it, or creates one named
+`<workload name>-state` with `dr sync init` and adds its id to `.env`. The
+manifest `dr start` writes carries it; for a manifest that already exists, run
+`dr run env`, then `dr workload up`. `dr run doctor` checks the store too.
 
 Skills and plugins are part of it, so what the agent learns or adds survives a
 restart. The ones the image ships are laid over the stored copies on every
 boot, so the current image's version always wins.
-
-To turn persistence off, set `PERSIST_STATE=no` in `.env`, delete the
-`DR_SYNC_CATALOG_ID` line, and run `dr run env` and `dr workload up`. The store
-stays in DataRobot until you delete it.
 
 Never point two running copies at one store: a second writer's fresh state
 competes with the pod's. So `compose.yaml` leaves a local `docker compose up`
