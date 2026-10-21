@@ -58,12 +58,18 @@ manifest_names_store() {
     [ -f "$manifest" ] && grep -qw DR_SYNC_CATALOG_ID "$manifest"
 }
 
+# Whether $1 is a store id: the 24 lowercase hex characters dr-sync prints.
+is_store_id() {
+    case $1 in *[!0-9a-f]* | '') return 1 ;; esac
+    [ ${#1} -eq 24 ]
+}
+
 # Exits unless DataRobot knows store $1, asked through `dr sync inspect` with
 # dr's own login. Its shape is checked first, without printing it: a value
 # that isn't an id may be a secret pasted into the wrong line, which must
 # reach neither the terminal nor a request.
 verify() {
-    if ! printf '%s' "$1" | grep -qE '^[0-9a-f]{24}$'; then
+    if ! is_store_id "$1"; then
         echo "DR_SYNC_CATALOG_ID $2 isn't a store id: dr-sync prints 24 lowercase hex" >&2
         echo "characters. Nothing was changed." >&2
         exit 1
@@ -102,8 +108,10 @@ fi
 # The name dr start's manifest step gives the workload.
 name=${WORKLOAD_NAME:-hermes-agent}
 
+# dr prints its own "Running plugin" line on stdout first: the id is the last.
 id=$(dr sync init --name "$name-state" --tag hermes_state)
-if ! printf '%s' "$id" | grep -qE '^[0-9a-f]{24}$'; then
+id=$(printf '%s\n' "$id" | tail -n 1)
+if ! is_store_id "$id"; then
     echo "dr sync init didn't print a store id; nothing was written to $env_file." >&2
     exit 1
 fi

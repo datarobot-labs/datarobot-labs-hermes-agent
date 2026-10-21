@@ -30,13 +30,15 @@ setup() {
     export STUB_DIR="$WORK" STUB_LOG="$WORK/calls"
     : > "$STUB_LOG"
 
-    # dr: records its arguments and the token it was handed, if any.
+    # dr: records its arguments and the token it was handed, if any, and
+    # prints the "Running plugin" line real dr puts on stdout before a plugin.
     # `dr sync inspect` exits STUB_INSPECT (default 0), the way dr sync
     # exits 3 for a store DataRobot doesn't have; `dr sync init` prints STUB_ID.
     cat > "$WORK/bin/dr" <<'STUB'
 #!/bin/sh
 echo "dr $*" >> "$STUB_LOG"
 echo "${DATAROBOT_API_TOKEN:-}" > "$STUB_DIR/dr.token"
+echo "🔌 Running plugin: sync"
 case "$*" in
     "sync inspect") echo "inspect $DR_SYNC_CATALOG_ID" >> "$STUB_LOG"; exit "${STUB_INSPECT:-0}" ;;
 esac
@@ -148,6 +150,20 @@ manifest() {
     ! grep -q "$TOKEN" "$STUB_LOG" || false
     [[ "$output" != *"$TOKEN"* ]]
     [ -z "$(cat "$WORK/dr.token")" ]
+}
+
+@test "an id split over lines in .env is refused, and only the last line of dr sync init counts" {
+    printf 'DR_SYNC_CATALOG_ID="%s\n%s"\n' "junk" "$STORE" >> "$ENV"
+    STUB_ID="$STORE
+trailing" store
+    [ "$status" -eq 1 ]
+    [ "$(inits)" = 0 ]
+    sed -i '/^DR_SYNC_CATALOG_ID=/,$d' "$ENV"
+    STUB_ID="$STORE
+trailing" store
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"didn't print a store id"* ]]
+    ! grep -q '^DR_SYNC_CATALOG_ID=' "$ENV" || false
 }
 
 @test "a dr sync init that prints no store id leaves .env alone" {
