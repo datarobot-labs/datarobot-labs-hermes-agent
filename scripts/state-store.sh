@@ -42,12 +42,6 @@ fi
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
 
-# A rewrite of .env holds every secret .env does; it goes, however the
-# script ends.
-tmp=
-trap 'rm -f "$tmp"' EXIT
-trap 'exit 130' INT TERM HUP
-
 # The last value .env gives NAME, without the quotes dotenv allows.
 env_value() {
     v=$(sed -n "s/^$1=//p" "$env_file" | tail -n 1)
@@ -93,32 +87,6 @@ if [ -n "$id" ]; then
     exit 0
 fi
 
-# Every write to .env goes through a file only its owner can read, next to
-# .env so the swap is a rename: it holds every secret .env does.
-set_env_id() {
-    tmp=$(mktemp "$(dirname "$env_file")/.env.XXXXXX")
-    # One DR_SYNC_CATALOG_ID line, where the first one was, or appended. Later
-    # ones go: env_value reads the last, so a leftover empty one would hide
-    # the id and make the next run create yet another store.
-    awk -v id="$1" '
-        /^DR_SYNC_CATALOG_ID=/ { if (!done) print "DR_SYNC_CATALOG_ID=\"" id "\""; done = 1; next }
-        { print }
-        END {
-            if (!done) {
-                print ""
-                print "# The workload'\''s dr-sync state store, set by dr start. One per workload:"
-                print "# never point two running copies at it (docs/ARCHITECTURE.md)."
-                print "DR_SYNC_CATALOG_ID=\"" id "\""
-            }
-        }
-    ' "$env_file" > "$tmp"
-    # Keep .env's permissions. GNU stat first: BSD stat rejects -c, while
-    # GNU's -f is filesystem status, not an error.
-    mode=$(stat -c %a "$env_file" 2>/dev/null || stat -f %Lp "$env_file")
-    chmod "$mode" "$tmp"
-    mv -f "$tmp" "$env_file"
-}
-
 if manifest_names_store; then
     echo ".datarobot.yaml already gives the workload a state store, but $env_file has no" >&2
     echo "DR_SYNC_CATALOG_ID, and a new store would start from nothing. Put that store's" >&2
@@ -139,5 +107,8 @@ if ! printf '%s' "$id" | grep -qE '^[0-9a-f]{24}$'; then
     echo "dr sync init didn't print a store id; nothing was written to $env_file." >&2
     exit 1
 fi
-set_env_id "$id"
+# Appended, so .env keeps its permissions: it holds the deployer's token.
+# A leftover empty DR_SYNC_CATALOG_ID line can stay; the last one wins, for
+# dr, docker compose and env_value alike.
+printf '\n# The workload'"'"'s dr-sync state store, made by dr start. One per workload:\n# never point two running copies at it (docs/ARCHITECTURE.md).\nDR_SYNC_CATALOG_ID="%s"\n' "$id" >> "$env_file"
 echo "Created state store $id (\"$name-state\") and set DR_SYNC_CATALOG_ID in $env_file."

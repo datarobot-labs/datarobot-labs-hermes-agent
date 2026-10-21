@@ -63,10 +63,6 @@ manifest() {
         "$1" "$2" > "$WORK/.datarobot.yaml"
 }
 
-no_leftovers() {
-    [ -z "$(find "$WORK" -name '.env.*')" ]
-}
-
 @test "with no store yet, one is created for the workload and its id written to .env" {
     store
     [ "$status" -eq 0 ]
@@ -75,7 +71,6 @@ no_leftovers() {
     grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
     grep -qx "DATAROBOT_API_TOKEN=\"$TOKEN\"" "$ENV"
     [ "$(stat -c %a "$ENV")" = 600 ]
-    no_leftovers
 }
 
 @test "the store is named after WORKLOAD_NAME, as the manifest will be" {
@@ -95,24 +90,15 @@ no_leftovers() {
     cmp "$WORK/after-first" "$ENV"
 }
 
-@test "duplicate DR_SYNC_CATALOG_ID lines become the one new id, and a re-run reuses it" {
+@test "leftover empty DR_SYNC_CATALOG_ID lines don't hide the new id, and a re-run reuses it" {
     printf 'DR_SYNC_CATALOG_ID=\nSLACK_HOME_CHANNEL=C1\nDR_SYNC_CATALOG_ID=\n' >> "$ENV"
     store
     [ "$status" -eq 0 ]
-    [ "$(grep -c '^DR_SYNC_CATALOG_ID=' "$ENV")" = 1 ]
-    grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
+    [ "$(grep '^DR_SYNC_CATALOG_ID=' "$ENV" | tail -n 1)" = "DR_SYNC_CATALOG_ID=\"$STORE\"" ]
     grep -qx 'SLACK_HOME_CHANNEL=C1' "$ENV"
     store
     [ "$status" -eq 0 ]
     [ "$(inits)" = 1 ]
-}
-
-@test "an empty DR_SYNC_CATALOG_ID line is filled in place, not added twice" {
-    echo 'DR_SYNC_CATALOG_ID=' >> "$ENV"
-    store
-    [ "$status" -eq 0 ]
-    [ "$(grep -c '^DR_SYNC_CATALOG_ID=' "$ENV")" = 1 ]
-    grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
 }
 
 @test "a manifest that already names a store, in any form, stops the run instead of making a second one" {
@@ -170,7 +156,6 @@ no_leftovers() {
     [ "$status" -eq 1 ]
     [[ "$output" == *"didn't print a store id"* ]]
     cmp "$WORK/before" "$ENV"
-    no_leftovers
 }
 
 @test "--check reports, and never creates a store or touches .env" {
