@@ -109,13 +109,15 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
   `value: dr-credential:<id>/apiToken`. The values are in DataRobot's credential
   store; the manifest holds only the id.
 - **Non-secrets** (`DATAROBOT_ENDPOINT`, `LLM_BASE_URL`, `SLACK_HOME_CHANNEL`,
-  `SLACK_ALLOWED_USERS`, `GATEWAY_ALLOW_ALL_USERS`, `DR_SYNC_CATALOG_ID`) are
-  literals.
+  `SLACK_ALLOWED_USERS`, `GATEWAY_ALLOW_ALL_USERS`) are literals.
 
 `dr` tells the two apart from the name and the value, and it can be wrong. A
 model id like `anthropic/claude-opus-4-8` looks random enough to be filed as a
-secret, which is why `dr start` doesn't ask for `LLM_MODEL`. After adding a
-setting, check that `.datarobot.yaml` has the form you expect.
+secret, which is why `dr start` doesn't ask for `LLM_MODEL`. The state store's
+id, `DR_SYNC_CATALOG_ID`, is 24 hex characters and is filed as one too; the
+workload reads a credential the same as a literal, so that only changes how the
+manifest shows it. After adding a setting, check that `.datarobot.yaml` has the
+form you expect.
 
 Nothing needs a `.env` on disk in the container, and the entrypoint never writes
 one. Hermes reads these keys straight from the real environment

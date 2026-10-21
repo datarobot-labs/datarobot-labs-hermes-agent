@@ -29,11 +29,6 @@
 # DATAROBOT_API_TOKEN entry, the api-key one, whatever dr left there. ./.env
 # itself is never modified.
 #
-# DR_SYNC_CATALOG_ID, the state store's id (scripts/state-store.sh), is kept
-# from dr the same way. dr's secret detector reads the 24-character hex id as
-# a random token and would store it as a credential, so the copy back declares
-# it as a plain value, taken from .env, or not at all when .env has none.
-#
 # Usage: scripts/workload-config.sh <dr workload config arguments>
 #        scripts/workload-config.sh --check [manifest]
 #
@@ -43,7 +38,6 @@
 set -eu
 
 token=DATAROBOT_API_TOKEN
-store=DR_SYNC_CATALOG_ID
 manifest=.datarobot.yaml
 
 # Reads the token's entries in every environmentVars list, and only there:
@@ -57,7 +51,7 @@ manifest=.datarobot.yaml
 # above its column. Anything else naming the token is left for
 # is_workload_key to refuse afterwards, rather than guessed at.
 token_entries() {
-    awk -v name="${3:-$token}" -v mode="$1" '
+    awk -v name="$token" -v mode="$1" '
         function indent(s) { match(s, /^ */); return RLENGTH }
         function blank(s) { return s ~ /^[[:space:]]*(#.*)?$/ }
         BEGIN { itemcol = -1; keyin = -1 }
@@ -198,46 +192,6 @@ remove_token_entries() {
     token_entries drop "$1"
 }
 
-# The file without any entry for the state store's id: dr never sees one.
-remove_store_entries() {
-    token_entries drop "$1" "$store"
-}
-
-# The state store's id as .env gives it, without the quotes dotenv allows.
-store_id=$(sed -n "s/^$store=//p" .env 2>/dev/null | tail -n 1)
-case $store_id in
-    \"*\") store_id=${store_id#\"} store_id=${store_id%\"} ;;
-    \'*\') store_id=${store_id#\'} store_id=${store_id%\'} ;;
-esac
-
-# The plain value the file gives the store's id, if any.
-store_value() {
-    awk -v name="$store" '
-        function indent(s) { match(s, /^ */); return RLENGTH }
-        $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$") { entry = indent($0); inside = 1; next }
-        inside && /^ *(#.*)?$/ { next }
-        inside && indent($0) <= entry { inside = 0 }
-        inside && /^ *value:/ { v = $0; sub(/^ *value: */, "", v); sub(/[ \t]+#.*$/, "", v); gsub(/^["'\'']|["'\'']$/, "", v); print v; exit }
-    ' "$1"
-}
-
-# Declares the store's id right after the token, as a plain value.
-add_store_entry() {
-    if [ -z "$store_id" ]; then
-        cat "$1"
-        return
-    fi
-    loc=$(primary_env "$1") || return
-    awk -v name="$store" -v id="$store_id" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f3)" '
-        { print }
-        NR == at + 2 {
-            pad = sprintf("%" col "s", "")
-            print pad "- name: " name
-            print pad "  value: \"" id "\""
-        }
-    ' "$1"
-}
-
 # Puts the api-key entry first in the primary container's environmentVars,
 # and nowhere else.
 add_api_key_entry() {
@@ -291,34 +245,22 @@ cp Dockerfile "$work/"
 # grep exits 1 when nothing is left (fine) and 2 when it can't read .env: an
 # unreadable .env must not pass for an empty one, which --sync-env would
 # take as every setting removed.
-# Empty removes the entry. Anything else must look like the id dr-sync init
-# prints: a typo would reach the workload, which then can't download its state
-# and refuses to boot.
-if [ -n "$store_id" ] && ! printf '%s' "$store_id" | grep -qE '^[0-9a-f]{24}$'; then
-    # Not the value itself: it came from .env, and may be a pasted secret.
-    echo "$store in .env isn't a store id: dr-sync prints 24 lowercase hex characters." >&2
-    echo "Nothing was changed." >&2
-    exit 1
-fi
-
 status=0
-grep -v -e "^${token}=" -e "^${store}=" .env > "$work/.env" || status=$?
+grep -v "^${token}=" .env > "$work/.env" || status=$?
 if [ "$status" -gt 1 ]; then
     echo "Couldn't read .env, so nothing was changed." >&2
     exit 1
 fi
 
-# Of the token, only the api-key entry is hidden from dr. Any other form, such
-# as a dr-credential an older manifest holds, stays visible, so --sync-env,
-# which no longer finds the name in .env, lists it for removal. The store's id
-# is hidden in any form: it is declared again from .env afterwards.
+# Only the api-key entry is hidden from dr. Any other form, such as a
+# dr-credential an older manifest holds, stays visible, so --sync-env, which no
+# longer finds the name in .env, lists it for removal.
 if [ -f "$manifest" ]; then
     if is_workload_key "$manifest"; then
-        remove_token_entries "$manifest" > "$work/manifest.in"
+        remove_token_entries "$manifest" > "$work/$manifest"
     else
-        cp "$manifest" "$work/manifest.in"
+        cp "$manifest" "$work/$manifest"
     fi
-    remove_store_entries "$work/manifest.in" > "$work/$manifest"
 fi
 
 dr workload config --dir "$work" "$@"
@@ -326,11 +268,9 @@ dr workload config --dir "$work" "$@"
 [ -z "$dry_run" ] || exit 0
 [ -f "$work/$manifest" ] || exit 0
 
-# Whatever dr kept, the result names the token once, as the workload's key,
-# and the store's id once, as .env's value, or not at all.
-remove_token_entries "$work/$manifest" > "$work/without-token.in"
-remove_store_entries "$work/without-token.in" > "$work/without-token"
-add_api_key_entry "$work/without-token" > "$work/with-key" || case $? in
+# Whatever dr kept, the result names the token once, as the workload's key.
+remove_token_entries "$work/$manifest" > "$work/without-token"
+add_api_key_entry "$work/without-token" > "$work/$manifest.new" || case $? in
     2) echo "Can't tell which container in $manifest is Hermes', so $token wasn't" >&2
        echo "added anywhere. It is the one built from ./Dockerfile; with no build" >&2
        echo "config, mark it as the only 'primary: true'." >&2
@@ -339,26 +279,15 @@ add_api_key_entry "$work/without-token" > "$work/with-key" || case $? in
        echo "$token to." >&2
        exit 1 ;;
 esac
-add_store_entry "$work/with-key" > "$work/$manifest.new"
 if ! is_workload_key "$work/$manifest.new"; then
     echo "Couldn't reduce $token in $manifest to the workload's own key, so the" >&2
     echo "file was left as it was. Fix that entry by hand; see docs/TROUBLESHOOTING.md." >&2
     exit 1
 fi
 
-if [ "$(token_entries count "$work/$manifest.new" "$store")" != "$([ -n "$store_id" ] && echo 1 || echo 0)" ] ||
-    [ "$(store_value "$work/$manifest.new")" != "$store_id" ]; then
-    echo "Couldn't declare $store in $manifest as .env's value, so the file was left" >&2
-    echo "as it was." >&2
-    exit 1
-fi
-
-# Unchanged apart from where the entries sit: leave the file byte for byte.
+# Unchanged apart from where the entry sits: leave the file byte for byte.
 if [ -f "$manifest" ] && is_workload_key "$manifest" &&
-    [ "$(store_value "$manifest")" = "$store_id" ] &&
-    [ "$(token_entries count "$manifest" "$store")" = "$([ -n "$store_id" ] && echo 1 || echo 0)" ] &&
-    remove_token_entries "$manifest" > "$work/old.in" &&
-    remove_store_entries "$work/old.in" | cmp -s - "$work/without-token"; then
+    remove_token_entries "$manifest" | cmp -s - "$work/without-token"; then
     exit 0
 fi
 

@@ -78,10 +78,8 @@ no_leftovers() {
     no_leftovers
 }
 
-@test "the store is named after the workload in .datarobot.yaml" {
-    manifest my-bot '              - name: SLACK_HOME_CHANNEL
-                value: C123'
-    store
+@test "the store is named after WORKLOAD_NAME, as the manifest will be" {
+    WORKLOAD_NAME=my-bot store
     [ "$status" -eq 0 ]
     grep -qx "dr sync init --name my-bot-state --tag hermes_state" "$STUB_LOG"
 }
@@ -117,57 +115,20 @@ no_leftovers() {
     grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
 }
 
-@test "an id from .datarobot.yaml is checked, reused and copied into .env" {
-    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
-                value: \"$STORE\""
-    store
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"from .datarobot.yaml"* ]]
-    [ "$(inits)" = 0 ]
-    grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
-    grep -qx "inspect $STORE" "$STUB_LOG"
-}
-
-@test "a manifest entry with YAML comments is still read, so no second store is made" {
-    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID   # the state store
-                value: \"$STORE\"   # from dr start"
-    store
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"from .datarobot.yaml"* ]]
-    [ "$(inits)" = 0 ]
-    grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
-}
-
-@test "an id dr stored in .datarobot.yaml as a credential stops the run instead of making a second store" {
-    manifest hermes-agent '              - name: DR_SYNC_CATALOG_ID
-                value: dr-credential:0123456789abcdef01234567/apiToken'
-    cp "$ENV" "$WORK/before"
-    store
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"declares DR_SYNC_CATALOG_ID, but not as a plain value"* ]]
-    [ "$(inits)" = 0 ]
-    cmp "$WORK/before" "$ENV"
-}
-
-@test "an id declared in another YAML layout stops the run instead of making a second store" {
-    for entry in "              - {name: DR_SYNC_CATALOG_ID, value: \"$STORE\"}" \
-        "              - value: \"$STORE\"
-                name: DR_SYNC_CATALOG_ID"; do
+@test "a manifest that already names a store, in any form, stops the run instead of making a second one" {
+    for entry in '              - name: DR_SYNC_CATALOG_ID
+                value: dr-credential:0123456789abcdef01234567/apiToken' \
+        "              - name: DR_SYNC_CATALOG_ID
+                value: \"$STORE\"" \
+        "              - {name: DR_SYNC_CATALOG_ID, value: \"$STORE\"}"; do
         manifest hermes-agent "$entry"
         cp "$ENV" "$WORK/before"
         store
         [ "$status" -eq 1 ]
-        [[ "$output" == *"declares DR_SYNC_CATALOG_ID, but not as a plain value"* ]]
+        [[ "$output" == *"already gives the workload a state store"* ]]
         [ "$(inits)" = 0 ]
         cmp "$WORK/before" "$ENV"
     done
-}
-
-@test "a comment naming DR_SYNC_CATALOG_ID in .datarobot.yaml is not a declaration" {
-    manifest hermes-agent '              # DR_SYNC_CATALOG_ID is added by dr start'
-    store
-    [ "$status" -eq 0 ]
-    [ "$(inits)" = 1 ]
 }
 
 @test "a DR_SYNC_CATALOG_ID that isn't an id is refused unprinted, and never sent" {
@@ -179,16 +140,6 @@ no_leftovers() {
     [[ "$output" != *"$TOKEN"* ]]
     [ ! -s "$STUB_LOG" ]
     cmp "$WORK/before" "$ENV"
-
-    # The same from .datarobot.yaml, with no id in .env.
-    sed -i '/^DR_SYNC_CATALOG_ID=/d' "$ENV"
-    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
-                value: \"$TOKEN\""
-    store
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"DR_SYNC_CATALOG_ID in .datarobot.yaml isn't a store id"* ]]
-    [[ "$output" != *"$TOKEN"* ]]
-    [ ! -s "$STUB_LOG" ]
 }
 
 @test "an id DataRobot can't give, gone or behind a bad login, stops the run and is never replaced" {
@@ -220,33 +171,6 @@ no_leftovers() {
     [[ "$output" == *"didn't print a store id"* ]]
     cmp "$WORK/before" "$ENV"
     no_leftovers
-}
-
-@test "a manifest naming a different store than .env is pointed out, not changed" {
-    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
-    manifest hermes-agent '              - name: DR_SYNC_CATALOG_ID
-                value: "abcabcabcabcabcabcabcabc"'
-    cp "$WORK/.datarobot.yaml" "$WORK/before"
-    store
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"names a different state store than $ENV"* ]]
-    [[ "$output" == *"Run 'dr run env' before you deploy"* ]]
-    cmp "$WORK/before" "$WORK/.datarobot.yaml"
-    [ "$(inits)" = 0 ]
-
-    # The same store: nothing to say.
-    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
-                value: \"$STORE\""
-    store
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"different state store"* ]]
-
-    # Not declared at all: dr start's manifest step already names it.
-    manifest hermes-agent '              - name: SLACK_HOME_CHANNEL
-                value: C123'
-    store
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"different state store"* ]]
 }
 
 @test "--check reports, and never creates a store or touches .env" {

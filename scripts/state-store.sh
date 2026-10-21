@@ -17,14 +17,14 @@
 # survive a restart, and puts the store's id in .env as
 # DR_SYNC_CATALOG_ID. `dr start` runs it; `dr run doctor` runs it with --check.
 #
-# One store per workload, and safe to re-run: the id already in .env, else the
-# one .datarobot.yaml declares, is checked against DataRobot and kept. Only
-# with neither is a store created, named "<workload name>-state". dr-sync can't
-# look a store up by name, and a project without a manifest is a new workload,
-# so those two places are what make a re-run reuse the store. An id that
-# DataRobot no longer knows stops the run instead of being replaced: the image
-# refuses to boot without its state (docker/entrypoint.d/20-state-sync.sh), and
-# a new store would mean starting from nothing.
+# One store per workload, and safe to re-run: the id already in .env is checked
+# with `dr sync inspect` and kept. Only without one is a store created, named
+# "<workload name>-state". An id DataRobot doesn't have stops the run instead of
+# being replaced: the image refuses to boot without its state
+# (docker/entrypoint.d/20-state-sync.sh), and a new store would mean starting
+# from nothing. For the same reason, so does a .datarobot.yaml that already
+# names a store while .env doesn't: that is a deployed workload whose .env lost
+# the id, not a new one. dr-sync can't look a store up by name.
 #
 # The store is created with `dr sync init`: the dr-sync plugin, which dr start
 # installs from .datarobot/cli/versions.yaml, run with dr's own login.
@@ -58,30 +58,10 @@ env_value() {
     printf '%s' "$v"
 }
 
-# The literal value .datarobot.yaml gives NAME, if it has one: the `value:`
-# line of its `- name: NAME` entry. A credential reference is not a literal.
-manifest_value() {
-    [ -f "$manifest" ] || return 0
-    awk -v name="$1" '
-        function indent(s) { match(s, /^ */); return RLENGTH }
-        $0 ~ ("^ *- name: *[\"'\'']?" name "[\"'\'']? *(#.*)?$") { entry = indent($0); inside = 1; next }
-        inside && /^ *(#.*)?$/ { next }
-        inside && indent($0) <= entry { inside = 0 }
-        inside && /^ *value:/ {
-            v = $0; sub(/^ *value: */, "", v); sub(/[ \t]+#.*$/, "", v); gsub(/^["'\'']|["'\'']$/, "", v)
-            if (v !~ /^dr-credential:/) print v
-            exit
-        }
-    ' "$manifest"
-}
-
-# Whether .datarobot.yaml mentions NAME anywhere outside a comment. It's broader
-# than manifest_value on purpose: a flow mapping (`- {name: NAME, ...}`) or an
-# entry with `value:` before `name:` is still the workload's declaration, which
-# this mustn't mistake for none and so make a second store.
-manifest_mentions() {
-    [ -f "$manifest" ] &&
-        grep -v '^ *#' "$manifest" | grep -qE "(^|[^A-Za-z0-9_])$1([^A-Za-z0-9_]|\$)"
+# Whether .datarobot.yaml names the store's variable at all. Only the name:
+# dr keeps the id as a credential, which can't be read back here.
+manifest_names_store() {
+    [ -f "$manifest" ] && grep -qw DR_SYNC_CATALOG_ID "$manifest"
 }
 
 # Exits unless DataRobot knows store $1, asked through `dr sync inspect` with
@@ -106,18 +86,9 @@ id=$(env_value DR_SYNC_CATALOG_ID)
 if [ -n "$id" ]; then
     verify "$id" "in $env_file"
     echo "State store $id (DR_SYNC_CATALOG_ID in $env_file) is in place."
-    if [ -f "$manifest" ] && [ "$(manifest_value DR_SYNC_CATALOG_ID)" != "$id" ]; then
-        if [ -n "$check" ]; then
-            echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
-            exit 1
-        fi
-        # Not declared at all, dr start's own manifest step names it. Declared
-        # as another store, nothing else would say so, and the next deploy
-        # would use that one: deleted, the workload can't boot.
-        if manifest_mentions DR_SYNC_CATALOG_ID; then
-            echo ".datarobot.yaml names a different state store than $env_file, and the next" >&2
-            echo "deploy uses the manifest's. Run 'dr run env' before you deploy." >&2
-        fi
+    if [ -n "$check" ] && [ -f "$manifest" ] && ! manifest_names_store; then
+        echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
+        exit 1
     fi
     exit 0
 fi
@@ -148,27 +119,10 @@ set_env_id() {
     mv -f "$tmp" "$env_file"
 }
 
-id=$(manifest_value DR_SYNC_CATALOG_ID)
-if [ -n "$id" ]; then
-    verify "$id" "in .datarobot.yaml"
-    if [ -n "$check" ]; then
-        echo "State store $id is in .datarobot.yaml but not in $env_file. Run 'dr start'." >&2
-        exit 1
-    fi
-    # Into .env too, or the next `dr run env` would drop it from the manifest.
-    set_env_id "$id"
-    echo "State store $id (from .datarobot.yaml) is in place; added it to $env_file."
-    exit 0
-fi
-
-# Declared, but not as a literal this reads: most likely dr stored the id as a
-# credential, or the entry is in another YAML layout. Its value can't be read
-# back here, and creating a store now would make a second one for the same
-# workload.
-if manifest_mentions DR_SYNC_CATALOG_ID; then
-    echo ".datarobot.yaml declares DR_SYNC_CATALOG_ID, but not as a plain value this can read" >&2
-    echo "(a '- name:' entry with a 'value:' line)." >&2
-    echo "Put the store's id in $env_file as DR_SYNC_CATALOG_ID and run this again." >&2
+if manifest_names_store; then
+    echo ".datarobot.yaml already gives the workload a state store, but $env_file has no" >&2
+    echo "DR_SYNC_CATALOG_ID, and a new store would start from nothing. Put that store's" >&2
+    echo "id in $env_file (docs/TROUBLESHOOTING.md, \"State store not found\") and run this again." >&2
     exit 1
 fi
 
@@ -177,8 +131,8 @@ if [ -n "$check" ]; then
     exit 1
 fi
 
-name=$(sed -nE 's/^name: *["'\'']?([^"'\'' #]+).*$/\1/p' "$manifest" 2>/dev/null | head -n 1)
-name=${name:-${WORKLOAD_NAME:-hermes-agent}}
+# The name dr start's manifest step gives the workload.
+name=${WORKLOAD_NAME:-hermes-agent}
 
 id=$(dr sync init --name "$name-state" --tag hermes_state)
 if ! printf '%s' "$id" | grep -qE '^[0-9a-f]{24}$'; then
