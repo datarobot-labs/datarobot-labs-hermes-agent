@@ -173,7 +173,7 @@ PY
     grep -qE '^ARG HERMES_OTEL_REF=[0-9a-f]{40}$' /repo/Dockerfile
 }
 
-@test "dr-sync never restores a file the image seed owns" {
+@test "dr-sync never restores a file the image seed owns, and the image's skills and plugins win" {
     # Every COPY into the seed, plus the seed paths that are not a COPY: the plugin
     # install, the rendered OTel config and the optional browser-use install.
     expected=$(grep -cE '^COPY .*HERMES_SEED' /repo/Dockerfile)
@@ -181,9 +181,14 @@ PY
     set -- $copied
     [ "$#" -gt 0 ]
     [ "$#" -eq "$expected" ] || { echo "parsed $# of $expected COPY lines into the seed"; return 1; }
-    for path in "$@" /plugins/ /hermes_otel.yaml /bin/ /.local/share/uv/tools/; do
+    for path in "$@" /hermes_otel.yaml /bin/ /.local/share/uv/tools/; do
+        # Synced on purpose, and laid over again after the download.
+        case $path in /skills/ | /plugins/) continue ;; esac
         grep -qxF "$path" /repo/config/.drsyncignore || { echo "not in .drsyncignore: $path"; return 1; }
     done
+    # Synced: neither may be excluded.
+    ! grep -qxE '/(skills|plugins)/' /repo/config/.drsyncignore || false
+    grep -qF 'for d in skills plugins; do' /repo/docker/entrypoint.d/20-state-sync.sh
 }
 
 @test "every workflow declares its permissions" {

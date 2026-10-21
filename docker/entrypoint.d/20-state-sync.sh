@@ -130,6 +130,14 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
         exit 1
     fi
     restore_dbs
+    # Skills and plugins are synced, so what the agent learns or adds survives
+    # a restart. But the download also put back stored copies of the ones this
+    # image ships, which may be older: lay the image's over them again.
+    for d in skills plugins; do
+        if [ -d "$HERMES_SEED/$d" ]; then
+            cp -R "$HERMES_SEED/$d/." "$HERMES_HOME/$d/"
+        fi
+    done
 
     # Background push loop -- there is no cron/supervisor in this container
     # (see the s6 note at the top), so periodic persistence is a sleep loop

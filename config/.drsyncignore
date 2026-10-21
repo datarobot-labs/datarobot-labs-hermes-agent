@@ -7,9 +7,11 @@
 /config.yaml
 /SOUL.md
 /slack-manifest.json
-/skills/
-/plugins/
 /.drsyncignore
+
+# skills/ and plugins/ are synced, so what the agent learns or adds survives a
+# restart. The ones the image ships are laid over the download again
+# (docker/entrypoint.d/20-state-sync.sh), so the current image's copy wins.
 
 # Only present in an image built with WITH_BROWSER_USE=1: a restored uv tool
 # venv from an older image must not replace the one baked into this one.

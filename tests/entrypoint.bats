@@ -157,6 +157,30 @@ assert_absent() {
     grep -q 'running final dr-sync upload' "$WORK/err"
 }
 
+@test "skills and plugins come back from the store, with the image's own laid over them" {
+    mkdir -p "$SEED/skills/shipped" "$SEED/plugins/otel" "$WORK/bin" \
+        "$WORK/stored/skills/shipped" "$WORK/stored/skills/learned" "$WORK/stored/plugins/otel"
+    echo image > "$SEED/skills/shipped/SKILL.md"
+    echo image > "$SEED/plugins/otel/plugin.yaml"
+    echo stale > "$WORK/stored/skills/shipped/SKILL.md"
+    echo stale > "$WORK/stored/plugins/otel/plugin.yaml"
+    echo agent > "$WORK/stored/skills/learned/SKILL.md"
+    # A dr-sync whose download brings back what $WORK/stored holds.
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    grep -q '^dr-sync download /tmp/hermes$' "$WORK/calls.log"
+    [ "$(cat /tmp/hermes/skills/shipped/SKILL.md)" = image ]
+    [ "$(cat /tmp/hermes/plugins/otel/plugin.yaml)" = image ]
+    [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
+}
+
 @test "a download that keeps failing is fatal and the gateway never starts" {
     run boot DR_SYNC_CATALOG_ID=catalog123 STUB_DRSYNC_FAIL=1 DR_SYNC_DOWNLOAD_ATTEMPTS=1
     [ "$status" -ne 0 ]

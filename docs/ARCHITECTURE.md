@@ -237,10 +237,9 @@ manifest that already exists, run `dr run env` after `dr start` to carry
 whether the store is in place. datarobot-sync also uses `DATAROBOT_ENDPOINT`
 and `DATAROBOT_API_TOKEN`, which the workload already has.
 
-Skills are not part of it: `.drsyncignore` leaves `skills/` out and every boot
-seeds them from the image, so a skill installed into the running agent is gone
-after a restart. Add skills with `dr run install:<skill>` and redeploy
-(README.md, "Adding skills").
+Skills and plugins are part of it, so what the agent learns or adds survives a
+restart. The ones the image ships are laid over the stored copies on every
+boot, so the current image's version always wins.
 
 To turn persistence off, set `PERSIST_STATE=no` in `.env`, delete the
 `DR_SYNC_CATALOG_ID` line, and run `dr run env` and `dr workload up`. The store
