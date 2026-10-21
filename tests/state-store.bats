@@ -172,13 +172,6 @@ no_leftovers() {
         [[ "$output" == *"declares DR_SYNC_CATALOG_ID, but not as a plain value"* ]]
         [ "$(inits)" = 0 ]
         cmp "$WORK/before" "$ENV"
-
-        # And it still counts as set when persistence is turned off.
-        printf 'PERSIST_STATE=no\n' >> "$ENV"
-        store --check
-        [ "$status" -eq 1 ]
-        [[ "$output" == *"still set in .datarobot.yaml"* ]]
-        cp "$WORK/before" "$ENV"
     done
 }
 
@@ -244,45 +237,6 @@ no_leftovers() {
     [ "$(cat "$WORK/dr-sync.token")" = "$TOKEN" ]
 }
 
-@test "PERSIST_STATE=no turns it all off" {
-    for answer in no No false 0 off; do
-        printf 'PERSIST_STATE=%s\n' "$answer" > "$ENV.persist"
-        cat "$ENV.persist" >> "$ENV"
-        cp "$ENV" "$WORK/before"
-        store
-        [ "$status" -eq 0 ]
-        [[ "$output" == *"Persistence is off"* ]]
-        cmp "$WORK/before" "$ENV"
-        sed -i '/^PERSIST_STATE=/d' "$ENV"
-    done
-    rm -f "$ENV.persist"
-    [ ! -s "$STUB_LOG" ]
-}
-
-@test "PERSIST_STATE=no with a store id still set says the workload still persists" {
-    printf 'PERSIST_STATE=no\nDR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
-    store
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"DR_SYNC_CATALOG_ID is still set in $ENV, so the workload"* ]]
-    [[ "$output" != *"starts fresh"* ]]
-    store --check
-    [ "$status" -eq 1 ]
-
-    # Gone from .env but still in the manifest: the deployed workload has it.
-    sed -i '/^DR_SYNC_CATALOG_ID=/d' "$ENV"
-    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
-                value: \"$STORE\""
-    store --check
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"still set in .datarobot.yaml"* ]]
-
-    rm "$WORK/.datarobot.yaml"
-    store --check
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Persistence is off"* ]]
-    [ ! -s "$STUB_LOG" ]
-}
-
 @test "a dr-sync that prints no store id leaves .env alone" {
     cp "$ENV" "$WORK/before"
     STUB_ID='Error: something went wrong' store
@@ -303,7 +257,7 @@ no_leftovers() {
 }
 
 @test "without DataRobot credentials in .env it stops before calling anything" {
-    printf 'PERSIST_STATE=yes\n' > "$ENV"
+    : > "$ENV"
     DATAROBOT_ENDPOINT= DATAROBOT_API_TOKEN= store
     [ "$status" -eq 1 ]
     [[ "$output" == *"no DATAROBOT_ENDPOINT or DATAROBOT_API_TOKEN"* ]]

@@ -357,7 +357,7 @@ config/skills/.hub/scan-cache/x'
     [ "$status" -eq 0 ]
 }
 
-@test "dr start sets up the state store before writing the manifest, and doctor checks it" {
+@test "dr start always sets up the state store, before writing the manifest, and doctor checks it" {
     run python3 - /repo/Taskfile.yaml /repo/.datarobot/cli/prompts.yaml <<'PY'
 import sys, yaml
 tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
@@ -367,8 +367,8 @@ assert start.index("_llm-gateway-url") < start.index("_state-store"), start
 assert "scripts/state-store.sh" in tasks["_state-store"]["cmds"], tasks["_state-store"]
 assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
 prompts = yaml.safe_load(open(sys.argv[2]))
-persist = [p for section in prompts.values() for p in section if p.get("env") == "PERSIST_STATE"]
-assert len(persist) == 1 and persist[0]["default"] == "yes", persist
+# No question that could turn it off: every workload keeps its state.
+assert not [p for section in prompts.values() for p in section if p.get("env") == "PERSIST_STATE"]
 PY
     [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
