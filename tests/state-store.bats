@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Behaviour of scripts/state-store.sh against stub curl and dr: a store
+# Behaviour of scripts/state-store.sh against a stub dr: a store
 # id already known is checked and reused, a new one is created only when there
 # is none, an id DataRobot doesn't know stops the run, and the token never
 # reaches a command line.
@@ -30,31 +30,19 @@ setup() {
     export STUB_DIR="$WORK" STUB_LOG="$WORK/calls"
     : > "$STUB_LOG"
 
-    # curl: answers a store probe with STUB_HTTP (default 200), saving the
-    # header it read on stdin; a download writes a file that is no tarball.
-    cat > "$WORK/bin/curl" <<'STUB'
-#!/bin/sh
-echo "curl $*" >> "$STUB_LOG"
-case " $* " in
-    *" -H @- "*) cat > "$STUB_DIR/curl.stdin" ;;
-esac
-case " $* " in
-    *" -o /dev/null "*) printf '%s' "${STUB_HTTP:-200}" ;;
-    *)
-        prev=
-        for a in "$@"; do [ "$prev" = -o ] && echo "not a release" > "$a"; prev=$a; done
-        ;;
-esac
-STUB
-    # dr: records its arguments and the token it was handed, if any;
-    # `dr sync init` prints STUB_ID.
+    # dr: records its arguments and the token it was handed, if any.
+    # `dr sync inspect` exits STUB_INSPECT (default 0), the way dr sync
+    # exits 3 for a store DataRobot doesn't have; `dr sync init` prints STUB_ID.
     cat > "$WORK/bin/dr" <<'STUB'
 #!/bin/sh
 echo "dr $*" >> "$STUB_LOG"
 echo "${DATAROBOT_API_TOKEN:-}" > "$STUB_DIR/dr.token"
+case "$*" in
+    "sync inspect") echo "inspect $DR_SYNC_CATALOG_ID" >> "$STUB_LOG"; exit "${STUB_INSPECT:-0}" ;;
+esac
 echo "${STUB_ID-0123456789abcdef01234567}"
 STUB
-    chmod +x "$WORK/bin/curl" "$WORK/bin/dr"
+    chmod +x "$WORK/bin/dr"
 }
 
 teardown() {
@@ -137,7 +125,7 @@ no_leftovers() {
     [[ "$output" == *"from .datarobot.yaml"* ]]
     [ "$(inits)" = 0 ]
     grep -qx "DR_SYNC_CATALOG_ID=\"$STORE\"" "$ENV"
-    grep -q "catalogItems/$STORE/" "$STUB_LOG"
+    grep -qx "inspect $STORE" "$STUB_LOG"
 }
 
 @test "a manifest entry with YAML comments is still read, so no second store is made" {
@@ -203,37 +191,25 @@ no_leftovers() {
     [ ! -s "$STUB_LOG" ]
 }
 
-@test "an id DataRobot no longer knows stops the run and is never replaced" {
-    for code in 404 410; do
-        printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
-        cp "$ENV" "$WORK/before"
-        STUB_HTTP=$code store
-        [ "$status" -eq 1 ]
-        [[ "$output" == *"DataRobot has no state store $STORE (HTTP $code)"* ]]
-        [[ "$output" == *"State store not found"* ]]
-        cmp "$WORK/before" "$ENV"
-    done
-    [ "$(inits)" = 0 ]
-}
-
-@test "an id that can't be checked, say with a bad login, changes nothing" {
+@test "an id DataRobot can't give, gone or behind a bad login, stops the run and is never replaced" {
     printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
     cp "$ENV" "$WORK/before"
-    STUB_HTTP=401 store
+    STUB_INSPECT=3 store
     [ "$status" -eq 1 ]
-    [[ "$output" == *"Could not check state store $STORE (HTTP 401); nothing was changed."* ]]
+    [[ "$output" == *"DataRobot can't give state store $STORE"* ]]
+    [[ "$output" == *"State store not found"* ]]
+    grep -qx "inspect $STORE" "$STUB_LOG"
     [ "$(inits)" = 0 ]
     cmp "$WORK/before" "$ENV"
 }
 
-@test "the token reaches curl on stdin only, and dr sync gets dr's own login, not .env's token" {
+@test "the script hands dr no token: dr sync runs with dr's own login" {
     store
     [ "$status" -eq 0 ]
     store
     [ "$status" -eq 0 ]
     ! grep -q "$TOKEN" "$STUB_LOG" || false
     [[ "$output" != *"$TOKEN"* ]]
-    grep -qx "Authorization: Bearer $TOKEN" "$WORK/curl.stdin"
     [ -z "$(cat "$WORK/dr.token")" ]
 }
 
@@ -244,14 +220,6 @@ no_leftovers() {
     [[ "$output" == *"didn't print a store id"* ]]
     cmp "$WORK/before" "$ENV"
     no_leftovers
-}
-
-@test "without DataRobot credentials in .env it stops before calling anything" {
-    : > "$ENV"
-    DATAROBOT_ENDPOINT= DATAROBOT_API_TOKEN= store
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"no DATAROBOT_ENDPOINT or DATAROBOT_API_TOKEN"* ]]
-    [ ! -s "$STUB_LOG" ]
 }
 
 @test "a manifest naming a different store than .env is pointed out, not changed" {
@@ -305,7 +273,7 @@ no_leftovers() {
     store --check
     [ "$status" -eq 0 ]
 
-    STUB_HTTP=404 store --check
+    STUB_INSPECT=3 store --check
     [ "$status" -eq 1 ]
     [ "$(inits)" = 0 ]
 }

@@ -84,47 +84,22 @@ manifest_mentions() {
         grep -v '^ *#' "$manifest" | grep -qE "(^|[^A-Za-z0-9_])$1([^A-Za-z0-9_]|\$)"
 }
 
-endpoint=$(env_value DATAROBOT_ENDPOINT)
-token=$(env_value DATAROBOT_API_TOKEN)
-endpoint=${endpoint:-${DATAROBOT_ENDPOINT:-}}
-token=${token:-${DATAROBOT_API_TOKEN:-}}
-while [ "$endpoint" != "${endpoint%/}" ]; do endpoint=${endpoint%/}; done
-if [ -z "$endpoint" ] || [ -z "$token" ]; then
-    echo "$env_file has no DATAROBOT_ENDPOINT or DATAROBOT_API_TOKEN. Run 'dr start' again." >&2
-    exit 1
-fi
-
-# The HTTP status DataRobot answers for a store id. The token goes in on
-# stdin, not argv, so it never shows up in a process listing.
-probe() {
-    printf 'Authorization: Bearer %s\n' "$token" |
-        curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -H @- \
-            "$endpoint/catalogItems/$1/" 2>/dev/null || true
-}
-
-# Exits unless DataRobot knows store $1. Its shape is checked first, without
-# printing it: a value that isn't an id may be a secret pasted into the wrong
-# line, which must reach neither the terminal nor a request URL.
+# Exits unless DataRobot knows store $1, asked through `dr sync inspect` with
+# dr's own login. Its shape is checked first, without printing it: a value
+# that isn't an id may be a secret pasted into the wrong line, which must
+# reach neither the terminal nor a request.
 verify() {
     if ! printf '%s' "$1" | grep -qE '^[0-9a-f]{24}$'; then
         echo "DR_SYNC_CATALOG_ID $2 isn't a store id: dr-sync prints 24 lowercase hex" >&2
         echo "characters. Nothing was changed." >&2
         exit 1
     fi
-    code=$(probe "$1")
-    case $code in
-        200) return 0 ;;
-        404 | 410)
-            echo "DataRobot has no state store $1 (HTTP $code), the one DR_SYNC_CATALOG_ID $2 names." >&2
-            echo "The workload would refuse to boot with it. See docs/TROUBLESHOOTING.md," >&2
-            echo "\"State store not found\", to point at the right store or start a new one." >&2
-            exit 1
-            ;;
-        *)
-            echo "Could not check state store $1 (HTTP ${code:-none}); nothing was changed." >&2
-            exit 1
-            ;;
-    esac
+    if ! DR_SYNC_CATALOG_ID=$1 dr sync inspect > /dev/null; then
+        echo "DataRobot can't give state store $1, the one DR_SYNC_CATALOG_ID $2 names" >&2
+        echo "(dr sync says why, above). A missing store keeps the workload from booting." >&2
+        echo "See docs/TROUBLESHOOTING.md, \"State store not found\". Nothing was changed." >&2
+        exit 1
+    fi
 }
 
 id=$(env_value DR_SYNC_CATALOG_ID)
