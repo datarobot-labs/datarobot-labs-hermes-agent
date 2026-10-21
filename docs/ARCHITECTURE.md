@@ -248,7 +248,7 @@ stays in DataRobot until you delete it.
 Never point two running copies at one store: a second writer's fresh state
 competes with the pod's. So `compose.yaml` leaves a local `docker compose up`
 without a store, whatever `.env` says. To give a local run one of its own,
-create a separate store (for example `dr-sync init --name hermes-local`) and
+create a separate store (for example `datarobot sync init --name hermes-local`) and
 pass its id on the command line, not in `.env`, where `dr run env` would carry
 it into the deployed workload:
 
