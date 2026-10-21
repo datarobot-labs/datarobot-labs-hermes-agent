@@ -266,9 +266,9 @@ pods is a known follow-up.
 
 ### Checking and recovering state
 
-These use the `dr sync` plugin. With the
-[dr-sync release](https://github.com/datarobot-labs/datarobot-sync/releases)
-binary instead, run `dr-sync` with the same subcommands.
+These use the `dr sync` plugin, which `dr start` installs. To install it by
+hand, see
+[datarobot-sync installation](https://github.com/datarobot-labs/datarobot-sync#install).
 
 ```sh
 # Did the pod restart? One line per boot:
