@@ -138,13 +138,22 @@ install's host before deploying. To find any others:
 grep -rn 'app\.datarobot\.com' config/config.yaml
 ```
 
-## `LLM_MODEL` ended up as a credential
+## State store not found
 
-`dr` decides which `.env` values are secrets partly by how random they look,
-and a model id like `anthropic/claude-opus-4-8` passes for a token. If
-`.datarobot.yaml` shows `LLM_MODEL` as `dr-credential:...`, it still works, but
-changing the model then means updating a credential. Replace that line's value
-with the plain model id.
+**Symptom.** `dr start` or `dr run doctor` says `DataRobot can't give state
+store <id>`, or the workload restarts in a loop and its log shows `FATAL:
+dr-sync download failed`.
+
+**Why.** `DR_SYNC_CATALOG_ID` in `.env` names a store DataRobot doesn't have:
+deleted, from another install, or mistyped. `dr start` won't replace it on its
+own, since a new store starts from nothing.
+
+**Fix.** Put the right store's id in `.env` as `DR_SYNC_CATALOG_ID`, or delete
+the line and run `dr start` to create a new store. Then `dr run env` and
+`dr workload up`. The workload logs the id it uses on every boot:
+`dr workload logs | grep dr_sync_catalog=`. That's also where to find it when
+`dr start` says `.datarobot.yaml` already gives the workload a store but `.env`
+has none.
 
 ## `dr dotenv validate` printed my token
 

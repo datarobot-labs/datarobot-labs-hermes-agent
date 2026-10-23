@@ -8,6 +8,10 @@ Guidance for AI coding agents and for people who start here. This repository bui
 - Never print or log a token, an API key, or any value from `.env`. The entrypoint logs variable names only, and the tests plant a canary private key to prove it.
 - Don't edit `config/skills/datarobot/`. `task skills:datarobot` replaces the folder with a copy of [datarobot-agent-skills](https://github.com/datarobot-oss/datarobot-agent-skills).
 
+## Add a skill
+
+Put the skill's directory, with its `SKILL.md`, under `config/skills/<category>/`. The image bakes in everything under `config/skills/`, so the next deploy ships it. There's no installer to run.
+
 ## Never deploy from this repository
 
 This is a public repository, and its deploy pipelines are examples. [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) and [`.gitlab-ci.yml`](.gitlab-ci.yml) run only when the variable `DEPLOY_TO_DATAROBOT` is `true`. Don't set that variable here, and don't add a deploy that runs without it.

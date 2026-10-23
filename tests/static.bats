@@ -71,6 +71,13 @@ upload_set() {
     [ "$status" -eq 0 ]
 }
 
+@test "no bats test negates a command without '|| false'" {
+    # Bash's set -e ignores a command run under !, so a bare "! grep ..." line
+    # passes whatever grep finds. "! grep ... || false" fails as meant.
+    run grep -nE '^[[:space:]]+! ' /repo/tests/*.bats
+    [ -z "$(grep -v '|| false$' <<< "$output")" ] || { grep -v '|| false$' <<< "$output"; false; }
+}
+
 @test "YAML and JSON files parse" {
     cd /repo
     for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .github/zizmor.yml .gitlab-ci.yml \
@@ -143,6 +150,26 @@ PY
     done
 }
 
+@test "dr start installs the dr sync plugin from the release the image pins, checked against one sha256" {
+    version=$(sed -nE 's/^ARG DR_SYNC_VERSION=(.+)$/\1/p' /repo/Dockerfile)
+    [ -n "$version" ]
+    run python3 - /repo/.datarobot/cli/versions.yaml "$version" <<'PY'
+import re, sys, yaml
+sync = yaml.safe_load(open(sys.argv[1]))["sync"]
+assert sync["command"] == "dr plugin version sync", sync
+url = f"https://github.com/datarobot-labs/datarobot-sync/releases/download/v{sys.argv[2]}/"
+install = sync["install"]
+for platform in ("macos", "linux"):
+    m = re.fullmatch(r"sh scripts/install-sync-plugin\.sh (\S+) ([0-9a-f]{64})", install[platform])
+    assert m and m.group(1).startswith(url), (platform, install[platform])
+    archive, sha = m.groups()
+# Windows checks the same archive against the same sha256.
+assert f"-Uri '{archive}'" in install["windows"] and f"-ne '{sha}'" in install["windows"], install["windows"]
+assert install["windows"].endswith("dr plugin install sync --file $f\""), install["windows"]
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+}
+
 @test "the web UI is fetched by commit" {
     grep -qE '^ARG HERMES_WEBUI_REF=[0-9a-f]{40}$' /repo/Dockerfile
 }
@@ -151,7 +178,7 @@ PY
     grep -qE '^ARG HERMES_OTEL_REF=[0-9a-f]{40}$' /repo/Dockerfile
 }
 
-@test "dr-sync never restores a file the image seed owns" {
+@test "dr-sync never restores a file the image seed owns, and the image's skills and plugins win" {
     # Every COPY into the seed, plus the seed paths that are not a COPY: the plugin
     # install, the rendered OTel config and the optional browser-use install.
     expected=$(grep -cE '^COPY .*HERMES_SEED' /repo/Dockerfile)
@@ -159,9 +186,14 @@ PY
     set -- $copied
     [ "$#" -gt 0 ]
     [ "$#" -eq "$expected" ] || { echo "parsed $# of $expected COPY lines into the seed"; return 1; }
-    for path in "$@" /plugins/ /hermes_otel.yaml /bin/ /.local/share/uv/tools/; do
+    for path in "$@" /hermes_otel.yaml /bin/ /.local/share/uv/tools/; do
+        # Synced on purpose, and laid over again after the download.
+        case $path in /skills/ | /plugins/) continue ;; esac
         grep -qxF "$path" /repo/config/.drsyncignore || { echo "not in .drsyncignore: $path"; return 1; }
     done
+    # Synced: neither may be excluded.
+    ! grep -qxE '/(skills|plugins)/' /repo/config/.drsyncignore || false
+    grep -qF 'for d in skills plugins; do' /repo/docker/entrypoint.d/20-state-sync.sh
 }
 
 @test "every workflow declares its permissions" {
@@ -221,6 +253,13 @@ PY
     [ "$status" -ne 0 ]
 }
 
+@test "a local compose run never writes to the deployed workload's state store" {
+    run python3 -c 'import sys, yaml
+svc = yaml.safe_load(open(sys.argv[1]))["services"]["hermes"]
+assert svc["environment"]["DR_SYNC_CATALOG_ID"] == "${LOCAL_DR_SYNC_CATALOG_ID:-}", svc.get("environment")' /repo/compose.yaml
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+}
+
 @test "compose publishes the gateway port on loopback only" {
     grep -qE '"127\.0\.0\.1:8642:8642"' /repo/compose.yaml
     run grep -nE '^\s+- "8642:8642"' /repo/compose.yaml
@@ -266,8 +305,8 @@ config/skills/.hub/scan-cache/x'
     run git -C "$scratch" check-ignore --no-index --stdin <<< "$paths"
     [ "$(echo "$output" | grep -c .)" = 6 ]
     # What an install should leave to commit is not ignored by either.
-    ! git check-ignore -q --no-index config/skills/.hub/lock.json
-    ! git -C "$scratch" check-ignore -q --no-index config/skills/.hub/lock.json
+    ! git check-ignore -q --no-index config/skills/.hub/lock.json || false
+    ! git -C "$scratch" check-ignore -q --no-index config/skills/.hub/lock.json || false
 }
 
 @test "the upload set stays under the 1000 file limit and holds no secret files" {
@@ -324,13 +363,33 @@ config/skills/.hub/scan-cache/x'
     [ ! -e .wapiignore ]
 }
 
-@test "the deploy and env tasks refuse a dr older than the minimum" {
-    run awk '
-        /^  [a-z_:*-]+:$/ { task = $1 }
-        /scripts\/check-dr-version.sh/ { seen[task] = 1 }
-        END { exit !(seen["deploy:"] && seen["env:"]) }
-    ' /repo/Taskfile.yaml
-    [ "$status" -eq 0 ]
+@test "the deploy and env tasks check the tools with dr dependencies, and install installs them" {
+    run python3 - /repo/Taskfile.yaml <<'PY'
+import sys, yaml
+tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
+for name in ("deploy", "env"):
+    assert tasks[name]["preconditions"][0]["sh"] == "dr dependencies check", tasks[name]["preconditions"]
+assert tasks["install"]["cmds"] == ["dr dependencies install --yes"], tasks["install"]
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
+}
+
+@test "dr start always sets up the state store, before writing the manifest, and doctor checks it" {
+    run python3 - /repo/Taskfile.yaml /repo/.datarobot/cli/prompts.yaml <<'PY'
+import sys, yaml
+tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
+start = [c.get("task") if isinstance(c, dict) else c for c in tasks["start"]["cmds"]]
+assert start.index("_state-store") < start.index("_manifest"), start
+assert "scripts/state-store.sh" in tasks["_state-store"]["cmds"], tasks["_state-store"]
+assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
+prompts = yaml.safe_load(open(sys.argv[2]))
+llm = {p["env"]: p for p in prompts["llm"]}
+assert llm["LLM_BASE_URL"]["default"] == "$DATAROBOT_ENDPOINT/genai/llmgw", llm
+assert llm["LLM_MODEL"]["type"] == "llmgw_catalog" and llm["LLM_MODEL"]["default"], llm
+# No question that could turn it off: every workload keeps its state.
+assert not [p for section in prompts.values() for p in section if p.get("env") == "PERSIST_STATE"]
+PY
+    [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
 @test "deploy and doctor check for PLACEHOLDER credentials with the shared script only" {

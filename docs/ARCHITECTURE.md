@@ -54,11 +54,12 @@ default in the Dockerfile. `LLM_BASE_URL`, unless set, is derived at boot from
 `DATAROBOT_ENDPOINT` (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so any run, a local
 `docker compose up` included, uses the gateway of the install it points at.
 
-- **`LLM_BASE_URL`** is set by `dr start` to the gateway of the install `.env`
-  points at (`<DATAROBOT_ENDPOINT>/genai/llmgw`), so a deployment on staging or
-  on-prem talks to its own gateway. A marker comment above the line in `.env`
-  tells `dr start` the value is its own, and it recomputes it whenever
-  `DATAROBOT_ENDPOINT` changes; delete the marker to set a value by hand.
+- **`LLM_BASE_URL`** is set by `dr start` to `$DATAROBOT_ENDPOINT/genai/llmgw`,
+  as written. `dr workload config` and docker compose expand it, so a
+  deployment on staging or on-prem talks to its own gateway, and it follows a
+  changed `DATAROBOT_ENDPOINT` after `dr run env`. Replace it to use another
+  gateway.
+- **`LLM_MODEL`** is picked by `dr start` from the gateway's model catalog.
 - **`LLM_API_KEY`** is optional for the DataRobot LLM gateway: when
   `LLM_BASE_URL` is on the same host as `DATAROBOT_ENDPOINT`, the entrypoint
   defaults it to `DATAROBOT_API_TOKEN`, which that gateway accepts. Any other
@@ -109,13 +110,14 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
   `value: dr-credential:<id>/apiToken`. The values are in DataRobot's credential
   store; the manifest holds only the id.
 - **Non-secrets** (`DATAROBOT_ENDPOINT`, `LLM_BASE_URL`, `SLACK_HOME_CHANNEL`,
-  `SLACK_ALLOWED_USERS`, `GATEWAY_ALLOW_ALL_USERS`, `DR_SYNC_CATALOG_ID`) are
-  literals.
+  `SLACK_ALLOWED_USERS`, `GATEWAY_ALLOW_ALL_USERS`) are literals.
 
 `dr` tells the two apart from the name and the value, and it can be wrong. A
 model id like `anthropic/claude-opus-4-8` looks random enough to be filed as a
-secret, which is why `dr start` doesn't ask for `LLM_MODEL`. After adding a
-setting, check that `.datarobot.yaml` has the form you expect.
+secret, and so does the state store's id, `DR_SYNC_CATALOG_ID`, 24 hex
+characters. The workload reads a credential the same as a literal, so that only
+changes how the manifest shows them. After adding a setting, check that `.datarobot.yaml` has the
+form you expect.
 
 Nothing needs a `.env` on disk in the container, and the entrypoint never writes
 one. Hermes reads these keys straight from the real environment
@@ -228,10 +230,11 @@ instead:
   paths.
 - **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
   excludes what's baked from the image — `config.yaml`, `SOUL.md`,
-  `slack-manifest.json`, `skills/`, `plugins/`, the optional browser-use
-  install and the file itself — so a stale download can never clobber what
-  the current image just shipped, plus pure caches and logs that aren't worth
-  persisting.
+  `slack-manifest.json`, the optional browser-use install and the file
+  itself — so a stale download can never clobber what the current image just
+  shipped, plus pure caches and logs that aren't worth persisting. `skills/`
+  and `plugins/` are synced, and the image's own are laid over them after the
+  download.
 - **Retention** is `--keep-generations 144` (about a day of 10-minute
   uploads), so a bad overwrite can be rolled back (see below).
 
@@ -243,29 +246,50 @@ sync strategy needs revisiting first.
 Without `DR_SYNC_CATALOG_ID` the entrypoint logs a notice and boots without
 persistence.
 
-### Turning persistence on
+### How `dr start` sets it up
 
-`dr start` doesn't create the state container yet: the `dr sync` plugin isn't
-in the public `dr` plugin registry. With the plugin installed, create the Files
-API container once:
+Every workload gets a store; there's nothing to turn on. `dr start` installs
+the `dr sync` plugin (`.datarobot/cli/versions.yaml`), then
+`scripts/state-store.sh` keeps the store `.env` names as `DR_SYNC_CATALOG_ID`,
+once `dr sync inspect` confirms DataRobot has it, or creates one named
+`<workload name>-state` with `dr sync init` and adds its id to `.env`. The
+manifest `dr start` writes carries it; for a manifest that already exists, run
+`dr run env`, then `dr workload up`. `dr run doctor` checks the store too.
+
+Skills and plugins are part of it, so what the agent learns or adds survives a
+restart. On every boot, after the download, the ones this repo's image ships
+(`config/skills/`, the plugins in the seed) are laid over the stored copies, so
+the current image's version wins, and the ones an earlier image shipped but
+this one doesn't are removed: the store keeps a list of every file an image
+shipped to it (`.dr-sync-shipped`). An upload never deletes from the store, so
+a dropped skill's file stays there, and every boot removes it again. Hermes' own bundled skills follow its
+`skills_sync.py`: an unmodified one is updated to the new image's version, one
+the agent changed is kept, and one Hermes dropped stays.
+
+Never point two running copies at one store: a second writer's fresh state
+competes with the pod's. So `compose.yaml` leaves a local `docker compose up`
+without a store, whatever `.env` says. To give a local run one of its own,
+create a separate store (for example `datarobot sync init --name hermes-local`) and
+pass its id on the command line, not in `.env`, where `dr run env` would carry
+it into the deployed workload:
 
 ```sh
-dr sync init --name "hermes-workload-state"
-# create  container <id>
-# ...
-# export DR_SYNC_CATALOG_ID=<id>
+LOCAL_DR_SYNC_CATALOG_ID=<id> docker compose up
 ```
 
-Then add `DR_SYNC_CATALOG_ID=<id>` to `.env`, and run `dr run env` and
-`dr workload up`. datarobot-sync also uses `DATAROBOT_ENDPOINT` and
-`DATAROBOT_API_TOKEN`, which the workload already has.
-
-Never point a local `.env` at the production container: a local
-`docker compose up` becomes a second writer and its fresh state competes with
-the pod's. Create a throwaway container for local runs with `dr sync init
---name hermes-local`.
+A rolling redeploy is the one time the workload itself has two writers: the
+new pod boots and downloads the store while the old one still runs, and the old
+one uploads once more on shutdown. dr-sync guards each upload with a lease and
+a head check, so the store doesn't get corrupted, but it doesn't merge: what
+one pod wrote during the overlap, usually the old pod's last minutes, can be
+missing afterwards. Redeploy while the bot is idle. A handoff between the two
+pods is a known follow-up.
 
 ### Checking and recovering state
+
+These use the `dr sync` plugin, which `dr start` installs. To install it by
+hand, see
+[datarobot-sync installation](https://github.com/datarobot-labs/datarobot-sync#install).
 
 ```sh
 # Did the pod restart? One line per boot:

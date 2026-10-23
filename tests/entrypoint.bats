@@ -157,6 +157,84 @@ assert_absent() {
     grep -q 'running final dr-sync upload' "$WORK/err"
 }
 
+@test "skills and plugins come back from the store, with the image's own laid over them" {
+    mkdir -p "$SEED/skills/shipped" "$SEED/plugins/otel" "$WORK/bin" \
+        "$WORK/stored/skills/shipped" "$WORK/stored/skills/learned" "$WORK/stored/plugins/otel"
+    echo image > "$SEED/skills/shipped/SKILL.md"
+    echo image > "$SEED/plugins/otel/plugin.yaml"
+    echo stale > "$WORK/stored/skills/shipped/SKILL.md"
+    echo stale > "$WORK/stored/plugins/otel/plugin.yaml"
+    echo agent > "$WORK/stored/skills/learned/SKILL.md"
+    # A dr-sync whose download brings back what $WORK/stored holds.
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    grep -q '^dr-sync download /tmp/hermes$' "$WORK/calls.log"
+    [ "$(cat /tmp/hermes/skills/shipped/SKILL.md)" = image ]
+    [ "$(cat /tmp/hermes/plugins/otel/plugin.yaml)" = image ]
+    [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
+    # What this image shipped, for the next boot to compare with.
+    grep -qx 'skills/shipped/SKILL.md' /tmp/hermes/.dr-sync-shipped
+    grep -qx 'plugins/otel/plugin.yaml' /tmp/hermes/.dr-sync-shipped
+}
+
+@test "after an image bump, a skill the new image no longer ships is removed, and nothing outside skills/ is" {
+    mkdir -p "$SEED/skills/kept" "$WORK/bin" "$WORK/stored/skills/kept" "$WORK/stored/skills/dropped/sub" \
+        "$WORK/stored/skills/learned" "$WORK/stored/sessions"
+    echo new > "$SEED/skills/kept/SKILL.md"
+    echo old > "$WORK/stored/skills/kept/SKILL.md"
+    echo old > "$WORK/stored/skills/dropped/SKILL.md"
+    echo old > "$WORK/stored/skills/dropped/sub/notes.md"
+    echo agent > "$WORK/stored/skills/learned/SKILL.md"
+    echo chat > "$WORK/stored/sessions/chat.json"
+    # The list the earlier image wrote, plus entries that must never be acted on.
+    printf '%s\n' skills/dropped/SKILL.md skills/dropped/sub/notes.md skills/kept/SKILL.md \
+        sessions/chat.json skills/../sessions/chat.json > "$WORK/stored/.dr-sync-shipped"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/hermes/skills/dropped ]
+    [ "$(cat /tmp/hermes/skills/kept/SKILL.md)" = new ]
+    [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
+    [ "$(cat /tmp/hermes/sessions/chat.json)" = chat ]
+    # The dropped skill stays listed: the store keeps its file, and the next
+    # download brings it back.
+    grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
+    grep -qx 'skills/kept/SKILL.md' /tmp/hermes/.dr-sync-shipped
+    ! grep -qx 'skills/learned/SKILL.md' /tmp/hermes/.dr-sync-shipped || false
+}
+
+@test "a skill dropped two images ago, still in the store, is removed again" {
+    mkdir -p "$SEED/skills/kept" "$WORK/bin" "$WORK/stored/skills/dropped"
+    echo new > "$SEED/skills/kept/SKILL.md"
+    echo old > "$WORK/stored/skills/dropped/SKILL.md"
+    # The previous image already didn't ship it; the list still has it.
+    printf '%s\n' skills/dropped/SKILL.md skills/kept/SKILL.md > "$WORK/stored/.dr-sync-shipped"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/hermes/skills/dropped ]
+    grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
+}
+
 @test "a download that keeps failing is fatal and the gateway never starts" {
     run boot DR_SYNC_CATALOG_ID=catalog123 STUB_DRSYNC_FAIL=1 DR_SYNC_DOWNLOAD_ATTEMPTS=1
     [ "$status" -ne 0 ]

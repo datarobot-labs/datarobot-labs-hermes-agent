@@ -1,12 +1,14 @@
 # Tools `dr start` checks for (and offers to install) before it runs the
-# Taskfile's `start` task. `dr deps check` runs the same checks on their own.
+# Taskfile's `start` task. `dr dependencies check` runs the same checks on
+# their own, and `dr run deploy` and `dr run env` run it first; `dr run install`
+# installs what's missing.
 #
 # This file is also what marks the repo as a `dr` project: without a
 # non-empty .datarobot/cli/, `dr run`, `dr start` and `dr dotenv` all refuse
 # to run here. It replaces dr's built-in defaults (Python, uv, Pulumi), none
 # of which deploying Hermes needs. Docker is left out on purpose: the image
-# builds server-side, so only local runs and `dr run install:*` need it, and
-# those tasks check for it themselves.
+# builds server-side, so only local runs need it, and those tasks check for it
+# themselves.
 dr:
   name: DataRobot CLI
   # The release the deploy docs and tasks are written for. It has
@@ -20,9 +22,25 @@ dr:
   install:
     macos: brew install datarobot-oss/taps/dr-cli
     linux: curl -fsSL https://cli.datarobot.com/install | sh
+# dr-sync as a dr plugin, so `dr sync` runs with the login dr already has:
+# dr start uses it to create the workload's state store. The release is the
+# one the image pins (the Dockerfile's DR_SYNC_VERSION); bump them together.
+# The plugin isn't in dr's registry, so it comes from that release. `dr plugin
+# install --url` checks nothing, so the archive's sha256 is pinned here and
+# checked before it's installed. Its manifest still says 0.1.0 whatever the
+# release, so the minimum can't tell releases apart.
+sync:
+  name: datarobot-sync dr plugin
+  minimum-version: 0.1.0
+  command: dr plugin version sync
+  url: https://github.com/datarobot-labs/datarobot-sync#install
+  install:
+    macos: sh scripts/install-sync-plugin.sh https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz cca5464ffe7543ece1485bffbb2fa181281fd9aa443bb37fad879b56475d75f5
+    linux: sh scripts/install-sync-plugin.sh https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz cca5464ffe7543ece1485bffbb2fa181281fd9aa443bb37fad879b56475d75f5
+    windows: powershell -NoProfile -Command "$f = Join-Path $env:TEMP 'sync-0.1.0.tar.xz'; Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/datarobot-labs/datarobot-sync/releases/download/v0.2.2/sync-0.1.0.tar.xz' -OutFile $f; if ((Get-FileHash $f -Algorithm SHA256).Hash -ne 'cca5464ffe7543ece1485bffbb2fa181281fd9aa443bb37fad879b56475d75f5') { throw 'The dr sync plugin does not match its sha256 in .datarobot/cli/versions.yaml' }; dr plugin install sync --file $f"
 task:
   name: Task
-  # Wildcard task names (`install:*`) and `aliases`.
+  # Task `aliases`.
   minimum-version: 3.40.0
   command: task --version
   url: https://taskfile.dev/installation/

@@ -153,20 +153,11 @@ Slack needs no inbound URL: the bot connects out over Socket Mode.
 
 ## Adding skills
 
-Skills are baked into the image from `config/skills/`. Install one, commit it,
-and deploy:
-
-```sh
-dr run install:official/communication/one-three-one-rule   # one of Hermes' optional skills
-dr run install:<owner>/<repo>/<path>                       # a skill on GitHub
-dr workload up
-```
-
-`install` runs `hermes skills install` in the pinned Hermes image, so it needs
-Docker. From a terminal it shows Hermes' preview and asks you to confirm;
-without one (CI, a script) it confirms for you, since running it is the
-request. Commit the new skill and `config/skills/.hub/lock.json`. To see
-what's available, run `task hermes -- skills browse`. The
+Skills are baked into the image from `config/skills/`. To add one, put its
+directory, with its `SKILL.md`, under `config/skills/<category>/`, commit it and
+run `dr workload up`. Skills the agent writes or installs while it runs are kept
+in its state store, so they survive a restart too. To see what Hermes offers,
+run `task hermes -- skills browse`. The
 DataRobot skills in `config/skills/datarobot/` come from
 [datarobot-agent-skills](https://github.com/datarobot-oss/datarobot-agent-skills);
 `dr run skills:datarobot` refreshes them.
@@ -198,9 +189,9 @@ Settings you might change:
 
 | Variable | What it does |
 | --- | --- |
-| `LLM_MODEL` | The model, by its LLM gateway id. Defaults to `anthropic/claude-opus-4-8`. After `dr run env`, check `.datarobot.yaml` holds it as a plain value ([why](docs/TROUBLESHOOTING.md#llm_model-ended-up-as-a-credential)). |
-| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_API_MODE` | A different `chat_completions` gateway, which needs its own `LLM_API_KEY`: the DataRobot token is only ever sent to your install's own gateway. `dr start` keeps `LLM_BASE_URL` on the gateway of your `DATAROBOT_ENDPOINT`; to set your own, delete the marker line above it in `.env`. See [The LLM gateway](docs/ARCHITECTURE.md#the-llm-gateway). |
-| `DR_SYNC_CATALOG_ID` | Keeps sessions and memory across restarts. See [Turning persistence on](docs/ARCHITECTURE.md#turning-persistence-on). |
+| `LLM_MODEL` | The model, by its LLM gateway id. `dr start` asks, from the gateway's catalog; `anthropic/claude-opus-4-8` is the default. |
+| `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_PROVIDER`, `LLM_API_MODE` | A different `chat_completions` gateway, which needs its own `LLM_API_KEY`: the DataRobot token is only ever sent to your install's own gateway. `dr start` sets `LLM_BASE_URL` to `$DATAROBOT_ENDPOINT/genai/llmgw`, which follows your `DATAROBOT_ENDPOINT`; replace it to use another gateway. See [The LLM gateway](docs/ARCHITECTURE.md#the-llm-gateway). |
+| `DR_SYNC_CATALOG_ID` | The workload's state store, which keeps its sessions and memory across restarts. `dr start` creates it and sets the id. See [How `dr start` sets it up](docs/ARCHITECTURE.md#how-dr-start-sets-it-up). |
 | `DATAROBOT_ENTITY_ID` | Where traces go. See [The telemetry target](docs/ARCHITECTURE.md#the-telemetry-target). |
 | `GH_TOKEN`, `GITLAB_TOKEN`, `GITHUB_APP_ID`, … | Let the agent work on GitHub or GitLab. See [Acting on GitHub as itself](docs/ARCHITECTURE.md#acting-on-github-as-itself-github-app-identity). |
 

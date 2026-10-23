@@ -130,6 +130,42 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
         exit 1
     fi
     restore_dbs
+    # Skills and plugins are synced, so what the agent learns or adds survives
+    # a restart. The download also brought back what earlier images shipped:
+    # older copies of this image's skills and plugins, and ones this image
+    # dropped. .dr-sync-shipped, uploaded with the rest, lists every file any
+    # image shipped to this store: those this one doesn't go, then this image's
+    # are laid over the rest. Every one, not just the last image's: an upload
+    # keeps a file the store has after it's deleted here, so a dropped skill
+    # comes back with every download and has to go every time. Hermes' bundled
+    # skills are skills_sync.py's (50-skills.sh).
+    shipped="$HERMES_HOME/.dr-sync-shipped"
+    (cd "$HERMES_SEED" && find skills plugins -type f 2>/dev/null) | sort > /tmp/dr-sync-shipped
+    if [ -f "$shipped" ]; then
+        grep -vxF -f /tmp/dr-sync-shipped "$shipped" | while IFS= read -r f; do
+            # Only a path under skills/ or plugins/: the list came from the store.
+            case $f in skills/?* | plugins/?*) ;; *) continue ;; esac
+            case $f in *..*) continue ;; esac
+            rm -f "$HERMES_HOME/$f"
+            # Its directories too, once empty, up to skills/ or plugins/.
+            dir=${f%/*}
+            while [ "$dir" != skills ] && [ "$dir" != plugins ] &&
+                rmdir "$HERMES_HOME/$dir" 2>/dev/null; do
+                dir=${dir%/*}
+            done
+        done
+    fi
+    for d in skills plugins; do
+        if [ -d "$HERMES_SEED/$d" ]; then
+            cp -R "$HERMES_SEED/$d/." "$HERMES_HOME/$d/"
+        fi
+    done
+    if [ -f "$shipped" ]; then
+        sort -u "$shipped" /tmp/dr-sync-shipped > /tmp/dr-sync-shipped.all
+        mv /tmp/dr-sync-shipped.all "$shipped"
+    else
+        cp /tmp/dr-sync-shipped "$shipped"
+    fi
 
     # Background push loop -- there is no cron/supervisor in this container
     # (see the s6 note at the top), so periodic persistence is a sleep loop

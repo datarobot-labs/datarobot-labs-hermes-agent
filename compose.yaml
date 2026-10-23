@@ -35,6 +35,12 @@ services:
     # The secrets DataRobot injects from its credential store. Locally they
     # come from ./.env, which is gitignored and never enters the image.
     env_file: .env
+    environment:
+      # .env holds the deployed workload's state store (DR_SYNC_CATALOG_ID,
+      # set by dr start). A local run must not write to it too: two writers
+      # to one store is unsupported. It gets none, or a store of its own
+      # named by LOCAL_DR_SYNC_CATALOG_ID. See docs/ARCHITECTURE.md.
+      DR_SYNC_CATALOG_ID: ${LOCAL_DR_SYNC_CATALOG_ID:-}
     ports:
       - "127.0.0.1:8642:8642"
     healthcheck:
