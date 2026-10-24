@@ -137,7 +137,13 @@ merge_state() {
         if [ ! -e "$HERMES_HOME/$p" ] && [ ! -L "$HERMES_HOME/$p" ]; then
             continue
         fi
-        if is_dir "$stage/$p" && ! is_dir "$HERMES_HOME/$p"; then
+        # A symlink never replaces the image's path: over a file, the overlay
+        # below would write through it to wherever it points, and a dangling
+        # one over a directory would fail the merge.
+        if [ -L "$stage/$p" ]; then
+            echo "[entrypoint] Warning: the store has a symlink at $p, where the image has a file or directory; keeping the image's" >&2
+            rm -f "$stage/$p"
+        elif is_dir "$stage/$p" && ! is_dir "$HERMES_HOME/$p"; then
             echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
             rm -rf "${stage:?}/$p"
         elif [ -e "$stage/$p" ] && ! is_dir "$stage/$p" && is_dir "$HERMES_HOME/$p"; then

@@ -268,6 +268,31 @@ STUB
     [ ! -e /tmp/dr-sync-stage ]
 }
 
+@test "a stored symlink at the image's path stays out: no write through it, no failed merge" {
+    mkdir -p "$SEED/skills/.hub" "$SEED/skills/a-dir" "$WORK/bin" "$WORK/stored/skills/.hub"
+    echo image-lock > "$SEED/skills/.hub/lock.json"
+    echo image > "$SEED/skills/a-dir/SKILL.md"
+    # Over a file, pointing at the agent's config; over a directory, dangling.
+    ln -s /tmp/hermes/config.yaml "$WORK/stored/skills/.hub/lock.json"
+    ln -s /nonexistent "$WORK/stored/skills/a-dir"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/" || exit 1; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123 DR_SYNC_DOWNLOAD_ATTEMPTS=1
+    [ "$status" -eq 0 ]
+    [ ! -L /tmp/hermes/skills/.hub/lock.json ]
+    [ "$(cat /tmp/hermes/skills/.hub/lock.json)" = image-lock ]
+    cmp /repo/config/config.yaml /tmp/hermes/config.yaml
+    [ ! -L /tmp/hermes/skills/a-dir ]
+    [ "$(cat /tmp/hermes/skills/a-dir/SKILL.md)" = image ]
+    grep -q 'the store has a symlink at skills/.hub/lock.json' "$WORK/err"
+    grep -q 'the store has a symlink at skills/a-dir' "$WORK/err"
+}
+
 @test "the hub's lock is merged with the venv's Python after the overlay, from a copy of the stored one" {
     run grep -n 'hub-lock.py\|cp -R "\$HERMES_SEED/\$d/\." ' /repo/docker/entrypoint.d/20-state-sync.sh
     [ "$status" -eq 0 ]
