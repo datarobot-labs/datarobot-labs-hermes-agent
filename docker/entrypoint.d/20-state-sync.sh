@@ -214,13 +214,18 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
             done
         done
     fi
-    # The overlay replaces the hub's lock with the image's: keep the stored one
-    # aside, to merge back the records of skills the agent installed.
+    # The overlay replaces the hub's lock with the image's: move the stored one
+    # aside, to merge back the records of skills the agent installed. A rename,
+    # so it neither reads the file nor needs room for a copy, and a failure
+    # only costs those records.
     lock=skills/.hub/lock.json
     stored_lock=
     if [ -f "$HERMES_HOME/$lock" ] && [ -f "$HERMES_SEED/$lock" ]; then
-        stored_lock=/tmp/dr-sync-hub-lock.json
-        cp "$HERMES_HOME/$lock" "$stored_lock"
+        if mv -f "$HERMES_HOME/$lock" /tmp/dr-sync-hub-lock.json; then
+            stored_lock=/tmp/dr-sync-hub-lock.json
+        else
+            echo "[entrypoint] Warning: could not set the hub's stored lock aside; skills installed at runtime keep their files, not their hub records" >&2
+        fi
     fi
     for d in skills plugins; do
         if [ -d "$HERMES_SEED/$d" ]; then

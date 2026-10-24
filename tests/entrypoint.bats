@@ -337,6 +337,26 @@ STUB
     [ ! -e /tmp/dr-sync-hub-lock.json ]
 }
 
+@test "a stored hub lock nobody can read doesn't stop the boot" {
+    mkdir -p "$SEED/skills/.hub" "$WORK/bin" "$WORK/stored/skills/.hub"
+    echo image-lock > "$SEED/skills/.hub/lock.json"
+    echo stored-lock > "$WORK/stored/skills/.hub/lock.json"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then
+    cp -R "$WORK/stored/." "\$2/" || exit 1
+    chmod 000 "\$2/skills/.hub/lock.json"
+fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ "$(cat /tmp/hermes/skills/.hub/lock.json)" = image-lock ]
+    [ ! -e /tmp/dr-sync-hub-lock.json ]
+}
+
 @test "the download reads the image's .drsyncignore, as it did in HERMES_HOME" {
     mkdir -p "$WORK/bin"
     cat > "$WORK/bin/dr-sync" <<STUB
