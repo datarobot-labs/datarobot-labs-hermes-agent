@@ -130,30 +130,40 @@ is_dir() {
 }
 
 # Moves the download into $HERMES_HOME, which holds the image's seed. A stored
-# path of another type than the one there stays out: the image wins.
+# path of another type than the one there stays out: the image wins. Moved,
+# not copied: /tmp is the only writable filesystem, and a copy would hold the
+# whole state twice for a moment.
 merge_state() {
-    (cd "$stage" && find . -mindepth 1) | while IFS= read -r p; do
+    (cd "$stage" && find . -mindepth 1) > /tmp/dr-sync-stage.list || return 1
+    # Parents come before their entries, so a directory moved whole takes its
+    # entries with it, and a directory both sides have is merged entry by entry.
+    while IFS= read -r p; do
         p=${p#./}
-        if [ ! -e "$HERMES_HOME/$p" ] && [ ! -L "$HERMES_HOME/$p" ]; then
-            continue
+        if [ ! -e "$stage/$p" ] && [ ! -L "$stage/$p" ]; then
+            continue # moved, or dropped, with its directory
         fi
+        if [ ! -e "$HERMES_HOME/$p" ] && [ ! -L "$HERMES_HOME/$p" ]; then
+            mv "$stage/$p" "$HERMES_HOME/$p" || return 1
         # A symlink never replaces the image's path: over a file, the overlay
         # below would write through it to wherever it points, and a dangling
         # one over a directory would fail the merge.
-        if [ -L "$stage/$p" ]; then
+        elif [ -L "$stage/$p" ]; then
             echo "[entrypoint] Warning: the store has a symlink at $p, where the image has a file or directory; keeping the image's" >&2
             rm -f "$stage/$p"
-        elif is_dir "$stage/$p" && ! is_dir "$HERMES_HOME/$p"; then
-            echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
-            rm -rf "${stage:?}/$p"
-        elif [ -e "$stage/$p" ] && ! is_dir "$stage/$p" && is_dir "$HERMES_HOME/$p"; then
+        elif is_dir "$stage/$p"; then
+            if ! is_dir "$HERMES_HOME/$p"; then
+                echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
+                rm -rf "${stage:?}/$p"
+            fi
+        elif is_dir "$HERMES_HOME/$p"; then
             echo "[entrypoint] Warning: the store has a file at $p, where the image has a directory; keeping the image's" >&2
             rm -f "$stage/$p"
+        else
+            # A rename: it replaces the path itself, never writing through it.
+            mv -f "$stage/$p" "$HERMES_HOME/$p" || return 1
         fi
-    done
-    # Explicit: set -e does not apply inside a function called from an if.
-    cp -Rp "$stage/." "$HERMES_HOME/" || return 1
-    rm -rf "$stage"
+    done < /tmp/dr-sync-stage.list
+    rm -rf "$stage" /tmp/dr-sync-stage.list
 }
 
 # HERMES_HOME is per-boot (see top of file); DR_SYNC_CATALOG_ID points dr-sync

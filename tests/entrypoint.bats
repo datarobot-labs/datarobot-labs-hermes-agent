@@ -293,6 +293,28 @@ STUB
     grep -q 'the store has a symlink at skills/a-dir' "$WORK/err"
 }
 
+@test "the download is moved into HERMES_HOME, not copied, so the state is never in /tmp twice" {
+    mkdir -p "$WORK/bin" "$WORK/stored/sessions" "$WORK/stored/skills/learned"
+    echo chat > "$WORK/stored/sessions/chat.json"
+    echo agent > "$WORK/stored/skills/learned/SKILL.md"
+    # Records the inode each file has in the stage.
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then
+    cp -R "$WORK/stored/." "\$2/" || exit 1
+    stat -c %i "\$2/sessions/chat.json" "\$2/skills/learned/SKILL.md" > "$WORK/inodes"
+fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ "$(stat -c %i /tmp/hermes/sessions/chat.json /tmp/hermes/skills/learned/SKILL.md)" = "$(cat "$WORK/inodes")" ]
+    [ ! -e /tmp/dr-sync-stage ]
+    [ ! -e /tmp/dr-sync-stage.list ]
+}
+
 @test "the hub's lock is merged with the venv's Python after the overlay, from a copy of the stored one" {
     run grep -n 'hub-lock.py\|cp -R "\$HERMES_SEED/\$d/\." ' /repo/docker/entrypoint.d/20-state-sync.sh
     [ "$status" -eq 0 ]
