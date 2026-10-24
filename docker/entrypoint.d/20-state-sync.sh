@@ -95,11 +95,23 @@ sync_up() {
     ) 9>/tmp/.dr-sync.lock
 }
 
+# The download goes into an empty directory, then into $HERMES_HOME. The
+# seed is already there, and dr-sync fails a download that would write a
+# stored path over one of another type (a file where the image ships a
+# directory, or the reverse): every boot would stop. An empty directory has
+# nothing to conflict with.
+stage=/tmp/dr-sync-stage
 download_state() {
+    rm -rf "$stage"
+    mkdir -p "$stage"
+    # dr-sync reads the ignore file from the directory it downloads into.
+    if [ -f "$HERMES_HOME/.drsyncignore" ]; then
+        cp "$HERMES_HOME/.drsyncignore" "$stage/"
+    fi
     attempt=1
     delay=5
     while true; do
-        if dr-sync download "$HERMES_HOME"; then
+        if dr-sync download "$stage"; then
             return 0
         fi
         if [ "$attempt" -ge "$DR_SYNC_DOWNLOAD_ATTEMPTS" ]; then
@@ -110,6 +122,32 @@ download_state() {
         delay=$((delay * 2))
         attempt=$((attempt + 1))
     done
+}
+
+# A directory, and not a symlink to one.
+is_dir() {
+    [ -d "$1" ] && [ ! -L "$1" ]
+}
+
+# Moves the download into $HERMES_HOME, which holds the image's seed. A stored
+# path of another type than the one there stays out: the image wins.
+merge_state() {
+    (cd "$stage" && find . -mindepth 1) | while IFS= read -r p; do
+        p=${p#./}
+        if [ ! -e "$HERMES_HOME/$p" ] && [ ! -L "$HERMES_HOME/$p" ]; then
+            continue
+        fi
+        if is_dir "$stage/$p" && ! is_dir "$HERMES_HOME/$p"; then
+            echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
+            rm -rf "${stage:?}/$p"
+        elif [ -e "$stage/$p" ] && ! is_dir "$stage/$p" && is_dir "$HERMES_HOME/$p"; then
+            echo "[entrypoint] Warning: the store has a file at $p, where the image has a directory; keeping the image's" >&2
+            rm -f "$stage/$p"
+        fi
+    done
+    # Explicit: set -e does not apply inside a function called from an if.
+    cp -Rp "$stage/." "$HERMES_HOME/" || return 1
+    rm -rf "$stage"
 }
 
 # HERMES_HOME is per-boot (see top of file); DR_SYNC_CATALOG_ID points dr-sync
@@ -127,6 +165,11 @@ sync_loop_pid=""
 if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
     if ! download_state; then
         echo "[entrypoint] FATAL: dr-sync download failed after $DR_SYNC_DOWNLOAD_ATTEMPTS attempts; refusing to start with empty state" >&2
+        exit 1
+    fi
+    # Half a merge is no better than none: an upload would then shrink the store.
+    if ! merge_state; then
+        echo "[entrypoint] FATAL: could not move the downloaded state into $HERMES_HOME; refusing to start with part of it" >&2
         exit 1
     fi
     restore_dbs

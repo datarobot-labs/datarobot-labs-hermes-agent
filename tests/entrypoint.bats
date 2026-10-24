@@ -146,7 +146,7 @@ assert_absent() {
 @test "downloads state before the gateway and uploads it once after the gateway exits" {
     run boot DR_SYNC_CATALOG_ID=catalog123
     [ "$status" -eq 0 ]
-    [ "$(grep -c '^dr-sync download /tmp/hermes$' "$WORK/calls.log")" = 1 ]
+    [ "$(grep -c '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log")" = 1 ]
     [ "$(grep -c '^dr-sync upload /tmp/hermes ' "$WORK/calls.log")" = 1 ]
     grep -q -- '^dr-sync upload .*--exclude \*\.db --exclude \*\.db-wal --exclude \*\.db-shm' "$WORK/calls.log"
     download_line=$(grep -n '^dr-sync download' "$WORK/calls.log" | cut -d: -f1)
@@ -175,7 +175,7 @@ STUB
     chmod +x "$WORK/bin/dr-sync"
     run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
     [ "$status" -eq 0 ]
-    grep -q '^dr-sync download /tmp/hermes$' "$WORK/calls.log"
+    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
     [ "$(cat /tmp/hermes/skills/shipped/SKILL.md)" = image ]
     [ "$(cat /tmp/hermes/plugins/otel/plugin.yaml)" = image ]
     [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
@@ -233,6 +233,52 @@ STUB
     [ "$status" -eq 0 ]
     [ ! -e /tmp/hermes/skills/dropped ]
     grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
+}
+
+@test "a stored path of another type than the image's stays out, and the boot goes on" {
+    mkdir -p "$SEED/skills/now-a-dir" "$SEED/skills/linked" "$WORK/bin" "$WORK/stored/skills/now-a-file" \
+        "$WORK/stored/skills/learned" "$WORK/stored/sessions" "$WORK/elsewhere"
+    echo image > "$SEED/skills/now-a-dir/SKILL.md"
+    echo image > "$SEED/skills/now-a-file"
+    echo image > "$SEED/skills/linked/SKILL.md"
+    echo stored > "$WORK/stored/skills/now-a-dir"
+    echo stored > "$WORK/stored/skills/now-a-file/SKILL.md"
+    ln -s "$WORK/elsewhere" "$WORK/stored/skills/linked"
+    echo agent > "$WORK/stored/skills/learned/SKILL.md"
+    echo chat > "$WORK/stored/sessions/chat.json"
+    # Like the real dr-sync, this download fails when it would write a path
+    # over one of another type.
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/" || exit 1; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123 DR_SYNC_DOWNLOAD_ATTEMPTS=1
+    [ "$status" -eq 0 ]
+    [ "$(cat /tmp/hermes/skills/now-a-dir/SKILL.md)" = image ]
+    [ "$(cat /tmp/hermes/skills/now-a-file)" = image ]
+    [ ! -L /tmp/hermes/skills/linked ]
+    [ "$(cat /tmp/hermes/skills/linked/SKILL.md)" = image ]
+    [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
+    [ "$(cat /tmp/hermes/sessions/chat.json)" = chat ]
+    grep -q 'the store has a file at skills/now-a-dir, where the image has a directory' "$WORK/err"
+    grep -q 'the store has a directory at skills/now-a-file, where the image has a file' "$WORK/err"
+    [ ! -e /tmp/dr-sync-stage ]
+}
+
+@test "the download reads the image's .drsyncignore, as it did in HERMES_HOME" {
+    mkdir -p "$WORK/bin"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cmp "\$2/.drsyncignore" "$SEED/.drsyncignore" || exit 1; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123 DR_SYNC_DOWNLOAD_ATTEMPTS=1
+    [ "$status" -eq 0 ]
 }
 
 @test "a download that keeps failing is fatal and the gateway never starts" {
