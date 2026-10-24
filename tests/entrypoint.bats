@@ -268,6 +268,28 @@ STUB
     [ ! -e /tmp/dr-sync-stage ]
 }
 
+@test "the hub's lock is merged with the venv's Python after the overlay, from a copy of the stored one" {
+    run grep -n 'hub-lock.py\|cp -R "\$HERMES_SEED/\$d/\." ' /repo/docker/entrypoint.d/20-state-sync.sh
+    [ "$status" -eq 0 ]
+    overlay=$(echo "$output" | grep -m1 'cp -R' | cut -d: -f1)
+    merge=$(echo "$output" | grep -m1 'hub-lock.py' | cut -d: -f1)
+    [ "$overlay" -lt "$merge" ]
+    grep -q '/opt/hermes/.venv/bin/python3 "\$ENTRYPOINT_DIR/hub-lock.py"' /repo/docker/entrypoint.d/20-state-sync.sh
+    mkdir -p "$SEED/skills/.hub" "$WORK/bin" "$WORK/stored/skills/.hub"
+    echo '{"version": 1, "installed": {}}' > "$SEED/skills/.hub/lock.json"
+    echo '{"version": 1, "installed": {"x": {}}}' > "$WORK/stored/skills/.hub/lock.json"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/stored/." "\$2/" || exit 1; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/dr-sync-hub-lock.json ]
+}
+
 @test "the download reads the image's .drsyncignore, as it did in HERMES_HOME" {
     mkdir -p "$WORK/bin"
     cat > "$WORK/bin/dr-sync" <<STUB

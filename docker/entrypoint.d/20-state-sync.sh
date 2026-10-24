@@ -198,11 +198,25 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
             done
         done
     fi
+    # The overlay replaces the hub's lock with the image's: keep the stored one
+    # aside, to merge back the records of skills the agent installed.
+    lock=skills/.hub/lock.json
+    stored_lock=
+    if [ -f "$HERMES_HOME/$lock" ] && [ -f "$HERMES_SEED/$lock" ]; then
+        stored_lock=/tmp/dr-sync-hub-lock.json
+        cp "$HERMES_HOME/$lock" "$stored_lock"
+    fi
     for d in skills plugins; do
         if [ -d "$HERMES_SEED/$d" ]; then
             cp -R "$HERMES_SEED/$d/." "$HERMES_HOME/$d/"
         fi
     done
+    if [ -n "$stored_lock" ]; then
+        /opt/hermes/.venv/bin/python3 "$ENTRYPOINT_DIR/hub-lock.py" \
+            "$stored_lock" "$HERMES_HOME/$lock" "$HERMES_HOME/skills" ||
+            echo "[entrypoint] Warning: could not merge the hub's lock; skills installed at runtime keep their files, not their hub records" >&2
+        rm -f "$stored_lock"
+    fi
     if [ -f "$shipped" ]; then
         sort -u "$shipped" /tmp/dr-sync-shipped > /tmp/dr-sync-shipped.all
         mv /tmp/dr-sync-shipped.all "$shipped"
