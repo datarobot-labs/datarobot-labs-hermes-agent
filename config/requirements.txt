@@ -41,7 +41,7 @@ datarobot-predict==1.13.5
 pandas==3.0.6
 
 # productivity/pdf
-pypdf==6.19.0
+pypdf==6.21.2
 reportlab==5.0.1
 pdfplumber==0.11.10
 # 5.14.0 (uploaded 2026-10-04 15:18 UTC) is still inside the 14-day hold and
