@@ -30,6 +30,11 @@ class H(http.server.BaseHTTPRequestHandler):
         open(os.path.join(work, "auth"), "w").write(self.headers.get("Authorization", ""))
         mode = open(os.path.join(work, "mode")).read().strip()
         base = f"http://127.0.0.1:{port}"
+        if mode == "redirect":
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.2:%d/elsewhere" % port)
+            self.end_headers()
+            return
         if mode == "bad":
             body = {"oops": True}
         elif mode == "foreign":
@@ -91,6 +96,14 @@ gone1 stopped" ]
     protons
     [ "$status" -eq 1 ]
     [[ "$output" == *"on another host"* ]]
+    [[ "$output" != *workload-key* ]]
+}
+
+@test "a redirect to another host is refused before the key is sent there" {
+    echo redirect > "$WORK/mode"
+    protons
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"a redirect points to another host"* ]]
     [[ "$output" != *workload-key* ]]
 }
 

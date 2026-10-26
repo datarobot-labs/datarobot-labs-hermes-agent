@@ -37,14 +37,32 @@ import urllib.request
 MAX_PAGES = 20
 
 
+class SameOrigin(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only on the endpoint's own scheme and host.
+
+    urllib copies the Authorization header onto a redirected request, so a
+    redirect elsewhere, or from HTTPS down to HTTP, would carry the key along.
+    """
+
+    def __init__(self, origin):
+        super().__init__()
+        self.origin = origin
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if urllib.parse.urlsplit(newurl)[:2] != self.origin:
+            raise ValueError("a redirect points to another host; not sending the key there")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def protons():
     endpoint = os.environ["DATAROBOT_ENDPOINT"].rstrip("/")
     origin = urllib.parse.urlsplit(endpoint)[:2]
     url = f"{endpoint}/workloads/{os.environ['WORKLOAD_ID']}/protons/"
     # The token goes in a header, never on a command line.
     headers = {"Authorization": f"Bearer {os.environ['DATAROBOT_API_TOKEN']}"}
+    opener = urllib.request.build_opener(SameOrigin(origin))
     for _ in range(MAX_PAGES):
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as r:
+        with opener.open(urllib.request.Request(url, headers=headers), timeout=15) as r:
             page = json.load(r)
         data = page.get("data") if isinstance(page, dict) else None
         # A body without a list is an error, not "no generations": that would
