@@ -97,6 +97,11 @@ done
 
 if [ -n "$handoff_watch_pid" ]; then
     kill "$handoff_watch_pid" 2>/dev/null || true
+    # A gateway that exits on its own while this generation drains must still
+    # hand off: exiting here would get it restarted, as a second writer.
+    if [ ! -f "$handoff_flag" ]; then
+        handoff_draining || true
+    fi
 fi
 if [ -n "$sync_loop_pid" ]; then
     kill "$sync_loop_pid" 2>/dev/null || true

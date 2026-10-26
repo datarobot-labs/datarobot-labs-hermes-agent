@@ -124,15 +124,25 @@ handoff_release_port() {
 handoff_watch() {
     while kill -0 "$1" 2>/dev/null; do
         sleep "$HANDOFF_POLL_SECONDS"
-        status=$(timeout --kill-after=2 30 "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons 2>/dev/null |
-            awk -v self="$handoff_self" '$1 == self { print $2 }' || true)
-        case $status in
-            draining | stopping)
-                echo "[entrypoint] this generation is $status; handing the state store off" >&2
-                : > "$handoff_flag"
-                kill -TERM "$1" 2>/dev/null || true
-                return 0
-                ;;
-        esac
+        if handoff_draining; then
+            kill -TERM "$1" 2>/dev/null || true
+            return 0
+        fi
     done
+}
+
+# Whether this generation is draining or stopping, and if so, sets the
+# handed-off flag. entrypoint.sh asks once more when the gateway has exited on
+# its own: it may have before the watcher's next poll.
+handoff_draining() {
+    status=$(timeout --kill-after=2 30 "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons 2>/dev/null |
+        awk -v self="$handoff_self" '$1 == self { print $2 }' || true)
+    case $status in
+        draining | stopping)
+            echo "[entrypoint] this generation is $status; handing the state store off" >&2
+            : > "$handoff_flag"
+            return 0
+            ;;
+    esac
+    return 1
 }

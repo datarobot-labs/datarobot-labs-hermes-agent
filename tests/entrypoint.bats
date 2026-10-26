@@ -505,6 +505,25 @@ handoff_boot() {
     [ "$status" -eq 0 ]
 }
 
+@test "a gateway that exits on its own while the generation drains still hands off" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.2"
+    # The stub gateway exits at once, before the watcher's first poll (60 s away).
+    handoff_boot HANDOFF_POLL_SECONDS=60 &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'this generation is draining; handing the state store off' "$WORK/err"
+    grep -q 'state store handed off; idling until' "$WORK/err"
+    [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+    kill -0 "$pid"
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
+}
+
 @test "a failed handoff upload is retried until the marker lands" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
