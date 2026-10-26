@@ -105,15 +105,34 @@ if [ -n "$sync_loop_pid" ]; then
         echo "$handoff_self" > "$HERMES_HOME/$handoff_marker"
     fi
     echo "[entrypoint] gateway exited ($gateway_status); running final dr-sync upload" >&2
-    sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}" \
-        || echo "[entrypoint] Warning: final dr-sync upload failed" >&2
+    if [ -f "$handoff_flag" ]; then
+        # Draining, not terminated: there is time to retry, and the next
+        # generation waits for exactly this upload, or for this one to stop.
+        attempt=1
+        until sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}"; do
+            if [ "$attempt" -ge "${HANDOFF_UPLOAD_ATTEMPTS:-5}" ]; then
+                rm -f "$HERMES_HOME/$handoff_marker"
+                break
+            fi
+            echo "[entrypoint] Warning: handoff upload failed (attempt $attempt); retrying" >&2
+            sleep $((attempt * HANDOFF_POLL_SECONDS))
+            attempt=$((attempt + 1))
+        done
+    else
+        sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}" \
+            || echo "[entrypoint] Warning: final dr-sync upload failed" >&2
+    fi
 fi
 if [ -f "$handoff_flag" ]; then
     # Not exit: the platform would start this generation again, and that pod
     # would write to the store the next one now owns. Idle until it is stopped.
     # Without a gateway the platform shows this generation as errored until
     # its drain ends (~8 min on staging); it then stops it as usual.
-    echo "[entrypoint] state store handed off; idling until the platform stops this generation" >&2
+    if [ -f "$HERMES_HOME/$handoff_marker" ]; then
+        echo "[entrypoint] state store handed off; idling until the platform stops this generation" >&2
+    else
+        echo "[entrypoint] Warning: the handoff upload kept failing, so the next generation waits for this one to stop; idling until then" >&2
+    fi
     trap 'exit 0' TERM INT
     while true; do
         sleep 3600 &

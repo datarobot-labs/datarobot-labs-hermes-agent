@@ -400,7 +400,12 @@ case "\$*" in
             > "$WORK/standin" 2>/dev/null || echo down > "$WORK/standin"
         if [ -f "$WORK/marker" ]; then cp "$WORK/marker" "\$2/.dr-sync-handoff"; fi
         ;;
-    upload*) cp "\$2/.dr-sync-handoff" "$WORK/uploaded-marker" 2>/dev/null || true ;;
+    upload*)
+        n=\$(( \$(cat "$WORK/uploads" 2>/dev/null || echo 0) + 1 ))
+        echo "\$n" > "$WORK/uploads"
+        if [ "\$n" -le "\$(cat "$WORK/fail-uploads" 2>/dev/null || echo 0)" ]; then exit 1; fi
+        cp "\$2/.dr-sync-handoff" "$WORK/uploaded-marker" 2>/dev/null || true
+        ;;
 esac
 exit 0
 STUB
@@ -498,6 +503,51 @@ handoff_boot() {
     status=0
     wait "$pid" || status=$?
     [ "$status" -eq 0 ]
+}
+
+@test "a failed handoff upload is retried until the marker lands" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.2"
+    echo 2 > "$WORK/fail-uploads"
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    handoff_boot &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'handoff upload failed (attempt 1); retrying' "$WORK/err"
+    grep -q 'handoff upload failed (attempt 2); retrying' "$WORK/err"
+    grep -q 'state store handed off; idling until' "$WORK/err"
+    [ "$(cat "$WORK/uploads")" = 3 ]
+    [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
+}
+
+@test "when every handoff upload fails, the pod says so, keeps no marker, and still idles" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.2"
+    echo 99 > "$WORK/fail-uploads"
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    handoff_boot HANDOFF_UPLOAD_ATTEMPTS=2 &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'the handoff upload kept failing, so the next generation waits for this one to stop' "$WORK/err"
+    [ "$(cat "$WORK/uploads")" = 2 ]
+    [ ! -e /tmp/hermes/.dr-sync-handoff ]
+    kill -0 "$pid"
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
 }
 
 @test "a handoff flag left in /tmp by an earlier run doesn't stop the next one from serving" {
