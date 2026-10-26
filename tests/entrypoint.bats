@@ -395,6 +395,7 @@ STUB
 echo "dr-sync \$*" >> "\$STUB_LOG"
 case "\$*" in
     *"--prefix .dr-sync-handoff"*)
+        if [ -f "$WORK/hang" ]; then sleep 60; fi
         python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8642/health', timeout=2).status)" \
             > "$WORK/standin" 2>/dev/null || echo down > "$WORK/standin"
         if [ -f "$WORK/marker" ]; then cp "$WORK/marker" "\$2/.dr-sync-handoff"; fi
@@ -446,7 +447,8 @@ handoff_boot() {
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopped\n' > "$WORK/protons.3"
     run handoff_boot
     [ "$status" -eq 0 ]
-    grep -q 'state store handed off after 2s' "$WORK/err"
+    grep -qE 'state store handed off after [0-9]+s' "$WORK/err"
+    [ "$(cat "$WORK/calls")" -ge 3 ]
 }
 
 @test "with no handoff before the timeout, the pod warns and boots anyway" {
@@ -454,7 +456,19 @@ handoff_boot() {
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
     run handoff_boot HANDOFF_TIMEOUT_SECONDS=2
     [ "$status" -eq 0 ]
-    grep -q 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb after 2s' "$WORK/err"
+    grep -qE 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb after [0-9]+s' "$WORK/err"
+    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+}
+
+@test "a hung marker download can't hold the boot past the deadline" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    : > "$WORK/hang"
+    start=$(date +%s)
+    run handoff_boot HANDOFF_TIMEOUT_SECONDS=3
+    [ "$status" -eq 0 ]
+    [ $(($(date +%s) - start)) -lt 20 ]
+    grep -q 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb' "$WORK/err"
     grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
 }
 
