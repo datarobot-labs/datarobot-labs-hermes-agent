@@ -29,6 +29,7 @@ import http.server
 import json
 import os
 import sys
+import urllib.parse
 import urllib.request
 
 # A workload has one generation, two during a rollout, and the stopped ones
@@ -38,6 +39,7 @@ MAX_PAGES = 20
 
 def protons():
     endpoint = os.environ["DATAROBOT_ENDPOINT"].rstrip("/")
+    origin = urllib.parse.urlsplit(endpoint)[:2]
     url = f"{endpoint}/workloads/{os.environ['WORKLOAD_ID']}/protons/"
     # The token goes in a header, never on a command line.
     headers = {"Authorization": f"Bearer {os.environ['DATAROBOT_API_TOKEN']}"}
@@ -55,6 +57,10 @@ def protons():
         url = page.get("next")
         if not url:
             return
+        # The key goes with every page: never to a host the endpoint isn't.
+        url = urllib.parse.urljoin(endpoint + "/", url)
+        if urllib.parse.urlsplit(url)[:2] != origin:
+            raise ValueError("the next page is on another host; not sending the key there")
     raise ValueError(f"the protons list ran past {MAX_PAGES} pages")
 
 

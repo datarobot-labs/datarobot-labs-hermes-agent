@@ -32,6 +32,8 @@ class H(http.server.BaseHTTPRequestHandler):
         base = f"http://127.0.0.1:{port}"
         if mode == "bad":
             body = {"oops": True}
+        elif mode == "foreign":
+            body = {"data": [], "next": "http://127.0.0.2:%d/elsewhere" % port}
         elif mode == "loop":
             body = {"data": [], "next": base + self.path}
         elif self.path == "/api/v2/workloads/w1/protons/":
@@ -81,6 +83,14 @@ gone1 stopped" ]
     protons
     [ "$status" -eq 1 ]
     [[ "$output" == *"answered without a list"* ]]
+    [[ "$output" != *workload-key* ]]
+}
+
+@test "a next-link to another host is refused, and the key isn't sent there" {
+    echo foreign > "$WORK/mode"
+    protons
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"on another host"* ]]
     [[ "$output" != *workload-key* ]]
 }
 
