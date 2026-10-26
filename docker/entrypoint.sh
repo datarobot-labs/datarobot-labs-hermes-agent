@@ -51,6 +51,8 @@ echo "[entrypoint] boot $(date -u +%Y-%m-%dT%H:%M:%SZ) host=$(hostname) dr_sync_
 ENTRYPOINT_DIR="${0%/*}/entrypoint.d"
 # shellcheck source=entrypoint.d/10-seed.sh
 . "$ENTRYPOINT_DIR/10-seed.sh"
+# shellcheck source=entrypoint.d/15-handoff.sh
+. "$ENTRYPOINT_DIR/15-handoff.sh"
 # shellcheck source=entrypoint.d/20-state-sync.sh
 . "$ENTRYPOINT_DIR/20-state-sync.sh"
 # shellcheck source=entrypoint.d/30-otel.sh
@@ -76,6 +78,14 @@ hermes gateway run --no-supervise "$@" &
 gateway_pid=$!
 trap 'kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
 
+# Once this generation drains, the watcher stops the gateway so the next one
+# can take the state store over (15-handoff.sh).
+handoff_watch_pid=""
+if [ -n "$sync_loop_pid" ] && handoff_enabled; then
+    handoff_watch "$gateway_pid" &
+    handoff_watch_pid=$!
+fi
+
 # `wait` returns early when a trapped signal arrives; keep waiting until the
 # gateway is really gone, then take its true exit status. The `||` keeps a
 # non-zero status from tripping `set -e`.
@@ -85,10 +95,27 @@ while kill -0 "$gateway_pid" 2>/dev/null; do
     wait "$gateway_pid" || gateway_status=$?
 done
 
+if [ -n "$handoff_watch_pid" ]; then
+    kill "$handoff_watch_pid" 2>/dev/null || true
+fi
 if [ -n "$sync_loop_pid" ]; then
     kill "$sync_loop_pid" 2>/dev/null || true
+    # Handing off, this upload is the marker the next generation waits for.
+    if [ -f "$handoff_flag" ]; then
+        echo "$handoff_self" > "$HERMES_HOME/$handoff_marker"
+    fi
     echo "[entrypoint] gateway exited ($gateway_status); running final dr-sync upload" >&2
     sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}" \
         || echo "[entrypoint] Warning: final dr-sync upload failed" >&2
+fi
+if [ -f "$handoff_flag" ]; then
+    # Not exit: the platform would start this generation again, and that pod
+    # would write to the store the next one now owns. Idle until it is stopped.
+    echo "[entrypoint] state store handed off; idling until the platform stops this generation" >&2
+    trap 'exit 0' TERM INT
+    while true; do
+        sleep 3600 &
+        wait $! || true
+    done
 fi
 exit "$gateway_status"
