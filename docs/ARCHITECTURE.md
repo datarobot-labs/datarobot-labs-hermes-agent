@@ -247,7 +247,8 @@ instead:
   uploads), so a bad overwrite can be rolled back (see below).
 
 This assumes a **single writer**: one replica pushing to one container, so
-there's no lock contention to design around. It does not assume the
+there's no lock contention to design around. A rollout's two generations take
+turns (see "How `dr start` sets it up" below). It does not assume the
 Workload API's `replicaCount` stays at 1 forever — if that changes, this
 sync strategy needs revisiting first.
 
@@ -292,13 +293,29 @@ it into the deployed workload:
 LOCAL_DR_SYNC_CATALOG_ID=<id> docker compose up
 ```
 
-A rolling redeploy is the one time the workload itself has two writers: the
-new pod boots and downloads the store while the old one still runs, and the old
-one uploads once more on shutdown. dr-sync guards each upload with a lease and
-a head check, so the store doesn't get corrupted, but it doesn't merge: what
-one pod wrote during the overlap, usually the old pod's last minutes, can be
-missing afterwards. Redeploy while the bot is idle. A handoff between the two
-pods is a known follow-up.
+A redeploy is rolling, the only strategy the platform has. It makes the new
+generation active as soon as its port answers, then lets the old one drain
+before stopping it: about 8 minutes on staging, with the old pod still running
+its gateway and uploading. Left alone, that is two writers, and dr-sync
+compares an upload with the store's head rather than with what that pod
+downloaded, so the new pod's next upload would silently revert every file the
+old one changed meanwhile. So the pods hand the store over
+(`docker/entrypoint.d/15-handoff.sh`):
+
+- **The old pod** watches its own generation through the Workload API, with
+  the workload's own key. Once it is draining, it stops its gateway, makes its
+  final upload with a `.dr-sync-handoff` marker naming its generation, and
+  idles until the platform stops it. It doesn't exit, or the platform would
+  start it again.
+- **The new pod**, before its download, waits until every other generation has
+  stopped or handed off. Meanwhile a stand-in answers on nginx's port, so the
+  platform still makes it active and lets the old pod drain.
+
+A redeploy costs about a minute without a gateway, Slack included, instead of
+minutes of two writers. Platform maintenance replacements roll the same way and
+get the same handoff. The first rollout onto this code has an old pod without
+the watcher: the new one then waits for it to stop, for up to
+`HANDOFF_TIMEOUT_SECONDS` (900), then goes on with a warning.
 
 ### Checking and recovering state
 
