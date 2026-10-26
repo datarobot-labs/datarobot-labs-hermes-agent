@@ -111,6 +111,8 @@ fi
 if [ -f "$handoff_flag" ]; then
     # Not exit: the platform would start this generation again, and that pod
     # would write to the store the next one now owns. Idle until it is stopped.
+    # Without a gateway the platform shows this generation as errored until
+    # its drain ends (~8 min on staging); it then stops it as usual.
     echo "[entrypoint] state store handed off; idling until the platform stops this generation" >&2
     trap 'exit 0' TERM INT
     while true; do

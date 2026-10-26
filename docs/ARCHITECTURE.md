@@ -306,7 +306,8 @@ old one changed meanwhile. So the pods hand the store over
   the workload's own key. Once it is draining, it stops its gateway, makes its
   final upload with a `.dr-sync-handoff` marker naming its generation, and
   idles until the platform stops it. It doesn't exit, or the platform would
-  start it again.
+  start it again. While it idles the platform shows that generation as
+  `errored`, since its gateway is gone, and still stops it when the drain ends.
 - **The new pod**, before its download, waits until every other generation has
   stopped or handed off. Meanwhile a stand-in answers on nginx's port, so the
   platform still makes it active and lets the old pod drain.
