@@ -95,11 +95,23 @@ sync_up() {
     ) 9>/tmp/.dr-sync.lock
 }
 
+# The download goes into an empty directory, then into $HERMES_HOME. The
+# seed is already there, and dr-sync fails a download that would write a
+# stored path over one of another type (a file where the image ships a
+# directory, or the reverse): every boot would stop. An empty directory has
+# nothing to conflict with.
+stage=/tmp/dr-sync-stage
 download_state() {
+    rm -rf "$stage"
+    mkdir -p "$stage"
+    # dr-sync reads the ignore file from the directory it downloads into.
+    if [ -f "$HERMES_HOME/.drsyncignore" ]; then
+        cp "$HERMES_HOME/.drsyncignore" "$stage/"
+    fi
     attempt=1
     delay=5
     while true; do
-        if dr-sync download "$HERMES_HOME"; then
+        if dr-sync download "$stage"; then
             return 0
         fi
         if [ "$attempt" -ge "$DR_SYNC_DOWNLOAD_ATTEMPTS" ]; then
@@ -110,6 +122,48 @@ download_state() {
         delay=$((delay * 2))
         attempt=$((attempt + 1))
     done
+}
+
+# A directory, and not a symlink to one.
+is_dir() {
+    [ -d "$1" ] && [ ! -L "$1" ]
+}
+
+# Moves the download into $HERMES_HOME, which holds the image's seed. A stored
+# path of another type than the one there stays out: the image wins. Moved,
+# not copied: /tmp is the only writable filesystem, and a copy would hold the
+# whole state twice for a moment.
+merge_state() {
+    (cd "$stage" && find . -mindepth 1) > /tmp/dr-sync-stage.list || return 1
+    # Parents come before their entries, so a directory moved whole takes its
+    # entries with it, and a directory both sides have is merged entry by entry.
+    while IFS= read -r p; do
+        p=${p#./}
+        if [ ! -e "$stage/$p" ] && [ ! -L "$stage/$p" ]; then
+            continue # moved, or dropped, with its directory
+        fi
+        if [ ! -e "$HERMES_HOME/$p" ] && [ ! -L "$HERMES_HOME/$p" ]; then
+            mv "$stage/$p" "$HERMES_HOME/$p" || return 1
+        # A symlink never replaces the image's path: over a file, the overlay
+        # below would write through it to wherever it points, and a dangling
+        # one over a directory would fail the merge.
+        elif [ -L "$stage/$p" ]; then
+            echo "[entrypoint] Warning: the store has a symlink at $p, where the image has a file or directory; keeping the image's" >&2
+            rm -f "$stage/$p"
+        elif is_dir "$stage/$p"; then
+            if ! is_dir "$HERMES_HOME/$p"; then
+                echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
+                rm -rf "${stage:?}/$p"
+            fi
+        elif is_dir "$HERMES_HOME/$p"; then
+            echo "[entrypoint] Warning: the store has a file at $p, where the image has a directory; keeping the image's" >&2
+            rm -f "$stage/$p"
+        else
+            # A rename: it replaces the path itself, never writing through it.
+            mv -f "$stage/$p" "$HERMES_HOME/$p" || return 1
+        fi
+    done < /tmp/dr-sync-stage.list
+    rm -rf "$stage" /tmp/dr-sync-stage.list
 }
 
 # HERMES_HOME is per-boot (see top of file); DR_SYNC_CATALOG_ID points dr-sync
@@ -127,6 +181,11 @@ sync_loop_pid=""
 if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
     if ! download_state; then
         echo "[entrypoint] FATAL: dr-sync download failed after $DR_SYNC_DOWNLOAD_ATTEMPTS attempts; refusing to start with empty state" >&2
+        exit 1
+    fi
+    # Half a merge is no better than none: an upload would then shrink the store.
+    if ! merge_state; then
+        echo "[entrypoint] FATAL: could not move the downloaded state into $HERMES_HOME; refusing to start with part of it" >&2
         exit 1
     fi
     restore_dbs
@@ -155,11 +214,30 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
             done
         done
     fi
+    # The overlay replaces the hub's lock with the image's: move the stored one
+    # aside, to merge back the records of skills the agent installed. A rename,
+    # so it neither reads the file nor needs room for a copy, and a failure
+    # only costs those records.
+    lock=skills/.hub/lock.json
+    stored_lock=
+    if [ -f "$HERMES_HOME/$lock" ] && [ -f "$HERMES_SEED/$lock" ]; then
+        if mv -f "$HERMES_HOME/$lock" /tmp/dr-sync-hub-lock.json; then
+            stored_lock=/tmp/dr-sync-hub-lock.json
+        else
+            echo "[entrypoint] Warning: could not set the hub's stored lock aside; skills installed at runtime keep their files, not their hub records" >&2
+        fi
+    fi
     for d in skills plugins; do
         if [ -d "$HERMES_SEED/$d" ]; then
             cp -R "$HERMES_SEED/$d/." "$HERMES_HOME/$d/"
         fi
     done
+    if [ -n "$stored_lock" ]; then
+        /opt/hermes/.venv/bin/python3 "$ENTRYPOINT_DIR/hub-lock.py" \
+            "$stored_lock" "$HERMES_HOME/$lock" "$HERMES_HOME/skills" ||
+            echo "[entrypoint] Warning: could not merge the hub's lock; skills installed at runtime keep their files, not their hub records" >&2
+        rm -f "$stored_lock"
+    fi
     if [ -f "$shipped" ]; then
         sort -u "$shipped" /tmp/dr-sync-shipped > /tmp/dr-sync-shipped.all
         mv /tmp/dr-sync-shipped.all "$shipped"

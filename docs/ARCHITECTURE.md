@@ -204,8 +204,12 @@ build time — mirrors `$HERMES_HOME` against a DataRobot Files API container
 instead:
 
 - **On boot**, `docker/entrypoint.sh` logs a `[entrypoint] boot <utc> host=<pod>`
-  line, then runs `dr-sync download "$HERMES_HOME"` before starting the
-  gateway, restoring whatever the last boot pushed. The download is retried
+  line, then downloads the store before starting the gateway, restoring
+  whatever the last boot pushed. It downloads into an empty directory, then
+  moves that into `$HERMES_HOME`: dr-sync fails a download over the image's
+  seed if a stored path has another type there (a file where the image ships
+  a directory, or the reverse), which would stop every boot. The image wins
+  such a conflict, and the log names the path it kept. The download is retried
   (`DR_SYNC_DOWNLOAD_ATTEMPTS`, default 5, with backoff) and, if it still
   fails, the container **exits non-zero** rather than starting with empty
   state — otherwise the first upload would overwrite the good remote copy.
@@ -262,9 +266,13 @@ restart. On every boot, after the download, the ones this repo's image ships
 the current image's version wins, and the ones an earlier image shipped but
 this one doesn't are removed: the store keeps a list of every file an image
 shipped to it (`.dr-sync-shipped`). An upload never deletes from the store, so
-a dropped skill's file stays there, and every boot removes it again. Hermes' own bundled skills follow its
-`skills_sync.py`: an unmodified one is updated to the new image's version, one
-the agent changed is kept, and one Hermes dropped stays.
+a dropped skill's file stays there, and every boot removes it again. The
+hub's `skills/.hub/lock.json` is merged rather than replaced
+(`docker/entrypoint.d/hub-lock.py`): the image's records win, and a record for
+a skill the agent installed at runtime stays while its skill does. Hermes' own
+bundled skills follow its `skills_sync.py`: an unmodified one is updated to the
+new image's version, one the agent changed is kept, and one Hermes dropped
+stays.
 
 Never point two running copies at one store: a second writer's fresh state
 competes with the pod's. So `compose.yaml` leaves a local `docker compose up`
