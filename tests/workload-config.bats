@@ -82,6 +82,19 @@ api_key_entries() {
     cmp "$WORK/env.before" "$PROJECT/.env"
 }
 
+@test "no form of the token line reaches dr: indented, exported, spaced or colon" {
+    for line in "export DATAROBOT_API_TOKEN=$CANARY" "  DATAROBOT_API_TOKEN=$CANARY" \
+        "	export   DATAROBOT_API_TOKEN=\"$CANARY\"" "DATAROBOT_API_TOKEN = $CANARY" \
+        "DATAROBOT_API_TOKEN: $CANARY"; do
+        printf 'SLACK_HOME_CHANNEL="C123"\n%s\nDATAROBOT_API_TOKEN_SCOPE=keep\n' "$line" > "$PROJECT/.env"
+        configure write --sync-env --yes
+        [ "$status" -eq 0 ]
+        run grep -c "$CANARY" "$WORK/seen/env"
+        [ "$output" = 0 ]
+        grep -q '^DATAROBOT_API_TOKEN_SCOPE=keep$' "$WORK/seen/env"
+    done
+}
+
 @test "a new manifest declares the token as the workload's own key, once" {
     configure write --yes
     [ "$status" -eq 0 ]
