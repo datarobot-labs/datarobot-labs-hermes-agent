@@ -60,6 +60,13 @@ tasks:
           (see above). Run 'dr run install'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
+      # The image won't boot on a store DataRobot doesn't have, and a store in
+      # .env that the manifest doesn't carry never reaches the workload.
+      - sh: scripts/state-store.sh --if-set
+        msg: >-
+          DR_SYNC_CATALOG_ID in .env names a state store DataRobot doesn't
+          have, or one .datarobot.yaml doesn't carry yet. 'dr run doctor' says
+          which. See docs/TROUBLESHOOTING.md, "State store not found".
       - sh: scripts/check-credentials.sh
         msg: >-
           .datarobot.yaml still has a PLACEHOLDER credential, which the deploy
@@ -144,6 +151,10 @@ tasks:
           echo "so the agent may be running with your token. Run 'dr run env', then"
           echo "'dr workload up'. See docs/TROUBLESHOOTING.md."
           failed=1
+        elif ! missing=$(scripts/env-drift.sh); then
+          echo "In .env but not in .datarobot.yaml, so the workload doesn't get them:" $missing
+          echo "Run 'dr run env', then 'dr workload up'."
+          failed=1
         else
           echo ".datarobot.yaml is complete."
         fi
@@ -205,6 +216,7 @@ tasks:
   _manifest:
     silent: true
     internal: true
+    interactive: true
     cmds:
       - |
         if [ ! -f .datarobot.yaml ]; then
@@ -215,15 +227,19 @@ tasks:
             --type agent --health /health --cpu 1 --memory 2GB
           exit
         fi
-        echo ".datarobot.yaml already exists; leaving it as is."
-        missing=""
-        # DATAROBOT_API_TOKEN is the workload's own key there, not .env's.
-        for name in $(sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' .env | grep -vx DATAROBOT_API_TOKEN | sort -u); do
-          grep -qE "^[[:space:]]*- name: ${name}\$" .datarobot.yaml || missing="$missing $name"
-        done
-        if [ -n "$missing" ]; then
-          echo "In .env but not in .datarobot.yaml:$missing"
-          echo "Run 'dr run env' to add them."
+        # A store state-store.sh just made for an older manifest, or any
+        # other name .env gained, reaches the workload only through the
+        # manifest. dr shows what --sync-env would change and asks first: it
+        # also re-sends every credential from this .env, which must not
+        # happen behind the back of a teammate whose .env is the current one.
+        if missing=$(scripts/env-drift.sh); then
+          echo ".datarobot.yaml already exists and declares everything in .env."
+          exit
+        fi
+        echo "In .env but not in .datarobot.yaml:" $missing
+        scripts/workload-config.sh --sync-env
+        if ! scripts/env-drift.sh > /dev/null; then
+          echo "Not brought over yet, so the workload doesn't get them. Run 'dr run env' when ready."
         fi
 
   # -------------------------------------------------------------------------

@@ -140,9 +140,9 @@ grep -rn 'app\.datarobot\.com' config/config.yaml
 
 ## State store not found
 
-**Symptom.** `dr start` or `dr run doctor` says `DataRobot can't give state
-store <id>`, or the workload restarts in a loop and its log shows `FATAL:
-dr-sync download failed`.
+**Symptom.** `dr start`, `dr run deploy` or `dr run doctor` says
+`DataRobot can't give state store <id>`, or the workload restarts in a loop and
+its log shows `FATAL: dr-sync download failed`.
 
 **Why.** `DR_SYNC_CATALOG_ID` in `.env` names a store DataRobot doesn't have:
 deleted, from another install, or mistyped. `dr start` won't replace it on its

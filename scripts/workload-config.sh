@@ -242,11 +242,13 @@ trap 'rm -rf "$work"; [ -z "$staged" ] || rm -f "$staged"' EXIT
 trap 'exit 130' INT TERM HUP
 
 cp Dockerfile "$work/"
+# Every line dr's dotenv parser (godotenv) reads as the token goes: indented,
+# `export`ed, `NAME = value` and `NAME: value` too.
 # grep exits 1 when nothing is left (fine) and 2 when it can't read .env: an
 # unreadable .env must not pass for an empty one, which --sync-env would
 # take as every setting removed.
 status=0
-grep -v "^${token}=" .env > "$work/.env" || status=$?
+grep -vE "^[[:space:]]*(export[[:space:]]+)?${token}[[:space:]]*[=:]" .env > "$work/.env" || status=$?
 if [ "$status" -gt 1 ]; then
     echo "Couldn't read .env, so nothing was changed." >&2
     exit 1

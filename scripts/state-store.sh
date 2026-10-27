@@ -15,7 +15,8 @@
 
 # Gives the workload a dr-sync state store, so its sessions and memory
 # survive a restart, and puts the store's id in .env as
-# DR_SYNC_CATALOG_ID. `dr start` runs it; `dr run doctor` runs it with --check.
+# DR_SYNC_CATALOG_ID. `dr start` runs it; `dr run doctor` runs it with --check,
+# and `dr run deploy` with --if-set.
 #
 # One store per workload, and safe to re-run: the id already in .env is checked
 # with `dr sync inspect` and kept. Only without one is a store created, named
@@ -29,22 +30,26 @@
 # The store is created with `dr sync init`: the dr-sync plugin, which dr start
 # installs from .datarobot/cli/versions.yaml, run with dr's own login.
 #
-# Usage: scripts/state-store.sh [--check] [env file, default .env]
-#   --check  report only: never create a store or change .env
+# Usage: scripts/state-store.sh [--check | --if-set] [env file, default .env]
+#   --check   report only: never create a store or change .env
+#   --if-set  as --check, but no id in .env passes: a .env from before dr
+#             start made stores still deploys, as it did then
 
 set -eu
 
 check=
-if [ "${1:-}" = --check ]; then
-    check=1
-    shift
-fi
+if_set=
+case ${1:-} in
+    --check) check=1; shift ;;
+    --if-set) check=1 if_set=1; shift ;;
+esac
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
 
-# The last value .env gives NAME, without the quotes dotenv allows.
+# The last value .env gives NAME, exported or not, without the quotes dotenv
+# allows.
 env_value() {
-    v=$(sed -n "s/^$1=//p" "$env_file" | tail -n 1)
+    v=$(sed -nE "s/^(export[[:space:]]+)?$1=//p" "$env_file" | tail -n 1)
     case $v in
         \"*\") v=${v#\"} v=${v%\"} ;;
         \'*\') v=${v#\'} v=${v%\'} ;;
@@ -90,6 +95,11 @@ if [ -n "$id" ]; then
         echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
         exit 1
     fi
+    exit 0
+fi
+
+if [ -n "$if_set" ]; then
+    echo "No DR_SYNC_CATALOG_ID in $env_file, so there is no state store to check."
     exit 0
 fi
 

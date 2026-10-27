@@ -61,8 +61,19 @@ upload_set() {
 }
 
 @test "the repo's own scripts pass shellcheck" {
-    run shellcheck -s sh -S warning /repo/scripts/*.sh
+    # As `task lint` and the Lint workflow run it: every severity, info included.
+    run shellcheck -s sh /repo/scripts/*.sh
     [ "$status" -eq 0 ]
+}
+
+@test "the repo's own scripts are executable in git, as the Taskfile runs them" {
+    # git's mode, not the file's: a checkout gets that one, and a Docker
+    # Desktop mount reports every file executable anyway.
+    run git -c safe.directory=/repo -C /repo ls-files -s scripts
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    run awk '$1 != "100755" { print $4; bad = 1 } END { exit bad }' <<< "$output"
+    [ "$status" -eq 0 ] || { echo "not executable in git: $output"; false; }
 }
 
 @test "Dockerfiles pass hadolint" {
@@ -374,7 +385,7 @@ PY
     [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
-@test "dr start always sets up the state store, before writing the manifest, and doctor checks it" {
+@test "dr start always sets up the state store, before writing the manifest, and doctor and deploy check it" {
     run python3 - /repo/Taskfile.yaml /repo/.datarobot/cli/prompts.yaml <<'PY'
 import sys, yaml
 tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
@@ -382,6 +393,12 @@ start = [c.get("task") if isinstance(c, dict) else c for c in tasks["start"]["cm
 assert start.index("_state-store") < start.index("_manifest"), start
 assert "scripts/state-store.sh" in tasks["_state-store"]["cmds"], tasks["_state-store"]
 assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
+assert "scripts/state-store.sh --if-set" in [p["sh"] for p in tasks["deploy"]["preconditions"]], tasks["deploy"]
+# An existing manifest gets what .env gained through dr's own question, never --yes.
+manifest = tasks["_manifest"]["cmds"][0]
+assert "scripts/env-drift.sh" in manifest and "scripts/workload-config.sh --sync-env\n" in manifest, manifest
+assert tasks["_manifest"].get("interactive") is True
+assert "scripts/env-drift.sh" in tasks["doctor"]["cmds"][0]
 prompts = yaml.safe_load(open(sys.argv[2]))
 llm = {p["env"]: p for p in prompts["llm"]}
 assert llm["LLM_BASE_URL"]["default"] == "$DATAROBOT_ENDPOINT/genai/llmgw", llm
