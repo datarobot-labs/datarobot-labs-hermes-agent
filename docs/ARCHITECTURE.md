@@ -84,7 +84,11 @@ edit it before deploying, or the agent's DataRobot tools reach across to `app`.
 `dr dotenv setup`, it is gitignored, and it never enters the image.
 `dr workload config` turns it into the `environmentVars` block in
 `.datarobot.yaml`. `dr start` runs that for the first manifest, and
-`dr run env` re-runs it when `.env` changes.
+`dr run env` re-runs it when `.env` changes. A re-run of `dr start` over an
+existing manifest offers the same step, with `dr`'s own yes/no, when `.env`
+names a variable the manifest doesn't (`scripts/env-drift.sh`), and
+`dr run doctor` flags those names. Only missing names can be caught: a changed
+value needs `dr run env`, since `dr` can't compare a credential with `.env`.
 
 - **`DATAROBOT_API_TOKEN`** is the exception. In `.env` it is the token of
   whoever ran `dr start`, which `dr` itself and a local `docker compose up`
@@ -257,8 +261,11 @@ the `dr sync` plugin (`.datarobot/cli/versions.yaml`), then
 `scripts/state-store.sh` keeps the store `.env` names as `DR_SYNC_CATALOG_ID`,
 once `dr sync inspect` confirms DataRobot has it, or creates one named
 `<workload name>-state` with `dr sync init` and adds its id to `.env`. The
-manifest `dr start` writes carries it; for a manifest that already exists, run
-`dr run env`, then `dr workload up`. `dr run doctor` checks the store too.
+manifest `dr start` writes carries it; a manifest that already exists gets it
+when you say yes to the `dr run env` step `dr start` then offers. Deploy with
+`dr workload up` after that. `dr run deploy` stops when `.env` names a store
+DataRobot doesn't have, or one the manifest doesn't carry, and
+`dr run doctor` checks the store too.
 
 Skills and plugins are part of it, so what the agent learns or adds survives a
 restart. On every boot, after the download, the ones this repo's image ships
