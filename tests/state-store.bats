@@ -202,3 +202,52 @@ trailing" store
     [ "$status" -eq 1 ]
     [ "$(inits)" = 0 ]
 }
+
+@test "--if-set passes a .env with no store unchecked, as a .env from before dr start made one" {
+    cp "$ENV" "$WORK/before"
+    store --if-set
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no state store to check"* ]]
+    [ ! -s "$STUB_LOG" ]
+    cmp "$WORK/before" "$ENV"
+
+    # The manifest's own store deploys as before: there is nothing here to check it with.
+    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
+                value: dr-credential:0123456789abcdef01234567/apiToken"
+    store --if-set
+    [ "$status" -eq 0 ]
+    [ ! -s "$STUB_LOG" ]
+}
+
+@test "--if-set checks a store .env names: DataRobot has it, and the manifest carries it" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    cp "$ENV" "$WORK/before"
+    store --if-set
+    [ "$status" -eq 0 ]
+    grep -qx "inspect $STORE" "$STUB_LOG"
+
+    STUB_INSPECT=3 store --if-set
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"DataRobot can't give state store $STORE"* ]]
+
+    manifest hermes-agent '              - name: SLACK_HOME_CHANNEL
+                value: C123'
+    store --if-set
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Run 'dr run env'"* ]]
+
+    manifest hermes-agent "              - name: DR_SYNC_CATALOG_ID
+                value: dr-credential:0123456789abcdef01234567/apiToken"
+    store --if-set
+    [ "$status" -eq 0 ]
+    [ "$(inits)" = 0 ]
+    cmp "$WORK/before" "$ENV"
+}
+
+@test "--if-set refuses a malformed id unprinted, and never sends it" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$TOKEN" >> "$ENV"
+    store --if-set
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"$TOKEN"* ]]
+    [ ! -s "$STUB_LOG" ]
+}

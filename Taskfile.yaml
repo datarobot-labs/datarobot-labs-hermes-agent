@@ -60,6 +60,13 @@ tasks:
           (see above). Run 'dr run install'.
       - sh: test -f .datarobot.yaml
         msg: "No .datarobot.yaml yet. Run 'dr start' first."
+      # The image won't boot on a store DataRobot doesn't have, and a store in
+      # .env that the manifest doesn't carry never reaches the workload.
+      - sh: scripts/state-store.sh --if-set
+        msg: >-
+          DR_SYNC_CATALOG_ID in .env names a state store DataRobot doesn't
+          have, or one .datarobot.yaml doesn't carry yet. 'dr run doctor' says
+          which. See docs/TROUBLESHOOTING.md, "State store not found".
       - sh: scripts/check-credentials.sh
         msg: >-
           .datarobot.yaml still has a PLACEHOLDER credential, which the deploy

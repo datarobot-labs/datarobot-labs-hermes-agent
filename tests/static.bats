@@ -374,7 +374,7 @@ PY
     [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
-@test "dr start always sets up the state store, before writing the manifest, and doctor checks it" {
+@test "dr start always sets up the state store, before writing the manifest, and doctor and deploy check it" {
     run python3 - /repo/Taskfile.yaml /repo/.datarobot/cli/prompts.yaml <<'PY'
 import sys, yaml
 tasks = yaml.safe_load(open(sys.argv[1]))["tasks"]
@@ -382,6 +382,7 @@ start = [c.get("task") if isinstance(c, dict) else c for c in tasks["start"]["cm
 assert start.index("_state-store") < start.index("_manifest"), start
 assert "scripts/state-store.sh" in tasks["_state-store"]["cmds"], tasks["_state-store"]
 assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
+assert "scripts/state-store.sh --if-set" in [p["sh"] for p in tasks["deploy"]["preconditions"]], tasks["deploy"]
 prompts = yaml.safe_load(open(sys.argv[2]))
 llm = {p["env"]: p for p in prompts["llm"]}
 assert llm["LLM_BASE_URL"]["default"] == "$DATAROBOT_ENDPOINT/genai/llmgw", llm
