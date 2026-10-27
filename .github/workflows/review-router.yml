@@ -41,5 +41,5 @@ permissions:
 
 jobs:
   route:
-    uses: datarobot-oss/.github/.github/workflows/review-router.yml@4a76aed69be52a67f7663c83c56a94632c34a1de  # main
+    uses: datarobot-oss/.github/.github/workflows/review-router.yml@c290bf39d0950a9627e210201895d7792b8eb81d  # main
     secrets: inherit
