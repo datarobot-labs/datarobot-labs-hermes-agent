@@ -46,9 +46,10 @@ esac
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
 
-# The last value .env gives NAME, without the quotes dotenv allows.
+# The last value .env gives NAME, exported or not, without the quotes dotenv
+# allows.
 env_value() {
-    v=$(sed -n "s/^$1=//p" "$env_file" | tail -n 1)
+    v=$(sed -nE "s/^(export[[:space:]]+)?$1=//p" "$env_file" | tail -n 1)
     case $v in
         \"*\") v=${v#\"} v=${v%\"} ;;
         \'*\') v=${v#\'} v=${v%\'} ;;

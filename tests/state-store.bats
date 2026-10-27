@@ -251,3 +251,14 @@ trailing" store
     [[ "$output" != *"$TOKEN"* ]]
     [ ! -s "$STUB_LOG" ]
 }
+
+@test "an exported DR_SYNC_CATALOG_ID counts like any other: reused, and --if-set checks it" {
+    printf 'export DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    store
+    [ "$status" -eq 0 ]
+    [ "$(inits)" = 0 ]
+
+    STUB_INSPECT=3 store --if-set
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"DataRobot can't give state store $STORE"* ]]
+}
