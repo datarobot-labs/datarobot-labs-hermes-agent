@@ -35,12 +35,10 @@ for f in "$env_file" "$manifest"; do
     [ -r "$f" ] || { echo "Can't read $f." >&2; exit 2; }
 done
 
-missing=0
-for name in $(sed -nE 's/^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$env_file" |
-    grep -vx DATAROBOT_API_TOKEN | sort -u); do
-    if ! grep -qE "^[[:space:]]*- (name: *[\"']?${name}[\"']? *(#.*)?|[{].*name: *[\"']?${name}[\"']? *[,}].*)\$" "$manifest"; then
-        echo "$name"
-        missing=1
-    fi
-done
-exit "$missing"
+missing=$(sed -nE 's/^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$env_file" |
+    grep -vx DATAROBOT_API_TOKEN | sort -u |
+    while read -r name; do
+        grep -qE "^[[:space:]]*- (name: *[\"']?${name}[\"']? *(#.*)?|[{].*name: *[\"']?${name}[\"']? *[,}].*)\$" "$manifest" ||
+            echo "$name"
+    done)
+[ -z "$missing" ] || { echo "$missing"; exit 1; }

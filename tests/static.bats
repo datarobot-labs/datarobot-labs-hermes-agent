@@ -61,7 +61,8 @@ upload_set() {
 }
 
 @test "the repo's own scripts pass shellcheck" {
-    run shellcheck -s sh -S warning /repo/scripts/*.sh
+    # As `task lint` and the Lint workflow run it: every severity, info included.
+    run shellcheck -s sh /repo/scripts/*.sh
     [ "$status" -eq 0 ]
 }
 
