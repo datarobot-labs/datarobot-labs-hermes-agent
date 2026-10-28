@@ -742,6 +742,28 @@ wait_idle() {
     grep -q 'restored database sessions/chat.db.snap' "$WORK/err"
 }
 
+@test "a snapshot that can't be copied is fatal and keeps the WAL" {
+    mkdir -p "$SEED/sessions" "$SEED/.dr-sync-snapshots/sessions"
+    echo live > "$SEED/sessions/chat.db"
+    echo wal > "$SEED/sessions/chat.db-wal"
+    echo snapshot > "$SEED/.dr-sync-snapshots/sessions/chat.db.snap"
+    mkdir -p "$WORK/bin"
+    # A cp that fails on the restore's copy, as a full /tmp would.
+    cat > "$WORK/bin/cp" <<'STUB'
+#!/bin/sh
+case "$*" in *.restore) exit 1 ;; esac
+exec /bin/cp "$@"
+STUB
+    chmod +x "$WORK/bin/cp"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -ne 0 ]
+    grep -q 'FATAL: could not restore the downloaded databases' "$WORK/err"
+    ! grep -q 'restored database' "$WORK/err" || false
+    [ "$(cat /tmp/hermes/sessions/chat.db-wal)" = wal ]
+    assert_absent '^hermes gateway run' "$WORK/calls.log"
+    assert_absent '^dr-sync upload' "$WORK/calls.log"
+}
+
 @test "the final upload takes a snapshot of every live database first" {
     mkdir -p "$SEED/sessions"
     echo live > "$SEED/sessions/chat.db"

@@ -76,10 +76,16 @@ restore_dbs() {
         rel="${rel#./}"
         dest="$HERMES_HOME/${rel%.snap}"
         mkdir -p "$(dirname "$dest")"
-        rm -f "$dest-wal" "$dest-shm"
         # A new file renamed into place: on a reload (entrypoint.sh), a process
-        # still holding the old one open keeps it whole.
-        cp -f "$DB_SNAPSHOTS/$rel" "$dest.restore" && mv -f "$dest.restore" "$dest"
+        # still holding the old one open keeps it whole. Copied before the WAL
+        # goes, and checked: set -e does not stop a failed command in an && list.
+        if ! cp -f "$DB_SNAPSHOTS/$rel" "$dest.restore"; then
+            rm -f "$dest.restore"
+            echo "[entrypoint] Error: could not copy the snapshot $rel" >&2
+            exit 1
+        fi
+        rm -f "$dest-wal" "$dest-shm"
+        mv -f "$dest.restore" "$dest" || exit 1
         echo "[entrypoint] restored database $rel" >&2
     done
 }
@@ -203,7 +209,11 @@ pull_state() {
         echo "[entrypoint] FATAL: could not move the downloaded state into $HERMES_HOME; refusing to start with part of it" >&2
         exit 1
     fi
-    restore_dbs
+    # The live database would otherwise be uploaded over the store's.
+    if ! restore_dbs; then
+        echo "[entrypoint] FATAL: could not restore the downloaded databases; refusing to start without them" >&2
+        exit 1
+    fi
     # Skills and plugins are synced, so what the agent learns or adds survives
     # a restart. The download also brought back what earlier images shipped:
     # older copies of this image's skills and plugins, and ones this image
