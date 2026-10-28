@@ -41,6 +41,16 @@ class H(http.server.BaseHTTPRequestHandler):
             body = {"data": [], "next": "http://127.0.0.2:%d/elsewhere" % port}
         elif mode == "loop":
             body = {"data": [], "next": base + self.path}
+        elif mode in ("relative", "query") and self.path == "/api/v2/workloads/w1/protons/":
+            body = {"data": [{"id": "new1", "status": "running"}],
+                    "next": "page2" if mode == "relative" else "?offset=1"}
+        elif mode in ("relative", "query"):
+            body = {"data": [{"id": "old1", "status": "draining"}], "next": None}
+            open(os.path.join(work, "page2"), "w").write(self.path)
+        elif mode == "broken" and self.path != "/api/v2/workloads/w1/protons/":
+            self.send_response(500)
+            self.end_headers()
+            return
         elif self.path == "/api/v2/workloads/w1/protons/":
             body = {"data": [{"id": "new1", "status": "running", "role": "active"},
                              {"id": "old1", "status": "draining", "role": None}],
@@ -105,6 +115,27 @@ gone1 stopped" ]
     [ "$status" -eq 1 ]
     [[ "$output" == *"a redirect points to another host"* ]]
     [[ "$output" != *workload-key* ]]
+}
+
+@test "a relative next-link is followed from the page that gave it" {
+    echo relative > "$WORK/mode"
+    protons
+    [ "$status" -eq 0 ]
+    [ "$output" = "new1 running
+old1 draining" ]
+    [ "$(cat "$WORK/page2")" = /api/v2/workloads/w1/protons/page2 ]
+
+    echo query > "$WORK/mode"
+    protons
+    [ "$status" -eq 0 ]
+    [ "$(cat "$WORK/page2")" = "/api/v2/workloads/w1/protons/?offset=1" ]
+}
+
+@test "a later page that fails prints no generation at all, not the first page's" {
+    echo broken > "$WORK/mode"
+    protons
+    [ "$status" -eq 1 ]
+    [[ "$output" != *new1* ]]
 }
 
 @test "a next-link that never ends stops after a bounded number of pages" {

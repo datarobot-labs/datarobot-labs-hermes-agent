@@ -61,6 +61,9 @@ def protons():
     # The token goes in a header, never on a command line.
     headers = {"Authorization": f"Bearer {os.environ['DATAROBOT_API_TOKEN']}"}
     opener = urllib.request.build_opener(SameOrigin(origin))
+    # Printed only once every page is read: a list cut short by a failed page
+    # could leave out a generation that still writes.
+    lines = []
     for _ in range(MAX_PAGES):
         with opener.open(urllib.request.Request(url, headers=headers), timeout=15) as r:
             page = json.load(r)
@@ -71,12 +74,14 @@ def protons():
             raise ValueError("the protons route answered without a list")
         for proton in data:
             if isinstance(proton, dict) and proton.get("id"):
-                print(proton["id"], proton.get("status") or "unknown")
-        url = page.get("next")
-        if not url:
+                lines.append(f"{proton['id']} {proton.get('status') or 'unknown'}")
+        next_url = page.get("next")
+        if not next_url:
+            print("\n".join(lines))
             return
-        # The key goes with every page: never to a host the endpoint isn't.
-        url = urllib.parse.urljoin(endpoint + "/", url)
+        # Relative to the page that gave it, as a browser would. The key goes
+        # with every page: never to a host the endpoint isn't.
+        url = urllib.parse.urljoin(url, next_url)
         if urllib.parse.urlsplit(url)[:2] != origin:
             raise ValueError("the next page is on another host; not sending the key there")
     raise ValueError(f"the protons list ran past {MAX_PAGES} pages")
