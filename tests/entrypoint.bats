@@ -373,7 +373,11 @@ STUB
 # handoff_setup <self id>: the stubs for a pod named lrs-<self id>-... in a
 # workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
 # last one repeating). dr-sync serves a handoff marker once $WORK/marker
-# exists, and records whether the stand-in answered while it was asked.
+# exists, and records whether the stand-in answered while it was asked. The
+# store's download holds a directory or a symlink at the marker's path when
+# $WORK/stored-marker says so. With $WORK/slow-first, the first upload takes
+# that many seconds and records in $WORK/first-saw whether the marker was
+# there when it ended.
 handoff_setup() {
     mkdir -p "$WORK/bin"
     printf '#!/bin/sh\necho lrs-%s-5bcd5b4cbc-lf49d\n' "$1" > "$WORK/bin/hostname"
@@ -400,9 +404,19 @@ case "\$*" in
             > "$WORK/standin" 2>/dev/null || echo down > "$WORK/standin"
         if [ -f "$WORK/marker" ]; then cp "$WORK/marker" "\$2/.dr-sync-handoff"; fi
         ;;
+    "download /tmp/dr-sync-stage")
+        case "\$(cat "$WORK/stored-marker" 2>/dev/null)" in
+            dir) mkdir -p "\$2/.dr-sync-handoff" && touch "\$2/.dr-sync-handoff/x" ;;
+            symlink) ln -s "$WORK/target" "\$2/.dr-sync-handoff" ;;
+        esac
+        ;;
     upload*)
         n=\$(( \$(cat "$WORK/uploads" 2>/dev/null || echo 0) + 1 ))
         echo "\$n" > "$WORK/uploads"
+        if [ "\$n" = 1 ] && [ -f "$WORK/slow-first" ]; then
+            sleep "\$(cat "$WORK/slow-first")"
+            if [ -e "\$2/.dr-sync-handoff" ]; then echo yes; else echo no; fi > "$WORK/first-saw"
+        fi
         if [ "\$n" -le "\$(cat "$WORK/fail-uploads" 2>/dev/null || echo 0)" ]; then exit 1; fi
         cp "\$2/.dr-sync-handoff" "$WORK/uploaded-marker" 2>/dev/null || true
         ;;
@@ -567,6 +581,62 @@ handoff_boot() {
     kill -0 "$pid"
     kill -TERM "$(pgrep -P "$pid" | head -n 1)"
     wait "$pid" || true
+}
+
+# drain_and_idle [VAR=value...]: boot a pod whose generation starts draining
+# at the watcher's second poll, with a gateway that runs until it is told to
+# stop, and wait for it to idle. Leaves the boot's pid in $pid.
+drain_and_idle() {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.2"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.3"
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+}
+
+wait_idle() {
+    for _ in $(seq 150); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+}
+
+@test "a periodic upload in flight at the drain can't carry the marker, and the final upload waits for it" {
+    drain_and_idle
+    # The periodic upload starts a second in and holds the lock past the
+    # final upload's old 5 s wait; the drain comes while it runs.
+    echo 8 > "$WORK/slow-first"
+    handoff_boot DR_SYNC_INTERVAL_SECONDS=1 &
+    pid=$!
+    wait_idle
+    grep -q 'state store handed off; idling until' "$WORK/err"
+    [ "$(cat "$WORK/first-saw")" = no ]
+    [ "$(cat "$WORK/uploads")" = 2 ]
+    [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+    ! grep -q 'could not get the sync lock' "$WORK/err" || false
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
+}
+
+@test "the marker is written as a fresh file over a directory or a symlink the store left at its path" {
+    for kind in dir symlink; do
+        rm -rf /tmp/hermes /tmp/dr-sync-* "$WORK/uploads" "$WORK/uploaded-marker" "$WORK/calls"
+        drain_and_idle
+        echo "$kind" > "$WORK/stored-marker"
+        echo keep > "$WORK/target"
+        : > "$WORK/err"
+        handoff_boot &
+        pid=$!
+        wait_idle
+        grep -q 'state store handed off; idling until' "$WORK/err"
+        [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+        [ -f /tmp/hermes/.dr-sync-handoff ] && [ ! -L /tmp/hermes/.dr-sync-handoff ]
+        [ "$(cat "$WORK/target")" = keep ]
+        kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+        wait "$pid" || true
+    done
 }
 
 @test "a handoff flag left in /tmp by an earlier run doesn't stop the next one from serving" {

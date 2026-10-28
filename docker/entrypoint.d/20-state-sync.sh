@@ -27,6 +27,9 @@
 # and those copies are what travel.
 DB_SNAPSHOTS="$HERMES_HOME/.dr-sync-snapshots"
 DR_SYNC_DOWNLOAD_ATTEMPTS="${DR_SYNC_DOWNLOAD_ATTEMPTS:-5}"
+# A periodic upload's bound: one that hangs would otherwise hold the lock, and
+# with it the handoff's final upload, for good.
+DR_SYNC_UPLOAD_TIMEOUT="${DR_SYNC_UPLOAD_TIMEOUT:-600}"
 
 snapshot_dbs() {
     find "$HERMES_HOME" \
@@ -81,14 +84,23 @@ restore_dbs() {
 
 # One upload. The flock serialises the periodic loop against the final
 # shutdown upload, so they can't contend for dr-sync's lease. $1 is an
-# optional timeout (seconds) for the dr-sync call; 0/unset means none. The
-# lock wait is short and timeout escalates to SIGKILL so the shutdown upload
-# can't outlive the pod's termination grace period.
+# optional timeout (seconds) for the dr-sync call; 0/unset means none. $2 is
+# how long to wait for the lock, 5 s by default: short on a shutdown, and
+# timeout escalates to SIGKILL, so the upload can't outlive the pod's
+# termination grace period. $3, on a handoff, is this generation's id: the
+# marker is written under the lock, after the snapshots, so no upload but this
+# one can carry it (15-handoff.sh).
 sync_up() {
     (
-        flock -w 5 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
+        flock -w "${2:-5}" 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
         # Explicit: set -e does not apply inside a function that runs in an || list.
         snapshot_dbs || exit 1
+        if [ -n "${3:-}" ]; then
+            # A fresh file, whatever the store left at that path: a directory
+            # would fail the write, and a symlink would take it elsewhere.
+            rm -rf "${HERMES_HOME:?}/$handoff_marker"
+            echo "$3" > "$HERMES_HOME/$handoff_marker" || exit 1
+        fi
         timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
             --keep-generations 144 \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'
@@ -255,7 +267,7 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
     (
         while true; do
             sleep "${DR_SYNC_INTERVAL_SECONDS:-600}"
-            sync_up || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
+            sync_up "$DR_SYNC_UPLOAD_TIMEOUT" || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
         done
     ) &
     sync_loop_pid=$!

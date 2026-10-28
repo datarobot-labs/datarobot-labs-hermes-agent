@@ -104,19 +104,18 @@ if [ -n "$handoff_watch_pid" ]; then
     fi
 fi
 if [ -n "$sync_loop_pid" ]; then
+    # Stops the loop, not a periodic upload already running: killed, it could
+    # leave dr-sync's lease held. The final upload waits for it instead.
     kill "$sync_loop_pid" 2>/dev/null || true
-    # Handing off, this upload is the marker the next generation waits for.
-    if [ -f "$handoff_flag" ]; then
-        echo "$handoff_self" > "$HERMES_HOME/$handoff_marker"
-    fi
     echo "[entrypoint] gateway exited ($gateway_status); running final dr-sync upload" >&2
     if [ -f "$handoff_flag" ]; then
-        # Draining, not terminated: there is time to retry, and the next
-        # generation waits for exactly this upload, or for this one to stop.
+        # Draining, not terminated: there is time to wait and retry, and the
+        # next generation waits for exactly this upload, the one carrying the
+        # marker, or for this one to stop.
         attempt=1
-        until sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}"; do
+        until sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}" $((DR_SYNC_UPLOAD_TIMEOUT + 30)) "$handoff_self"; do
             if [ "$attempt" -ge "${HANDOFF_UPLOAD_ATTEMPTS:-5}" ]; then
-                rm -f "$HERMES_HOME/$handoff_marker"
+                rm -rf "${HERMES_HOME:?}/$handoff_marker"
                 break
             fi
             echo "[entrypoint] Warning: handoff upload failed (attempt $attempt); retrying" >&2
