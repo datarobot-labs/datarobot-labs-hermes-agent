@@ -222,7 +222,7 @@ instead:
   entrypoint starts runs `dr-sync upload "$HERMES_HOME"`. There is no
   supervisor in this container to hang a real cron job off of (see above), so
   this is a plain `sleep`-and-upload loop backgrounded before the gateway
-  starts.
+  starts. Each upload is bounded by `DR_SYNC_UPLOAD_TIMEOUT` (default 600s).
 - **On shutdown** (Kubernetes moving or stopping the pod sends SIGTERM to
   PID 1), the entrypoint forwards the signal to the gateway, waits for it to
   exit, then runs one final upload bounded by `DR_SYNC_FINAL_TIMEOUT`
@@ -235,7 +235,7 @@ instead:
   `sqlite3 .backup` copy of every `*.db` into `$HERMES_HOME/.dr-sync-snapshots/`
   (`<path>.db.snap`), and the live `*.db`/`-wal`/`-shm` files are excluded
   from the upload. On boot the snapshots are copied back over the live
-  paths.
+  paths, each renamed into place.
 - **`config/.drsyncignore`** (baked into the seed alongside `config.yaml`)
   excludes what's baked from the image — `config.yaml`, `SOUL.md`,
   `slack-manifest.json`, the optional browser-use install and the file
@@ -302,21 +302,34 @@ downloaded, so the new pod's next upload would silently revert every file the
 old one changed meanwhile. So the pods hand the store over
 (`docker/entrypoint.d/15-handoff.sh`):
 
+- **The new pod**, when another generation is still running, downloads the
+  store as it is, boots fully and starts its gateway, but uploads nothing.
+  Its own gateway answers the readiness probe, so a version that can't boot
+  never becomes active, and the previous version keeps serving, as the README
+  says.
 - **The old pod** watches its own generation through the Workload API, with
   the workload's own key. Once it is draining, it stops its gateway, makes its
   final upload with a `.dr-sync-handoff` marker naming its generation, and
   idles until the platform stops it. It doesn't exit, or the platform would
   start it again. While it idles the platform shows that generation as
   `errored`, since its gateway is gone, and still stops it when the drain ends.
-- **The new pod**, before its download, waits until every other generation has
-  stopped or handed off. Meanwhile a stand-in answers on nginx's port, so the
-  platform still makes it active and lets the old pod drain.
+  The marker is written by that upload alone, under the sync lock and after
+  the database snapshots, and that upload first waits for a periodic one
+  already running, so no earlier snapshot can pass for the handoff.
+- **The new pod** waits for that marker, or for the old pod to stop. It then
+  stops its gateway, downloads the store again, lays it over its state the way
+  a boot does, and starts its gateway and its uploads.
 
-A redeploy costs about a minute without a gateway, Slack included, instead of
-minutes of two writers. Platform maintenance replacements roll the same way and
-get the same handoff. The first rollout onto this code has an old pod without
-the watcher: the new one then waits for it to stop, for up to
-`HANDOFF_TIMEOUT_SECONDS` (900), then goes on with a warning.
+A redeploy costs a few seconds with two gateways, Slack included, and then a
+short gap while the new pod reloads, instead of minutes of two writers. What
+the new pod wrote in those seconds, a Slack thread it answered for instance, is
+dropped by the reload, and a cron job due then may run twice. A new pod that
+never takes the store over, because its gateway fails or the rollout is
+stopped first, never uploads. Platform maintenance replacements roll the same
+way and get the same handoff. An old pod that never hands off (an image from
+before the handoff, or a stuck one) is waited for until it stops, for up to
+`HANDOFF_TIMEOUT_SECONDS` (900); the new pod then takes the store over with a
+warning.
 
 ### Checking and recovering state
 
