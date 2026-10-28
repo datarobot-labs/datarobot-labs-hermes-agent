@@ -24,31 +24,35 @@
 # pod's next upload silently reverted every file the old one had changed in
 # the meantime.
 #
-# So the two pods take turns:
-# - the old pod watches its own generation (handoff_watch). Once it is
-#   draining it stops its gateway, makes its final upload with a marker naming
-#   itself (.dr-sync-handoff), and idles until the platform stops it
-#   (entrypoint.sh);
-# - the new pod, before its download, waits until every other generation has
-#   stopped or handed off (handoff_wait). Meanwhile a stand-in answers on its
-#   port, so the platform still makes it active, and the old pod drains.
-# A redeploy then has about a minute without a gateway instead of minutes of
-# two writers. The first rollout onto this code has an old pod without the
-# watcher: the new one waits for it to stop, up to HANDOFF_TIMEOUT_SECONDS.
+# So the two pods take turns, and the new one still proves it works first:
+# - the new pod, when another generation may still write (handoff_check),
+#   boots on the store's current state and serves, but uploads nothing. Its
+#   own gateway answers the readiness probe, so an image that can't boot never
+#   becomes active, and the old version keeps serving;
+# - once it is active, the platform drains the old pod. That one watches its
+#   own generation (handoff_watch): it stops its gateway, makes its final
+#   upload with a marker naming itself (.dr-sync-handoff), and idles until the
+#   platform stops it (entrypoint.sh);
+# - the new pod waits for that marker, or for the old pod to stop
+#   (handoff_follow). It then stops its gateway, reloads the state handed off,
+#   starts the gateway again and takes the store over (entrypoint.sh).
+# For a few seconds both gateways serve; what the new one wrote meanwhile is
+# dropped by the reload. The first rollout onto the handoff, from an old pod
+# without the watcher, waits for that pod to stop, up to
+# HANDOFF_TIMEOUT_SECONDS.
 
 HERMES_PYTHON="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
 HANDOFF_POLL_SECONDS="${HANDOFF_POLL_SECONDS:-5}"
 HANDOFF_TIMEOUT_SECONDS="${HANDOFF_TIMEOUT_SECONDS:-900}"
-# The port nginx listens on (docker/nginx.conf), held by the stand-in until
-# 60-services.sh starts nginx.
-HANDOFF_PORT=8642
 handoff_marker=.dr-sync-handoff
 handoff_flag=/tmp/dr-sync-handed-off
-# Set only once this pod has handed off. A container restarted in the same pod
-# can keep /tmp (10-seed.sh), and must not take an earlier run's handoff for
-# its own: it would idle instead of serving.
-rm -f "$handoff_flag"
-standin_pid=""
+handoff_reload_flag=/tmp/dr-sync-reload
+# Set only once this pod has handed off, or is to reload. A container
+# restarted in the same pod can keep /tmp (10-seed.sh), and must not take an
+# earlier run's flags for its own: it would idle instead of serving.
+rm -f "$handoff_flag" "$handoff_reload_flag"
+# The generations this pod waits on before it uploads anything (handoff_check).
+handoff_following=""
 # This pod's generation: the platform names its pods lrs-<proton id>-...
 handoff_self=$(hostname | sed -nE 's/^lrs-([0-9a-f]{24})-.*/\1/p')
 
@@ -84,38 +88,39 @@ handoff_left() {
     echo "$left"
 }
 
-handoff_wait() {
+# At boot, before the download: whether another generation may still write.
+# If so, this pod boots on the store's current state, uploads nothing, and
+# follows that generation's handoff (handoff_follow).
+handoff_check() {
     handoff_enabled || return 0
-    others=$(handoff_others 30)
-    [ -n "$others" ] || return 0
-    echo "[entrypoint] generation $(echo $others) may still write the state store; waiting for its handoff before the download" >&2
-    "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" standin "$HANDOFF_PORT" &
-    standin_pid=$!
+    handoff_following=$(handoff_others 30)
+    [ -n "$handoff_following" ] || return 0
+    echo "[entrypoint] generation $(echo $handoff_following) may still write the state store; booting on its current state, uploading nothing until it hands off" >&2
+}
+
+# Run in the background by entrypoint.sh once the gateway is up, on a pod
+# handoff_check found following: once every generation it waits on has handed
+# off or stopped, it flags the reload and stops the gateway $1, so that
+# entrypoint.sh reloads the state handed off and takes the store over.
+handoff_follow() {
+    others=$handoff_following
     handoff_start=$(date +%s)
     handoff_deadline=$((handoff_start + HANDOFF_TIMEOUT_SECONDS))
-    while [ "$(date +%s)" -lt "$handoff_deadline" ]; do
+    while true; do
         if [ -z "$others" ] || handoff_done "$others" "$(handoff_left)"; then
-            echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s" >&2
-            return 0
+            echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s; reloading it" >&2
+            break
+        fi
+        if [ "$(date +%s)" -ge "$handoff_deadline" ]; then
+            # Waiting for good would be worse than the overlap it avoids.
+            echo "[entrypoint] Warning: no handoff from $(echo $others) after $(($(date +%s) - handoff_start))s; taking the state store over anyway, and the two may overwrite each other's state" >&2
+            break
         fi
         sleep "$HANDOFF_POLL_SECONDS"
         others=$(handoff_others "$(handoff_left)")
     done
-    if [ -z "$others" ]; then
-        echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s" >&2
-        return 0
-    fi
-    # Holding the boot for good would be worse than the overlap it avoids.
-    echo "[entrypoint] Warning: no handoff from $(echo $others) after $(($(date +%s) - handoff_start))s; going on, and the two may overwrite each other's state" >&2
-}
-
-# Called by 60-services.sh just before nginx takes the port.
-handoff_release_port() {
-    if [ -n "$standin_pid" ]; then
-        kill "$standin_pid" 2>/dev/null || true
-        wait "$standin_pid" 2>/dev/null || true
-        standin_pid=""
-    fi
+    : > "$handoff_reload_flag"
+    kill -TERM "$1" 2>/dev/null || true
 }
 
 # Run in the background by entrypoint.sh once the gateway is up: when this

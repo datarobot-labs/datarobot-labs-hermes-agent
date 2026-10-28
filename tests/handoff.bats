@@ -15,7 +15,7 @@
 
 # Behaviour of docker/entrypoint.d/handoff.py against a fake protons API: the
 # list is read with the workload's key across pages, a body that isn't a list
-# is an error rather than "no generations", and the stand-in answers /health.
+# is an error rather than "no generations".
 
 setup() {
     WORK=$(mktemp -d)
@@ -75,7 +75,7 @@ PY
 }
 
 teardown() {
-    kill "$API_PID" "${STANDIN_PID:-}" 2>/dev/null || true
+    kill "$API_PID" 2>/dev/null || true
     rm -rf "$WORK"
 }
 
@@ -143,25 +143,4 @@ old1 draining" ]
     protons
     [ "$status" -eq 1 ]
     [[ "$output" == *"ran past 20 pages"* ]]
-}
-
-@test "the stand-in answers /health with 200 and anything else with 503" {
-    python3 /repo/docker/entrypoint.d/handoff.py standin 18651 &
-    STANDIN_PID=$!
-    code() {
-        python3 - "$1" <<'PY'
-import sys, time, urllib.error, urllib.request
-for _ in range(50):
-    try:
-        print(urllib.request.urlopen("http://127.0.0.1:18651" + sys.argv[1], timeout=2).status)
-        break
-    except urllib.error.HTTPError as e:
-        print(e.code)
-        break
-    except OSError:
-        time.sleep(0.1)
-PY
-    }
-    [ "$(code /health)" = 200 ]
-    [ "$(code /chat)" = 503 ]
 }

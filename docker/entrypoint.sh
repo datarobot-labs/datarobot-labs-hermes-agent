@@ -74,25 +74,54 @@ ENTRYPOINT_DIR="${0%/*}/entrypoint.d"
 # sessions/memories. Now SIGTERM is forwarded to the gateway, and once it has
 # exited cleanly one final upload runs, bounded by DR_SYNC_FINAL_TIMEOUT so it
 # stays inside the pod's termination grace period (30s by default).
-hermes gateway run --no-supervise "$@" &
-gateway_pid=$!
-trap 'kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
+#
+# A pod that booted while another generation still wrote (15-handoff.sh) runs
+# this twice: once on the state it found, and again, after the reload, on the
+# state that generation handed off.
+stopping=""
+trap 'stopping=1; kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
+while true; do
+    hermes gateway run --no-supervise "$@" &
+    gateway_pid=$!
 
-# Once this generation drains, the watcher stops the gateway so the next one
-# can take the state store over (15-handoff.sh).
-handoff_watch_pid=""
-if [ -n "$sync_loop_pid" ] && handoff_enabled; then
-    handoff_watch "$gateway_pid" &
-    handoff_watch_pid=$!
-fi
+    # Once this generation drains, the watcher stops the gateway so the next
+    # one can take the state store over; on a pod that follows another
+    # generation, the follower stops it to reload what that one hands off.
+    handoff_watch_pid=""
+    handoff_follow_pid=""
+    if [ -n "$handoff_following" ]; then
+        handoff_follow "$gateway_pid" &
+        handoff_follow_pid=$!
+    elif [ -n "$sync_loop_pid" ] && handoff_enabled; then
+        handoff_watch "$gateway_pid" &
+        handoff_watch_pid=$!
+    fi
 
-# `wait` returns early when a trapped signal arrives; keep waiting until the
-# gateway is really gone, then take its true exit status. The `||` keeps a
-# non-zero status from tripping `set -e`.
-gateway_status=0
-while kill -0 "$gateway_pid" 2>/dev/null; do
+    # `wait` returns early when a trapped signal arrives; keep waiting until the
+    # gateway is really gone, then take its true exit status. The `||` keeps a
+    # non-zero status from tripping `set -e`.
     gateway_status=0
-    wait "$gateway_pid" || gateway_status=$?
+    while kill -0 "$gateway_pid" 2>/dev/null; do
+        gateway_status=0
+        wait "$gateway_pid" || gateway_status=$?
+    done
+
+    if [ -n "$handoff_follow_pid" ]; then
+        kill "$handoff_follow_pid" 2>/dev/null || true
+    fi
+    # Not on a stop from the platform, nor on a gateway that exited on its
+    # own: a pod that never took the store over leaves it alone.
+    if [ -z "$stopping" ] && [ -f "$handoff_reload_flag" ]; then
+        rm -f "$handoff_reload_flag"
+        handoff_following=""
+        echo "[entrypoint] gateway stopped; reloading the state store to take it over" >&2
+        pull_state
+        sync_bundled_skills
+        start_sync_loop
+        [ -z "$stopping" ] || break
+        continue
+    fi
+    break
 done
 
 if [ -n "$handoff_watch_pid" ]; then

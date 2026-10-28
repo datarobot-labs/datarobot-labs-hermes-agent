@@ -77,7 +77,9 @@ restore_dbs() {
         dest="$HERMES_HOME/${rel%.snap}"
         mkdir -p "$(dirname "$dest")"
         rm -f "$dest-wal" "$dest-shm"
-        cp -f "$DB_SNAPSHOTS/$rel" "$dest"
+        # A new file renamed into place: on a reload (entrypoint.sh), a process
+        # still holding the old one open keeps it whole.
+        cp -f "$DB_SNAPSHOTS/$rel" "$dest.restore" && mv -f "$dest.restore" "$dest"
         echo "[entrypoint] restored database $rel" >&2
     done
 }
@@ -189,10 +191,9 @@ merge_state() {
 # state.db/sessions/memories with an empty copy within one interval. Exiting
 # lets Kubernetes retry the pod instead. An empty remote (first deploy) is a
 # successful download of nothing, so that still boots.
-sync_loop_pid=""
-if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
-    # During a rollout, not before the previous generation hands off (15-handoff.sh).
-    handoff_wait
+#
+# pull_state runs at boot, and again on a rollout's reload (entrypoint.sh).
+pull_state() {
     if ! download_state; then
         echo "[entrypoint] FATAL: dr-sync download failed after $DR_SYNC_DOWNLOAD_ATTEMPTS attempts; refusing to start with empty state" >&2
         exit 1
@@ -258,12 +259,14 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
     else
         cp /tmp/dr-sync-shipped "$shipped"
     fi
+}
 
-    # Background push loop -- there is no cron/supervisor in this container
-    # (see the s6 note at the top), so periodic persistence is a sleep loop
-    # backgrounded before the gateway starts. The gateway is NOT exec'd (see
-    # the end of this file), so the SIGTERM handler there can stop this loop
-    # and run one last upload before the container exits.
+# Background push loop -- there is no cron/supervisor in this container
+# (see the s6 note at the top), so periodic persistence is a sleep loop
+# backgrounded before the gateway starts. The gateway is NOT exec'd (see
+# the end of entrypoint.sh), so the SIGTERM handler there can stop this loop
+# and run one last upload before the container exits.
+start_sync_loop() {
     (
         while true; do
             sleep "${DR_SYNC_INTERVAL_SECONDS:-600}"
@@ -271,6 +274,16 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
         done
     ) &
     sync_loop_pid=$!
+}
+
+sync_loop_pid=""
+if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
+    # During a rollout the previous generation may still write: this pod then
+    # boots on the store as it is, and uploads only once it has taken the
+    # store over (15-handoff.sh).
+    handoff_check
+    pull_state
+    [ -n "$handoff_following" ] || start_sync_loop
 else
     echo "[entrypoint] DR_SYNC_CATALOG_ID not set; state will not persist across restarts" >&2
 fi

@@ -23,11 +23,15 @@
 # seed carries only the Labs skills, so everything else depends on this sync.
 # Best-effort: a failure here costs skills, not the bot, so it is logged and the
 # boot goes on. Hermes reads HERMES_BUNDLED_SKILLS first, so the check does too.
+# Run again after a rollout's reload (entrypoint.sh), over the state it brought.
 bundled_skills="${HERMES_BUNDLED_SKILLS:-/opt/hermes/skills}"
-if [ -d "$bundled_skills" ]; then
-    python /opt/hermes/tools/skills_sync.py \
-        || echo "[entrypoint] Warning: skills_sync.py failed; continuing" >&2
-else
-    echo "[entrypoint] Warning: bundled skills directory $bundled_skills not found; skipping the skills sync" >&2
-fi
-echo "[entrypoint] skills in HERMES_HOME: $(find "$HERMES_HOME/skills" -name SKILL.md | wc -l)" >&2
+sync_bundled_skills() {
+    if [ -d "$bundled_skills" ]; then
+        python /opt/hermes/tools/skills_sync.py \
+            || echo "[entrypoint] Warning: skills_sync.py failed; continuing" >&2
+    else
+        echo "[entrypoint] Warning: bundled skills directory $bundled_skills not found; skipping the skills sync" >&2
+    fi
+    echo "[entrypoint] skills in HERMES_HOME: $(find "$HERMES_HOME/skills" -name SKILL.md | wc -l)" >&2
+}
+sync_bundled_skills

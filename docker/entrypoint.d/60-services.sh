@@ -35,8 +35,6 @@ cd "$HERMES_HOME"
     done
 ) &
 
-# The handoff's stand-in held nginx's port until now (15-handoff.sh).
-handoff_release_port
 (
     while true; do
         nginx -c /opt/hermes-workload/nginx.conf \

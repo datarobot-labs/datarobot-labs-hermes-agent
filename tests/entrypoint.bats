@@ -373,8 +373,8 @@ STUB
 # handoff_setup <self id>: the stubs for a pod named lrs-<self id>-... in a
 # workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
 # last one repeating). dr-sync serves a handoff marker once $WORK/marker
-# exists, and records whether the stand-in answered while it was asked. The
-# store's download holds a directory or a symlink at the marker's path when
+# exists. The full download fails from the call $WORK/fail-download-from on,
+# and the store's download holds a directory or a symlink at the marker's path when
 # $WORK/stored-marker says so. With $WORK/slow-first, the first upload takes
 # that many seconds and records in $WORK/first-saw whether the marker was
 # there when it ended.
@@ -391,7 +391,6 @@ case "\$2" in
         [ -f "\$f" ] || f=\$(ls "$WORK"/protons.* | sort -t. -k2 -n | tail -n 1)
         cat "\$f"
         ;;
-    standin) exec python3 "\$1" standin "\$3" ;;
 esac
 STUB
     cat > "$WORK/bin/dr-sync" <<STUB
@@ -400,11 +399,12 @@ echo "dr-sync \$*" >> "\$STUB_LOG"
 case "\$*" in
     *"--prefix .dr-sync-handoff"*)
         if [ -f "$WORK/hang" ]; then sleep 60; fi
-        python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8642/health', timeout=2).status)" \
-            > "$WORK/standin" 2>/dev/null || echo down > "$WORK/standin"
         if [ -f "$WORK/marker" ]; then cp "$WORK/marker" "\$2/.dr-sync-handoff"; fi
         ;;
     "download /tmp/dr-sync-stage")
+        n=\$(( \$(cat "$WORK/downloads" 2>/dev/null || echo 0) + 1 ))
+        echo "\$n" > "$WORK/downloads"
+        if [ "\$n" -ge "\$(cat "$WORK/fail-download-from" 2>/dev/null || echo 99)" ]; then exit 1; fi
         case "\$(cat "$WORK/stored-marker" 2>/dev/null)" in
             dir) mkdir -p "\$2/.dr-sync-handoff" && touch "\$2/.dr-sync-handoff/x" ;;
             symlink) ln -s "$WORK/target" "\$2/.dr-sync-handoff" ;;
@@ -431,64 +431,132 @@ handoff_boot() {
         HERMES_PYTHON="$WORK/bin/fakepy" HANDOFF_POLL_SECONDS=1 HANDOFF_TIMEOUT_SECONDS=20 "$@"
 }
 
-@test "with no other generation, a pod downloads at once and holds no port" {
+# long_gateway: a gateway that runs until it is told to stop.
+long_gateway() {
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+}
+
+# boot_until <pattern> [VAR=value...]: boot in the background until the
+# pattern is in stderr or the calls log, UNTIL_COUNT times (once by default),
+# then stop the entrypoint as the platform would.
+boot_until() {
+    local pattern=$1
+    shift
+    handoff_boot "$@" &
+    local pid=$!
+    for _ in $(seq 150); do
+        [ "$(cat "$WORK/err" "$WORK/calls.log" 2>/dev/null | grep -c -- "$pattern")" -ge "${UNTIL_COUNT:-1}" ] && break
+        sleep 0.2
+    done
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)" 2>/dev/null || true
+    wait "$pid" || true
+}
+
+# line <pattern> [n]: the line number of the pattern's nth match in calls.log.
+line() {
+    grep -n -- "$1" "$WORK/calls.log" | sed -n "${2:-1}p" | cut -d: -f1
+}
+
+@test "with no other generation, a pod downloads once and uploads as usual" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopped\n' > "$WORK/protons.1"
     run handoff_boot
     [ "$status" -eq 0 ]
-    ! grep -q 'waiting for its handoff' "$WORK/err" || false
+    ! grep -q 'booting on its current state' "$WORK/err" || false
     ! grep -q -- '--prefix .dr-sync-handoff' "$WORK/calls.log" || false
-    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+    [ "$(grep -c '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log")" = 1 ]
+    [ "$(cat "$WORK/uploads")" = 1 ]
 }
 
-@test "during a rollout, a pod waits for the old generation's marker, holding the port, then downloads" {
+@test "during a rollout, a pod serves on the store as it is, uploads nothing, then reloads what the old one hands off" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
     # The old generation's final upload lands after a few polls.
     ( sleep 3; echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker" ) &
-    run handoff_boot
-    [ "$status" -eq 0 ]
-    grep -q 'generation bbbbbbbbbbbbbbbbbbbbbbbb may still write the state store; waiting for its handoff' "$WORK/err"
-    grep -q 'state store handed off after [0-9]*s' "$WORK/err"
-    [ "$(cat "$WORK/standin")" = 200 ]
-    last_check=$(grep -n -- '--prefix .dr-sync-handoff' "$WORK/calls.log" | tail -n 1 | cut -d: -f1)
-    download=$(grep -n '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log" | cut -d: -f1)
-    [ "$last_check" -lt "$download" ]
-    # The stand-in is gone once nginx takes the port.
-    ! python3 -c "import socket; socket.create_connection(('127.0.0.1', 8642), 1)" 2>/dev/null || false
+    # A 1 s interval: no periodic upload either, until the reload.
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'generation bbbbbbbbbbbbbbbbbbbbbbbb may still write the state store; booting on its current state, uploading nothing until it hands off' "$WORK/err"
+    grep -qE 'state store handed off after [0-9]+s; reloading it' "$WORK/err"
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    # The bundled skills are synced again over the state the reload brought.
+    [ "$(grep -c 'skills in HERMES_HOME' "$WORK/err")" = 2 ]
+    # Download, gateway, the marker, download again, gateway again, and only
+    # then an upload: the final one, on the platform's stop.
+    [ "$(line '^dr-sync download /tmp/dr-sync-stage$')" -lt "$(line '^hermes gateway run')" ]
+    [ "$(line '^hermes gateway run')" -lt "$(line 'dr-sync-handoff-check')" ]
+    [ "$(line 'dr-sync-handoff-check')" -lt "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" ]
+    [ "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" -lt "$(line '^hermes gateway run' 2)" ]
+    [ "$(line '^hermes gateway run' 2)" -lt "$(line '^dr-sync upload')" ]
 }
 
 @test "a marker from an earlier rollout doesn't count; the old generation stopping does" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
     echo cccccccccccccccccccccccc > "$WORK/marker"
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopping\n' > "$WORK/protons.2"
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopped\n' > "$WORK/protons.3"
-    run handoff_boot
-    [ "$status" -eq 0 ]
+    boot_until 'reloading the state store to take it over'
     grep -qE 'state store handed off after [0-9]+s' "$WORK/err"
     [ "$(cat "$WORK/calls")" -ge 3 ]
+    [ "$(grep -c '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log")" = 2 ]
 }
 
-@test "with no handoff before the timeout, the pod warns and boots anyway" {
+@test "with no handoff before the timeout, the pod warns and takes the store over anyway" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
-    run handoff_boot HANDOFF_TIMEOUT_SECONDS=2
-    [ "$status" -eq 0 ]
-    grep -qE 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb after [0-9]+s' "$WORK/err"
-    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+    boot_until 'reloading the state store to take it over' HANDOFF_TIMEOUT_SECONDS=2
+    grep -qE 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb after [0-9]+s; taking the state store over anyway' "$WORK/err"
+    [ "$(grep -c '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log")" = 2 ]
 }
 
-@test "a hung marker download can't hold the boot past the deadline" {
+@test "a hung marker download can't hold the takeover past the deadline" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
     : > "$WORK/hang"
     start=$(date +%s)
-    run handoff_boot HANDOFF_TIMEOUT_SECONDS=3
-    [ "$status" -eq 0 ]
+    boot_until 'reloading the state store to take it over' HANDOFF_TIMEOUT_SECONDS=3
     [ $(($(date +%s) - start)) -lt 20 ]
     grep -q 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb' "$WORK/err"
-    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+    [ "$(grep -c '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log")" = 2 ]
+}
+
+@test "a new pod whose gateway fails during a rollout exits with its status and never uploads" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\nexit 3\n' > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    run handoff_boot
+    [ "$status" -eq 3 ]
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
+    ! grep -q 'reloading the state store' "$WORK/err" || false
+}
+
+@test "a new pod stopped by the platform before the handoff never uploads" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
+    boot_until 'skills in HERMES_HOME'
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
+    ! grep -q 'reloading the state store' "$WORK/err" || false
+}
+
+@test "a reload whose download fails is fatal, and nothing is uploaded" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    echo 2 > "$WORK/fail-download-from"
+    run handoff_boot DR_SYNC_DOWNLOAD_ATTEMPTS=1
+    [ "$status" -eq 1 ]
+    grep -q 'FATAL: dr-sync download failed after 1 attempts' "$WORK/err"
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
 }
 
 @test "a draining generation stops its gateway, uploads its marker last, and idles until stopped" {
