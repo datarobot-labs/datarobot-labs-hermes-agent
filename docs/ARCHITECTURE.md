@@ -330,8 +330,10 @@ never takes the store over, because its gateway fails or the rollout is
 stopped first, never uploads. Platform maintenance replacements roll the same
 way and get the same handoff. An old pod that never hands off (an image from
 before the handoff, or a stuck one) is waited for until it stops, for up to
-`HANDOFF_TIMEOUT_SECONDS` (900); the new pod then takes the store over with a
-warning.
+`HANDOFF_TIMEOUT_SECONDS` (900), counted from when the old one stops running,
+that is, once the new pod is active; the new pod then takes the store over
+with a warning. A new pod that never gets ready never times out into a
+takeover, and neither does a failed read of the generation list.
 
 ### Checking and recovering state
 

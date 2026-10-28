@@ -63,11 +63,16 @@ handoff_enabled() {
     [ -n "${DR_SYNC_CATALOG_ID:-}" ] && [ -n "${WORKLOAD_ID:-}" ] && [ -n "$handoff_self" ]
 }
 
-# The other generations that may still write: those not stopped. Nothing when
-# the list can't be read in $1 seconds: a boot is never held on the API.
+# The other generations that may still write, those not stopped, as
+# "<id> <status>" lines read within $1 seconds. Fails when the list can't be read.
+handoff_list() {
+    handoff_protons=$(timeout --kill-after=2 "$1" "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons) || return 1
+    echo "$handoff_protons" | awk -v self="$handoff_self" 'NF && $1 != self && $2 != "stopped"'
+}
+
+# Their ids. Nothing when the list can't be read: a boot is never held on the API.
 handoff_others() {
-    timeout --kill-after=2 "$1" "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons |
-        awk -v self="$handoff_self" '$1 != self && $2 != "stopped" { print $1 }' || true
+    handoff_list "$1" | awk '{ print $1 }' || true
 }
 
 # Whether the store's head has a handoff marker from each generation in $1,
@@ -104,6 +109,11 @@ handoff_check() {
 # handoff_check found following: once every generation it waits on has handed
 # off or stopped, it flags the reload and stops the gateway $1, so that
 # entrypoint.sh reloads the state handed off and takes the store over.
+#
+# The timeout counts only once no other generation is running: the platform
+# drains the old one only after this one is ready. A pod that never gets
+# ready, its gateway wedged, so never takes the store over; the platform
+# stops it, and it uploads nothing.
 handoff_follow() {
     others=$handoff_following
     handoff_start=$(date +%s)
@@ -119,7 +129,14 @@ handoff_follow() {
             break
         fi
         sleep "$HANDOFF_POLL_SECONDS"
-        others=$(handoff_others "$(handoff_left)")
+        # A list that can't be read changes nothing: an empty one would read
+        # as every other generation stopped.
+        if list=$(handoff_list "$(handoff_left)"); then
+            others=$(echo "$list" | awk '{ print $1 }')
+            if echo "$list" | awk '$2 == "running" { found = 1 } END { exit !found }'; then
+                handoff_deadline=$(($(date +%s) + HANDOFF_TIMEOUT_SECONDS))
+            fi
+        fi
     done
     : > "$handoff_reload_flag"
     kill -TERM "$1" 2>/dev/null || true

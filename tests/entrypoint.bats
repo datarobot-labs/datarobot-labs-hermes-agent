@@ -372,7 +372,7 @@ STUB
 
 # handoff_setup <self id>: the stubs for a pod named lrs-<self id>-... in a
 # workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
-# last one repeating). dr-sync serves a handoff marker once $WORK/marker
+# last one repeating; one that says FAIL fails). dr-sync serves a handoff marker once $WORK/marker
 # exists. The full download fails from the call $WORK/fail-download-from on,
 # and the store's download holds a directory or a symlink at the marker's path when
 # $WORK/stored-marker says so. With $WORK/slow-first, the first upload takes
@@ -389,6 +389,8 @@ case "\$2" in
         echo "\$n" > "$WORK/calls"
         f="$WORK/protons.\$n"
         [ -f "\$f" ] || f=\$(ls "$WORK"/protons.* | sort -t. -k2 -n | tail -n 1)
+        # FAIL: the list can't be read.
+        [ "\$(cat "\$f")" != FAIL ] || exit 1
         cat "\$f"
         ;;
 esac
@@ -508,10 +510,34 @@ line() {
 @test "with no handoff before the timeout, the pod warns and takes the store over anyway" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     long_gateway
-    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
     boot_until 'reloading the state store to take it over' HANDOFF_TIMEOUT_SECONDS=2
     grep -qE 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb after [0-9]+s; taking the state store over anyway' "$WORK/err"
     [ "$(grep -c '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log")" = 2 ]
+}
+
+@test "while the old generation still runs, this pod is not active, and the timeout never takes the store over" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
+    # Polls, a second apart, well past the 2 s timeout.
+    UNTIL_COUNT=6 boot_until 'dr-sync-handoff-check' HANDOFF_TIMEOUT_SECONDS=2
+    [ "$(grep -c 'dr-sync-handoff-check' "$WORK/calls.log")" -ge 6 ]
+    ! grep -q 'no handoff from' "$WORK/err" || false
+    ! grep -q 'reloading the state store' "$WORK/err" || false
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
+}
+
+@test "a generation list that can't be read is not taken for the old generation stopping" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo FAIL > "$WORK/protons.2"
+    UNTIL_COUNT=4 boot_until 'dr-sync-handoff-check'
+    [ "$(cat "$WORK/calls")" -ge 3 ]
+    ! grep -q 'handed off after' "$WORK/err" || false
+    ! grep -q 'reloading the state store' "$WORK/err" || false
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
 }
 
 @test "a hung marker download can't hold the takeover past the deadline" {
