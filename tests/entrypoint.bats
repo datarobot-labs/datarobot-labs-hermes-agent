@@ -509,6 +509,20 @@ line() {
     [ ! -e /tmp/hermes-webui-paused ]
 }
 
+@test "a gateway that ignores the stop for the reload is killed, and the reload goes on" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    # The first gateway ignores SIGTERM; the one after the reload doesn't.
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\nif [ ! -e "%s/stubborn" ]; then : > "%s/stubborn"; trap "" TERM; else trap "exit 0" TERM; fi\nsleep 60 &\nwait $!\n' \
+        "$WORK" "$WORK" > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_STOP_SECONDS=2
+    grep -q 'the gateway did not stop within 2s; killing it to reload' "$WORK/err"
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    [ "$(grep -c '^hermes gateway run' "$WORK/calls.log")" = 2 ]
+}
+
 @test "a marker from an earlier rollout doesn't count; the old generation stopping does" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     long_gateway

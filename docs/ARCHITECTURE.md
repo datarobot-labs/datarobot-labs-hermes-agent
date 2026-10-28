@@ -320,7 +320,8 @@ old one changed meanwhile. So the pods hand the store over
   stops its gateway, downloads the store again, lays it over its state the way
   a boot does, and starts its gateway and its uploads. The web UI, which keeps
   its own state there and sessions in memory, is stopped for the reload and
-  started again on the new state.
+  started again on the new state. A gateway that hasn't stopped within
+  `HANDOFF_STOP_SECONDS` (30) is killed.
 
 A redeploy costs a few seconds with two gateways, Slack included, and then a
 short gap while the new pod reloads, instead of minutes of two writers. What

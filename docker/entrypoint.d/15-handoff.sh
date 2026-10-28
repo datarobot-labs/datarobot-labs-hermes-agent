@@ -46,6 +46,7 @@
 HERMES_PYTHON="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
 HANDOFF_POLL_SECONDS="${HANDOFF_POLL_SECONDS:-5}"
 HANDOFF_TIMEOUT_SECONDS="${HANDOFF_TIMEOUT_SECONDS:-900}"
+HANDOFF_STOP_SECONDS="${HANDOFF_STOP_SECONDS:-30}"
 handoff_marker=.dr-sync-handoff
 handoff_flag=/tmp/dr-sync-handed-off
 handoff_reload_flag=/tmp/dr-sync-reload
@@ -144,6 +145,14 @@ handoff_follow() {
     done
     : > "$handoff_reload_flag"
     kill -TERM "$1" 2>/dev/null || true
+    # A gateway that won't stop would keep this pod on the state from before
+    # the handoff for good, uploading nothing.
+    for _ in $(seq "$HANDOFF_STOP_SECONDS"); do
+        kill -0 "$1" 2>/dev/null || return 0
+        sleep 1
+    done
+    echo "[entrypoint] Warning: the gateway did not stop within ${HANDOFF_STOP_SECONDS}s; killing it to reload" >&2
+    kill -KILL "$1" 2>/dev/null || true
 }
 
 # Run in the background by entrypoint.sh once the gateway is up: when this
