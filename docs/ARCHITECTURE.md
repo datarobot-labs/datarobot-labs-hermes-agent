@@ -322,8 +322,10 @@ old one changed meanwhile. So the pods hand the store over
 
 A redeploy costs a few seconds with two gateways, Slack included, and then a
 short gap while the new pod reloads, instead of minutes of two writers. What
-the new pod wrote in those seconds, a Slack thread it answered for instance, is
-dropped by the reload, and a cron job due then may run twice. A new pod that
+the new pod wrote in those seconds is mostly lost: the reload replaces the
+databases and every file the store has, so a Slack thread it answered drops out
+of its sessions, and a cron job due then may run twice. A file only the new pod
+created, such as a new memory file, is kept and uploaded with the rest. A new pod that
 never takes the store over, because its gateway fails or the rollout is
 stopped first, never uploads. Platform maintenance replacements roll the same
 way and get the same handoff. An old pod that never hands off (an image from

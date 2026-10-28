@@ -36,8 +36,10 @@
 # - the new pod waits for that marker, or for the old pod to stop
 #   (handoff_follow). It then stops its gateway, reloads the state handed off,
 #   starts the gateway again and takes the store over (entrypoint.sh).
-# For a few seconds both gateways serve; what the new one wrote meanwhile is
-# dropped by the reload. The first rollout onto the handoff, from an old pod
+# For a few seconds both gateways serve. The reload lays the state handed off
+# over what the new one wrote meanwhile, as a boot lays it over the seed: the
+# databases and every file the store has are replaced, a file only the new
+# pod created is kept. The first rollout onto the handoff, from an old pod
 # without the watcher, waits for that pod to stop, up to
 # HANDOFF_TIMEOUT_SECONDS.
 
