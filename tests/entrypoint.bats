@@ -370,6 +370,213 @@ STUB
     [ "$status" -eq 0 ]
 }
 
+# handoff_setup <self id>: the stubs for a pod named lrs-<self id>-... in a
+# workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
+# last one repeating). dr-sync serves a handoff marker once $WORK/marker
+# exists, and records whether the stand-in answered while it was asked.
+handoff_setup() {
+    mkdir -p "$WORK/bin"
+    printf '#!/bin/sh\necho lrs-%s-5bcd5b4cbc-lf49d\n' "$1" > "$WORK/bin/hostname"
+    cat > "$WORK/bin/fakepy" <<STUB
+#!/bin/sh
+case "\$2" in
+    protons)
+        n=\$(( \$(cat "$WORK/calls" 2>/dev/null || echo 0) + 1 ))
+        echo "\$n" > "$WORK/calls"
+        f="$WORK/protons.\$n"
+        [ -f "\$f" ] || f=\$(ls "$WORK"/protons.* | sort -t. -k2 -n | tail -n 1)
+        cat "\$f"
+        ;;
+    standin) exec python3 "\$1" standin "\$3" ;;
+esac
+STUB
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+case "\$*" in
+    *"--prefix .dr-sync-handoff"*)
+        if [ -f "$WORK/hang" ]; then sleep 60; fi
+        python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8642/health', timeout=2).status)" \
+            > "$WORK/standin" 2>/dev/null || echo down > "$WORK/standin"
+        if [ -f "$WORK/marker" ]; then cp "$WORK/marker" "\$2/.dr-sync-handoff"; fi
+        ;;
+    upload*)
+        n=\$(( \$(cat "$WORK/uploads" 2>/dev/null || echo 0) + 1 ))
+        echo "\$n" > "$WORK/uploads"
+        if [ "\$n" -le "\$(cat "$WORK/fail-uploads" 2>/dev/null || echo 0)" ]; then exit 1; fi
+        cp "\$2/.dr-sync-handoff" "$WORK/uploaded-marker" 2>/dev/null || true
+        ;;
+esac
+exit 0
+STUB
+    chmod +x "$WORK/bin/hostname" "$WORK/bin/fakepy" "$WORK/bin/dr-sync"
+}
+
+handoff_boot() {
+    boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123 WORKLOAD_ID=w1 \
+        HERMES_PYTHON="$WORK/bin/fakepy" HANDOFF_POLL_SECONDS=1 HANDOFF_TIMEOUT_SECONDS=20 "$@"
+}
+
+@test "with no other generation, a pod downloads at once and holds no port" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopped\n' > "$WORK/protons.1"
+    run handoff_boot
+    [ "$status" -eq 0 ]
+    ! grep -q 'waiting for its handoff' "$WORK/err" || false
+    ! grep -q -- '--prefix .dr-sync-handoff' "$WORK/calls.log" || false
+    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+}
+
+@test "during a rollout, a pod waits for the old generation's marker, holding the port, then downloads" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    # The old generation's final upload lands after a few polls.
+    ( sleep 3; echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker" ) &
+    run handoff_boot
+    [ "$status" -eq 0 ]
+    grep -q 'generation bbbbbbbbbbbbbbbbbbbbbbbb may still write the state store; waiting for its handoff' "$WORK/err"
+    grep -q 'state store handed off after [0-9]*s' "$WORK/err"
+    [ "$(cat "$WORK/standin")" = 200 ]
+    last_check=$(grep -n -- '--prefix .dr-sync-handoff' "$WORK/calls.log" | tail -n 1 | cut -d: -f1)
+    download=$(grep -n '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log" | cut -d: -f1)
+    [ "$last_check" -lt "$download" ]
+    # The stand-in is gone once nginx takes the port.
+    ! python3 -c "import socket; socket.create_connection(('127.0.0.1', 8642), 1)" 2>/dev/null || false
+}
+
+@test "a marker from an earlier rollout doesn't count; the old generation stopping does" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    echo cccccccccccccccccccccccc > "$WORK/marker"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopping\n' > "$WORK/protons.2"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb stopped\n' > "$WORK/protons.3"
+    run handoff_boot
+    [ "$status" -eq 0 ]
+    grep -qE 'state store handed off after [0-9]+s' "$WORK/err"
+    [ "$(cat "$WORK/calls")" -ge 3 ]
+}
+
+@test "with no handoff before the timeout, the pod warns and boots anyway" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
+    run handoff_boot HANDOFF_TIMEOUT_SECONDS=2
+    [ "$status" -eq 0 ]
+    grep -qE 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb after [0-9]+s' "$WORK/err"
+    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+}
+
+@test "a hung marker download can't hold the boot past the deadline" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    : > "$WORK/hang"
+    start=$(date +%s)
+    run handoff_boot HANDOFF_TIMEOUT_SECONDS=3
+    [ "$status" -eq 0 ]
+    [ $(($(date +%s) - start)) -lt 20 ]
+    grep -q 'Warning: no handoff from bbbbbbbbbbbbbbbbbbbbbbbb' "$WORK/err"
+    grep -q '^dr-sync download /tmp/dr-sync-stage$' "$WORK/calls.log"
+}
+
+@test "a draining generation stops its gateway, uploads its marker last, and idles until stopped" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.2"
+    # A gateway that runs until it is told to stop.
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    handoff_boot &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until the platform stops this generation' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'this generation is draining; handing the state store off' "$WORK/err"
+    [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+    # Still running: it must not exit and be started again. The platform's
+    # stop is a TERM to the entrypoint itself, not to this test's subshell.
+    # boot runs the entrypoint as its child; both are still there while it idles.
+    kill -0 "$pid"
+    entrypoint=$(pgrep -P "$pid" | head -n 1)
+    [ -n "$entrypoint" ]
+    kill -TERM "$entrypoint"
+    status=0
+    wait "$pid" || status=$?
+    [ "$status" -eq 0 ]
+}
+
+@test "a gateway that exits on its own while the generation drains still hands off" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.2"
+    # The stub gateway exits at once, before the watcher's first poll (60 s away).
+    handoff_boot HANDOFF_POLL_SECONDS=60 &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'this generation is draining; handing the state store off' "$WORK/err"
+    grep -q 'state store handed off; idling until' "$WORK/err"
+    [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+    kill -0 "$pid"
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
+}
+
+@test "a failed handoff upload is retried until the marker lands" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.2"
+    echo 2 > "$WORK/fail-uploads"
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    handoff_boot &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'handoff upload failed (attempt 1); retrying' "$WORK/err"
+    grep -q 'handoff upload failed (attempt 2); retrying' "$WORK/err"
+    grep -q 'state store handed off; idling until' "$WORK/err"
+    [ "$(cat "$WORK/uploads")" = 3 ]
+    [ "$(cat "$WORK/uploaded-marker")" = aaaaaaaaaaaaaaaaaaaaaaaa ]
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
+}
+
+@test "when every handoff upload fails, the pod says so, keeps no marker, and still idles" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa draining\n' > "$WORK/protons.2"
+    echo 99 > "$WORK/fail-uploads"
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+    handoff_boot HANDOFF_UPLOAD_ATTEMPTS=2 &
+    pid=$!
+    for _ in $(seq 100); do
+        grep -q 'idling until' "$WORK/err" 2>/dev/null && break
+        sleep 0.2
+    done
+    grep -q 'the handoff upload kept failing, so the next generation waits for this one to stop' "$WORK/err"
+    [ "$(cat "$WORK/uploads")" = 2 ]
+    [ ! -e /tmp/hermes/.dr-sync-handoff ]
+    kill -0 "$pid"
+    kill -TERM "$(pgrep -P "$pid" | head -n 1)"
+    wait "$pid" || true
+}
+
+@test "a handoff flag left in /tmp by an earlier run doesn't stop the next one from serving" {
+    : > /tmp/dr-sync-handed-off
+    run boot DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    ! grep -q 'idling until' "$WORK/err" || false
+    [ ! -e /tmp/dr-sync-handed-off ]
+}
+
 @test "a download that keeps failing is fatal and the gateway never starts" {
     run boot DR_SYNC_CATALOG_ID=catalog123 STUB_DRSYNC_FAIL=1 DR_SYNC_DOWNLOAD_ATTEMPTS=1
     [ "$status" -ne 0 ]

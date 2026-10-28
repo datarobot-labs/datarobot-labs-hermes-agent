@@ -179,6 +179,8 @@ merge_state() {
 # successful download of nothing, so that still boots.
 sync_loop_pid=""
 if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
+    # During a rollout, not before the previous generation hands off (15-handoff.sh).
+    handoff_wait
     if ! download_state; then
         echo "[entrypoint] FATAL: dr-sync download failed after $DR_SYNC_DOWNLOAD_ATTEMPTS attempts; refusing to start with empty state" >&2
         exit 1
