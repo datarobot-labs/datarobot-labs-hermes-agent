@@ -87,10 +87,12 @@ handoff_done() {
     done
 }
 
-# The seconds left before the wait's deadline, at least 1: what each call in
-# the wait may take, so a hung one can't hold the boot past the deadline.
+# What each call in the wait may take: the seconds left before its deadline,
+# at most 30 and at least 1, so a hung one can't hold the wait past the
+# deadline, nor keep the generation list from being read again.
 handoff_left() {
     left=$((handoff_deadline - $(date +%s)))
+    [ "$left" -le 30 ] || left=30
     [ "$left" -gt 0 ] || left=1
     echo "$left"
 }
@@ -123,11 +125,6 @@ handoff_follow() {
             echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s; reloading it" >&2
             break
         fi
-        if [ "$(date +%s)" -ge "$handoff_deadline" ]; then
-            # Waiting for good would be worse than the overlap it avoids.
-            echo "[entrypoint] Warning: no handoff from $(echo $others) after $(($(date +%s) - handoff_start))s; taking the state store over anyway, and the two may overwrite each other's state" >&2
-            break
-        fi
         sleep "$HANDOFF_POLL_SECONDS"
         # A list that can't be read changes nothing: an empty one would read
         # as every other generation stopped.
@@ -136,6 +133,13 @@ handoff_follow() {
             if echo "$list" | awk '$2 == "running" { found = 1 } END { exit !found }'; then
                 handoff_deadline=$(($(date +%s) + HANDOFF_TIMEOUT_SECONDS))
             fi
+        fi
+        # Only here, after the list: the marker check above may have taken
+        # until the deadline while another generation still runs.
+        if [ -n "$others" ] && [ "$(date +%s)" -ge "$handoff_deadline" ]; then
+            # Waiting for good would be worse than the overlap it avoids.
+            echo "[entrypoint] Warning: no handoff from $(echo $others) after $(($(date +%s) - handoff_start))s; taking the state store over anyway, and the two may overwrite each other's state" >&2
+            break
         fi
     done
     : > "$handoff_reload_flag"

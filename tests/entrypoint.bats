@@ -528,6 +528,19 @@ line() {
     ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
 }
 
+@test "a hung marker check can't run out the timeout while the old generation still runs" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb running\n' > "$WORK/protons.1"
+    : > "$WORK/hang"
+    # Each check hangs until the 2 s deadline; three of them run well past it.
+    UNTIL_COUNT=3 boot_until 'dr-sync-handoff-check' HANDOFF_TIMEOUT_SECONDS=2
+    [ "$(grep -c 'dr-sync-handoff-check' "$WORK/calls.log")" -ge 3 ]
+    ! grep -q 'no handoff from' "$WORK/err" || false
+    ! grep -q 'reloading the state store' "$WORK/err" || false
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
+}
+
 @test "a generation list that can't be read is not taken for the old generation stopping" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     long_gateway
