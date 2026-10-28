@@ -383,6 +383,16 @@ handoff_setup() {
     printf '#!/bin/sh\necho lrs-%s-5bcd5b4cbc-lf49d\n' "$1" > "$WORK/bin/hostname"
     cat > "$WORK/bin/fakepy" <<STUB
 #!/bin/sh
+case "\$1" in
+    */server.py)
+        # A web UI that runs until it is stopped.
+        echo "webui start" >> "\$STUB_LOG"
+        trap 'echo "webui stop" >> "\$STUB_LOG"; kill \$!; exit 0' TERM
+        sleep 60 &
+        wait \$!
+        exit 0
+        ;;
+esac
 case "\$2" in
     protons)
         n=\$(( \$(cat "$WORK/calls" 2>/dev/null || echo 0) + 1 ))
@@ -492,6 +502,11 @@ line() {
     [ "$(line 'dr-sync-handoff-check')" -lt "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" ]
     [ "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" -lt "$(line '^hermes gateway run' 2)" ]
     [ "$(line '^hermes gateway run' 2)" -lt "$(line '^dr-sync upload')" ]
+    # The web UI is stopped before the reload replaces the state, and only
+    # let start again after it.
+    [ "$(line '^webui start')" -lt "$(line '^webui stop')" ]
+    [ "$(line '^webui stop')" -lt "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" ]
+    [ ! -e /tmp/hermes-webui-paused ]
 }
 
 @test "a marker from an earlier rollout doesn't count; the old generation stopping does" {

@@ -115,8 +115,10 @@ while true; do
         rm -f "$handoff_reload_flag"
         handoff_following=""
         echo "[entrypoint] gateway stopped; reloading the state store to take it over" >&2
+        webui_pause
         pull_state
         sync_bundled_skills
+        webui_resume
         start_sync_loop
         [ -z "$stopping" ] || break
         continue
