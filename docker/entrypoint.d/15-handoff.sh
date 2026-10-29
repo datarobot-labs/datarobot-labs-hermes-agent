@@ -54,7 +54,8 @@ handoff_reload_flag=/tmp/dr-sync-reload
 # restarted in the same pod can keep /tmp (10-seed.sh), and must not take an
 # earlier run's flags for its own: it would idle instead of serving.
 rm -f "$handoff_flag" "$handoff_reload_flag"
-# The generations this pod waits on before it uploads anything (handoff_check).
+# The generations this pod waits on before it uploads anything (handoff_check),
+# or "unread" when the list couldn't be read at boot.
 handoff_following=""
 # This pod's generation: the platform names its pods lrs-<proton id>-...
 handoff_self=$(hostname | sed -nE 's/^lrs-([0-9a-f]{24})-.*/\1/p')
@@ -69,11 +70,6 @@ handoff_enabled() {
 handoff_list() {
     handoff_protons=$(timeout --kill-after=2 "$1" "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons) || return 1
     echo "$handoff_protons" | awk -v self="$handoff_self" 'NF && $1 != self && $2 != "stopped"'
-}
-
-# Their ids. Nothing when the list can't be read: a boot is never held on the API.
-handoff_others() {
-    handoff_list "$1" | awk '{ print $1 }' || true
 }
 
 # Whether the store's head has a handoff marker from each generation in $1,
@@ -103,7 +99,14 @@ handoff_left() {
 # follows that generation's handoff (handoff_follow).
 handoff_check() {
     handoff_enabled || return 0
-    handoff_following=$(handoff_others 30)
+    # A list that can't be read is not an empty one: another generation may
+    # still write, so this pod follows until a read shows who.
+    if ! list=$(handoff_list 30); then
+        handoff_following=unread
+        echo "[entrypoint] Warning: could not read the generation list; booting on the store's current state, uploading nothing until it can be read" >&2
+        return 0
+    fi
+    handoff_following=$(echo "$list" | awk '{ print $1 }')
     [ -n "$handoff_following" ] || return 0
     echo "[entrypoint] generation $(echo $handoff_following) may still write the state store; booting on its current state, uploading nothing until it hands off" >&2
 }
@@ -116,24 +119,35 @@ handoff_check() {
 # The timeout counts only once no other generation is running: the platform
 # drains the old one only after this one is ready. A pod that never gets
 # ready, its gateway wedged, so never takes the store over; the platform
-# stops it, and it uploads nothing.
+# stops it, and it uploads nothing. Nor does a list that can't be read: who
+# else may write is unknown, so neither the end of the wait nor its timeout
+# applies until a read succeeds.
 handoff_follow() {
     others=$handoff_following
+    unread=""
+    if [ "$others" = unread ]; then
+        unread=1
+        others=""
+    fi
     handoff_start=$(date +%s)
     handoff_deadline=$((handoff_start + HANDOFF_TIMEOUT_SECONDS))
     while true; do
-        if [ -z "$others" ] || handoff_done "$others" "$(handoff_left)"; then
+        if [ -z "$unread" ] && { [ -z "$others" ] || handoff_done "$others" "$(handoff_left)"; }; then
             echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s; reloading it" >&2
             break
         fi
         sleep "$HANDOFF_POLL_SECONDS"
-        # A list that can't be read changes nothing: an empty one would read
-        # as every other generation stopped.
         if list=$(handoff_list "$(handoff_left)"); then
+            unread=""
             others=$(echo "$list" | awk '{ print $1 }')
             if echo "$list" | awk '$2 == "running" { found = 1 } END { exit !found }'; then
                 handoff_deadline=$(($(date +%s) + HANDOFF_TIMEOUT_SECONDS))
             fi
+        else
+            # Keeps who else may write (an empty list would read as every
+            # other generation stopped), and restarts the timeout: a failed
+            # read is no sign that the old one has stopped running.
+            handoff_deadline=$(($(date +%s) + HANDOFF_TIMEOUT_SECONDS))
         fi
         # Only here, after the list: the marker check above may have taken
         # until the deadline while another generation still runs.

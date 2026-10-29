@@ -336,7 +336,9 @@ before the handoff, or a stuck one) is waited for until it stops, for up to
 `HANDOFF_TIMEOUT_SECONDS` (900), counted from when the old one stops running,
 that is, once the new pod is active; the new pod then takes the store over
 with a warning. A new pod that never gets ready never times out into a
-takeover, and neither does a failed read of the generation list.
+takeover, and neither does a failed read of the generation list. A pod that
+can't read that list at boot follows too, uploading nothing until a read shows
+whether another generation may still write.
 
 ### Checking and recovering state
 

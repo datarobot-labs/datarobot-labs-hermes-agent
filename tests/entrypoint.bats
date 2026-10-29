@@ -395,6 +395,7 @@ case "\$1" in
 esac
 case "\$2" in
     protons)
+        echo "handoff.py protons" >> "\$STUB_LOG"
         n=\$(( \$(cat "$WORK/calls" 2>/dev/null || echo 0) + 1 ))
         echo "\$n" > "$WORK/calls"
         f="$WORK/protons.\$n"
@@ -570,14 +571,40 @@ line() {
     ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
 }
 
-@test "a generation list that can't be read is not taken for the old generation stopping" {
+@test "a generation list that can't be read is not taken for the old generation stopping, nor runs out the timeout" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     long_gateway
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
     echo FAIL > "$WORK/protons.2"
-    UNTIL_COUNT=4 boot_until 'dr-sync-handoff-check'
-    [ "$(cat "$WORK/calls")" -ge 3 ]
+    # Polls, a second apart, well past the 2 s timeout.
+    UNTIL_COUNT=6 boot_until 'dr-sync-handoff-check' HANDOFF_TIMEOUT_SECONDS=2
+    [ "$(cat "$WORK/calls")" -ge 5 ]
     ! grep -q 'handed off after' "$WORK/err" || false
+    ! grep -q 'no handoff from' "$WORK/err" || false
+    ! grep -q 'reloading the state store' "$WORK/err" || false
+    ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
+}
+
+@test "a pod that can't read the generation list at boot uploads nothing until a read shows it is the only writer" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    echo FAIL > "$WORK/protons.1"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\n' > "$WORK/protons.2"
+    # A 1 s interval: no periodic upload either, until the reload.
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q "could not read the generation list; booting on the store's current state, uploading nothing until it can be read" "$WORK/err"
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    [ "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" -lt "$(line '^dr-sync upload')" ]
+}
+
+@test "a pod that can never read the generation list never takes the store over" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    echo FAIL > "$WORK/protons.1"
+    # Polls, a second apart, well past the 2 s timeout.
+    UNTIL_COUNT=6 boot_until '^handoff.py protons' HANDOFF_TIMEOUT_SECONDS=2 DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'could not read the generation list' "$WORK/err"
+    ! grep -q 'no handoff from' "$WORK/err" || false
     ! grep -q 'reloading the state store' "$WORK/err" || false
     ! grep -q '^dr-sync upload' "$WORK/calls.log" || false
 }
