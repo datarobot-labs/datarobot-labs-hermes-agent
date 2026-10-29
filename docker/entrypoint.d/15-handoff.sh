@@ -24,31 +24,39 @@
 # pod's next upload silently reverted every file the old one had changed in
 # the meantime.
 #
-# So the two pods take turns:
-# - the old pod watches its own generation (handoff_watch). Once it is
-#   draining it stops its gateway, makes its final upload with a marker naming
-#   itself (.dr-sync-handoff), and idles until the platform stops it
-#   (entrypoint.sh);
-# - the new pod, before its download, waits until every other generation has
-#   stopped or handed off (handoff_wait). Meanwhile a stand-in answers on its
-#   port, so the platform still makes it active, and the old pod drains.
-# A redeploy then has about a minute without a gateway instead of minutes of
-# two writers. The first rollout onto this code has an old pod without the
-# watcher: the new one waits for it to stop, up to HANDOFF_TIMEOUT_SECONDS.
+# So the two pods take turns, and the new one still proves it works first:
+# - the new pod, when another generation may still write (handoff_check),
+#   boots on the store's current state and serves, but uploads nothing. Its
+#   own gateway answers the readiness probe, so an image that can't boot never
+#   becomes active, and the old version keeps serving;
+# - once it is active, the platform drains the old pod. That one watches its
+#   own generation (handoff_watch): it stops its gateway, makes its final
+#   upload with a marker naming itself (.dr-sync-handoff), and idles until the
+#   platform stops it (entrypoint.sh);
+# - the new pod waits for that marker, or for the old pod to stop
+#   (handoff_follow). It then stops its gateway, reloads the state handed off,
+#   starts the gateway again and takes the store over (entrypoint.sh).
+# For a few seconds both gateways serve. The reload lays the state handed off
+# over what the new one wrote meanwhile, as a boot lays it over the seed: the
+# databases and every file the store has are replaced, a file only the new
+# pod created is kept. The first rollout onto the handoff, from an old pod
+# without the watcher, waits for that pod to stop, up to
+# HANDOFF_TIMEOUT_SECONDS.
 
 HERMES_PYTHON="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
 HANDOFF_POLL_SECONDS="${HANDOFF_POLL_SECONDS:-5}"
 HANDOFF_TIMEOUT_SECONDS="${HANDOFF_TIMEOUT_SECONDS:-900}"
-# The port nginx listens on (docker/nginx.conf), held by the stand-in until
-# 60-services.sh starts nginx.
-HANDOFF_PORT=8642
+HANDOFF_STOP_SECONDS="${HANDOFF_STOP_SECONDS:-30}"
 handoff_marker=.dr-sync-handoff
 handoff_flag=/tmp/dr-sync-handed-off
-# Set only once this pod has handed off. A container restarted in the same pod
-# can keep /tmp (10-seed.sh), and must not take an earlier run's handoff for
-# its own: it would idle instead of serving.
-rm -f "$handoff_flag"
-standin_pid=""
+handoff_reload_flag=/tmp/dr-sync-reload
+# Set only once this pod has handed off, or is to reload. A container
+# restarted in the same pod can keep /tmp (10-seed.sh), and must not take an
+# earlier run's flags for its own: it would idle instead of serving.
+rm -f "$handoff_flag" "$handoff_reload_flag"
+# The generations this pod waits on before it uploads anything (handoff_check),
+# or "unread" when the list couldn't be read at boot.
+handoff_following=""
 # This pod's generation: the platform names its pods lrs-<proton id>-...
 handoff_self=$(hostname | sed -nE 's/^lrs-([0-9a-f]{24})-.*/\1/p')
 
@@ -57,11 +65,11 @@ handoff_enabled() {
     [ -n "${DR_SYNC_CATALOG_ID:-}" ] && [ -n "${WORKLOAD_ID:-}" ] && [ -n "$handoff_self" ]
 }
 
-# The other generations that may still write: those not stopped. Nothing when
-# the list can't be read in $1 seconds: a boot is never held on the API.
-handoff_others() {
-    timeout --kill-after=2 "$1" "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons |
-        awk -v self="$handoff_self" '$1 != self && $2 != "stopped" { print $1 }' || true
+# The other generations that may still write, those not stopped, as
+# "<id> <status>" lines read within $1 seconds. Fails when the list can't be read.
+handoff_list() {
+    handoff_protons=$(timeout --kill-after=2 "$1" "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" protons) || return 1
+    echo "$handoff_protons" | awk -v self="$handoff_self" 'NF && $1 != self && $2 != "stopped"'
 }
 
 # Whether the store's head has a handoff marker from each generation in $1,
@@ -76,46 +84,89 @@ handoff_done() {
     done
 }
 
-# The seconds left before the wait's deadline, at least 1: what each call in
-# the wait may take, so a hung one can't hold the boot past the deadline.
+# What each call in the wait may take: the seconds left before its deadline,
+# at most 30 and at least 1, so a hung one can't hold the wait past the
+# deadline, nor keep the generation list from being read again.
 handoff_left() {
     left=$((handoff_deadline - $(date +%s)))
+    [ "$left" -le 30 ] || left=30
     [ "$left" -gt 0 ] || left=1
     echo "$left"
 }
 
-handoff_wait() {
+# At boot, before the download: whether another generation may still write.
+# If so, this pod boots on the store's current state, uploads nothing, and
+# follows that generation's handoff (handoff_follow).
+handoff_check() {
     handoff_enabled || return 0
-    others=$(handoff_others 30)
-    [ -n "$others" ] || return 0
-    echo "[entrypoint] generation $(echo $others) may still write the state store; waiting for its handoff before the download" >&2
-    "$HERMES_PYTHON" "$ENTRYPOINT_DIR/handoff.py" standin "$HANDOFF_PORT" &
-    standin_pid=$!
-    handoff_start=$(date +%s)
-    handoff_deadline=$((handoff_start + HANDOFF_TIMEOUT_SECONDS))
-    while [ "$(date +%s)" -lt "$handoff_deadline" ]; do
-        if [ -z "$others" ] || handoff_done "$others" "$(handoff_left)"; then
-            echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s" >&2
-            return 0
-        fi
-        sleep "$HANDOFF_POLL_SECONDS"
-        others=$(handoff_others "$(handoff_left)")
-    done
-    if [ -z "$others" ]; then
-        echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s" >&2
+    # A list that can't be read is not an empty one: another generation may
+    # still write, so this pod follows until a read shows who.
+    if ! list=$(handoff_list 30); then
+        handoff_following=unread
+        echo "[entrypoint] Warning: could not read the generation list; booting on the store's current state, uploading nothing until it can be read" >&2
         return 0
     fi
-    # Holding the boot for good would be worse than the overlap it avoids.
-    echo "[entrypoint] Warning: no handoff from $(echo $others) after $(($(date +%s) - handoff_start))s; going on, and the two may overwrite each other's state" >&2
+    handoff_following=$(echo "$list" | awk '{ print $1 }')
+    [ -n "$handoff_following" ] || return 0
+    echo "[entrypoint] generation $(echo $handoff_following) may still write the state store; booting on its current state, uploading nothing until it hands off" >&2
 }
 
-# Called by 60-services.sh just before nginx takes the port.
-handoff_release_port() {
-    if [ -n "$standin_pid" ]; then
-        kill "$standin_pid" 2>/dev/null || true
-        wait "$standin_pid" 2>/dev/null || true
-        standin_pid=""
+# Run in the background by entrypoint.sh once the gateway is up, on a pod
+# handoff_check found following: once every generation it waits on has handed
+# off or stopped, it flags the reload and stops the gateway $1, so that
+# entrypoint.sh reloads the state handed off and takes the store over.
+#
+# The timeout counts only once no other generation is running: the platform
+# drains the old one only after this one is ready. A pod that never gets
+# ready, its gateway wedged, so never takes the store over; the platform
+# stops it, and it uploads nothing. Nor does a list that can't be read: who
+# else may write is unknown, so neither the end of the wait nor its timeout
+# applies until a read succeeds.
+handoff_follow() {
+    others=$handoff_following
+    unread=""
+    if [ "$others" = unread ]; then
+        unread=1
+        others=""
     fi
+    handoff_start=$(date +%s)
+    handoff_deadline=$((handoff_start + HANDOFF_TIMEOUT_SECONDS))
+    while true; do
+        if [ -z "$unread" ] && { [ -z "$others" ] || handoff_done "$others" "$(handoff_left)"; }; then
+            echo "[entrypoint] state store handed off after $(($(date +%s) - handoff_start))s; reloading it" >&2
+            break
+        fi
+        sleep "$HANDOFF_POLL_SECONDS"
+        if list=$(handoff_list "$(handoff_left)"); then
+            unread=""
+            others=$(echo "$list" | awk '{ print $1 }')
+            if echo "$list" | awk '$2 == "running" { found = 1 } END { exit !found }'; then
+                handoff_deadline=$(($(date +%s) + HANDOFF_TIMEOUT_SECONDS))
+            fi
+        else
+            # Keeps who else may write (an empty list would read as every
+            # other generation stopped), and restarts the timeout: a failed
+            # read is no sign that the old one has stopped running.
+            handoff_deadline=$(($(date +%s) + HANDOFF_TIMEOUT_SECONDS))
+        fi
+        # Only here, after the list: the marker check above may have taken
+        # until the deadline while another generation still runs.
+        if [ -n "$others" ] && [ "$(date +%s)" -ge "$handoff_deadline" ]; then
+            # Waiting for good would be worse than the overlap it avoids.
+            echo "[entrypoint] Warning: no handoff from $(echo $others) after $(($(date +%s) - handoff_start))s; taking the state store over anyway, and the two may overwrite each other's state" >&2
+            break
+        fi
+    done
+    : > "$handoff_reload_flag"
+    kill -TERM "$1" 2>/dev/null || true
+    # A gateway that won't stop would keep this pod on the state from before
+    # the handoff for good, uploading nothing.
+    for _ in $(seq "$HANDOFF_STOP_SECONDS"); do
+        kill -0 "$1" 2>/dev/null || return 0
+        sleep 1
+    done
+    echo "[entrypoint] Warning: the gateway did not stop within ${HANDOFF_STOP_SECONDS}s; killing it to reload" >&2
+    kill -KILL "$1" 2>/dev/null || true
 }
 
 # Run in the background by entrypoint.sh once the gateway is up: when this

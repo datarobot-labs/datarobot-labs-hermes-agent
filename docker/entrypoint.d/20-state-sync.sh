@@ -27,6 +27,9 @@
 # and those copies are what travel.
 DB_SNAPSHOTS="$HERMES_HOME/.dr-sync-snapshots"
 DR_SYNC_DOWNLOAD_ATTEMPTS="${DR_SYNC_DOWNLOAD_ATTEMPTS:-5}"
+# A periodic upload's bound: one that hangs would otherwise hold the lock, and
+# with it the handoff's final upload, for good.
+DR_SYNC_UPLOAD_TIMEOUT="${DR_SYNC_UPLOAD_TIMEOUT:-600}"
 
 snapshot_dbs() {
     find "$HERMES_HOME" \
@@ -73,22 +76,39 @@ restore_dbs() {
         rel="${rel#./}"
         dest="$HERMES_HOME/${rel%.snap}"
         mkdir -p "$(dirname "$dest")"
+        # A new file renamed into place: on a reload (entrypoint.sh), a process
+        # still holding the old one open keeps it whole. Copied before the WAL
+        # goes, and checked: set -e does not stop a failed command in an && list.
+        if ! cp -f "$DB_SNAPSHOTS/$rel" "$dest.restore"; then
+            rm -f "$dest.restore"
+            echo "[entrypoint] Error: could not copy the snapshot $rel" >&2
+            exit 1
+        fi
         rm -f "$dest-wal" "$dest-shm"
-        cp -f "$DB_SNAPSHOTS/$rel" "$dest"
+        mv -f "$dest.restore" "$dest" || exit 1
         echo "[entrypoint] restored database $rel" >&2
     done
 }
 
 # One upload. The flock serialises the periodic loop against the final
 # shutdown upload, so they can't contend for dr-sync's lease. $1 is an
-# optional timeout (seconds) for the dr-sync call; 0/unset means none. The
-# lock wait is short and timeout escalates to SIGKILL so the shutdown upload
-# can't outlive the pod's termination grace period.
+# optional timeout (seconds) for the dr-sync call; 0/unset means none. $2 is
+# how long to wait for the lock, 5 s by default: short on a shutdown, and
+# timeout escalates to SIGKILL, so the upload can't outlive the pod's
+# termination grace period. $3, on a handoff, is this generation's id: the
+# marker is written under the lock, after the snapshots, so no upload but this
+# one can carry it (15-handoff.sh).
 sync_up() {
     (
-        flock -w 5 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
+        flock -w "${2:-5}" 9 || { echo "[entrypoint] Warning: could not get the sync lock" >&2; exit 1; }
         # Explicit: set -e does not apply inside a function that runs in an || list.
         snapshot_dbs || exit 1
+        if [ -n "${3:-}" ]; then
+            # A fresh file, whatever the store left at that path: a directory
+            # would fail the write, and a symlink would take it elsewhere.
+            rm -rf "${HERMES_HOME:?}/$handoff_marker"
+            echo "$3" > "$HERMES_HOME/$handoff_marker" || exit 1
+        fi
         timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
             --keep-generations 144 \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'
@@ -177,10 +197,9 @@ merge_state() {
 # state.db/sessions/memories with an empty copy within one interval. Exiting
 # lets Kubernetes retry the pod instead. An empty remote (first deploy) is a
 # successful download of nothing, so that still boots.
-sync_loop_pid=""
-if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
-    # During a rollout, not before the previous generation hands off (15-handoff.sh).
-    handoff_wait
+#
+# pull_state runs at boot, and again on a rollout's reload (entrypoint.sh).
+pull_state() {
     if ! download_state; then
         echo "[entrypoint] FATAL: dr-sync download failed after $DR_SYNC_DOWNLOAD_ATTEMPTS attempts; refusing to start with empty state" >&2
         exit 1
@@ -190,7 +209,11 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
         echo "[entrypoint] FATAL: could not move the downloaded state into $HERMES_HOME; refusing to start with part of it" >&2
         exit 1
     fi
-    restore_dbs
+    # The live database would otherwise be uploaded over the store's.
+    if ! restore_dbs; then
+        echo "[entrypoint] FATAL: could not restore the downloaded databases; refusing to start without them" >&2
+        exit 1
+    fi
     # Skills and plugins are synced, so what the agent learns or adds survives
     # a restart. The download also brought back what earlier images shipped:
     # older copies of this image's skills and plugins, and ones this image
@@ -246,19 +269,31 @@ if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
     else
         cp /tmp/dr-sync-shipped "$shipped"
     fi
+}
 
-    # Background push loop -- there is no cron/supervisor in this container
-    # (see the s6 note at the top), so periodic persistence is a sleep loop
-    # backgrounded before the gateway starts. The gateway is NOT exec'd (see
-    # the end of this file), so the SIGTERM handler there can stop this loop
-    # and run one last upload before the container exits.
+# Background push loop -- there is no cron/supervisor in this container
+# (see the s6 note at the top), so periodic persistence is a sleep loop
+# backgrounded before the gateway starts. The gateway is NOT exec'd (see
+# the end of entrypoint.sh), so the SIGTERM handler there can stop this loop
+# and run one last upload before the container exits.
+start_sync_loop() {
     (
         while true; do
             sleep "${DR_SYNC_INTERVAL_SECONDS:-600}"
-            sync_up || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
+            sync_up "$DR_SYNC_UPLOAD_TIMEOUT" || echo "[entrypoint] Warning: dr-sync upload failed; continuing" >&2
         done
     ) &
     sync_loop_pid=$!
+}
+
+sync_loop_pid=""
+if [ -n "${DR_SYNC_CATALOG_ID:-}" ]; then
+    # During a rollout the previous generation may still write: this pod then
+    # boots on the store as it is, and uploads only once it has taken the
+    # store over (15-handoff.sh).
+    handoff_check
+    pull_state
+    [ -n "$handoff_following" ] || start_sync_loop
 else
     echo "[entrypoint] DR_SYNC_CATALOG_ID not set; state will not persist across restarts" >&2
 fi

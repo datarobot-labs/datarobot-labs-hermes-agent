@@ -15,7 +15,7 @@
 
 # Behaviour of docker/entrypoint.d/handoff.py against a fake protons API: the
 # list is read with the workload's key across pages, a body that isn't a list
-# is an error rather than "no generations", and the stand-in answers /health.
+# is an error rather than "no generations".
 
 setup() {
     WORK=$(mktemp -d)
@@ -41,6 +41,16 @@ class H(http.server.BaseHTTPRequestHandler):
             body = {"data": [], "next": "http://127.0.0.2:%d/elsewhere" % port}
         elif mode == "loop":
             body = {"data": [], "next": base + self.path}
+        elif mode in ("relative", "query") and self.path == "/api/v2/workloads/w1/protons/":
+            body = {"data": [{"id": "new1", "status": "running"}],
+                    "next": "page2" if mode == "relative" else "?offset=1"}
+        elif mode in ("relative", "query"):
+            body = {"data": [{"id": "old1", "status": "draining"}], "next": None}
+            open(os.path.join(work, "page2"), "w").write(self.path)
+        elif mode == "broken" and self.path != "/api/v2/workloads/w1/protons/":
+            self.send_response(500)
+            self.end_headers()
+            return
         elif self.path == "/api/v2/workloads/w1/protons/":
             body = {"data": [{"id": "new1", "status": "running", "role": "active"},
                              {"id": "old1", "status": "draining", "role": None}],
@@ -65,7 +75,7 @@ PY
 }
 
 teardown() {
-    kill "$API_PID" "${STANDIN_PID:-}" 2>/dev/null || true
+    kill "$API_PID" 2>/dev/null || true
     rm -rf "$WORK"
 }
 
@@ -107,30 +117,30 @@ gone1 stopped" ]
     [[ "$output" != *workload-key* ]]
 }
 
+@test "a relative next-link is followed from the page that gave it" {
+    echo relative > "$WORK/mode"
+    protons
+    [ "$status" -eq 0 ]
+    [ "$output" = "new1 running
+old1 draining" ]
+    [ "$(cat "$WORK/page2")" = /api/v2/workloads/w1/protons/page2 ]
+
+    echo query > "$WORK/mode"
+    protons
+    [ "$status" -eq 0 ]
+    [ "$(cat "$WORK/page2")" = "/api/v2/workloads/w1/protons/?offset=1" ]
+}
+
+@test "a later page that fails prints no generation at all, not the first page's" {
+    echo broken > "$WORK/mode"
+    protons
+    [ "$status" -eq 1 ]
+    [[ "$output" != *new1* ]]
+}
+
 @test "a next-link that never ends stops after a bounded number of pages" {
     echo loop > "$WORK/mode"
     protons
     [ "$status" -eq 1 ]
     [[ "$output" == *"ran past 20 pages"* ]]
-}
-
-@test "the stand-in answers /health with 200 and anything else with 503" {
-    python3 /repo/docker/entrypoint.d/handoff.py standin 18651 &
-    STANDIN_PID=$!
-    code() {
-        python3 - "$1" <<'PY'
-import sys, time, urllib.error, urllib.request
-for _ in range(50):
-    try:
-        print(urllib.request.urlopen("http://127.0.0.1:18651" + sys.argv[1], timeout=2).status)
-        break
-    except urllib.error.HTTPError as e:
-        print(e.code)
-        break
-    except OSError:
-        time.sleep(0.1)
-PY
-    }
-    [ "$(code /health)" = 200 ]
-    [ "$(code /chat)" = 503 ]
 }

@@ -74,25 +74,56 @@ ENTRYPOINT_DIR="${0%/*}/entrypoint.d"
 # sessions/memories. Now SIGTERM is forwarded to the gateway, and once it has
 # exited cleanly one final upload runs, bounded by DR_SYNC_FINAL_TIMEOUT so it
 # stays inside the pod's termination grace period (30s by default).
-hermes gateway run --no-supervise "$@" &
-gateway_pid=$!
-trap 'kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
+#
+# A pod that booted while another generation still wrote (15-handoff.sh) runs
+# this twice: once on the state it found, and again, after the reload, on the
+# state that generation handed off.
+stopping=""
+trap 'stopping=1; kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
+while true; do
+    hermes gateway run --no-supervise "$@" &
+    gateway_pid=$!
 
-# Once this generation drains, the watcher stops the gateway so the next one
-# can take the state store over (15-handoff.sh).
-handoff_watch_pid=""
-if [ -n "$sync_loop_pid" ] && handoff_enabled; then
-    handoff_watch "$gateway_pid" &
-    handoff_watch_pid=$!
-fi
+    # Once this generation drains, the watcher stops the gateway so the next
+    # one can take the state store over; on a pod that follows another
+    # generation, the follower stops it to reload what that one hands off.
+    handoff_watch_pid=""
+    handoff_follow_pid=""
+    if [ -n "$handoff_following" ]; then
+        handoff_follow "$gateway_pid" &
+        handoff_follow_pid=$!
+    elif [ -n "$sync_loop_pid" ] && handoff_enabled; then
+        handoff_watch "$gateway_pid" &
+        handoff_watch_pid=$!
+    fi
 
-# `wait` returns early when a trapped signal arrives; keep waiting until the
-# gateway is really gone, then take its true exit status. The `||` keeps a
-# non-zero status from tripping `set -e`.
-gateway_status=0
-while kill -0 "$gateway_pid" 2>/dev/null; do
+    # `wait` returns early when a trapped signal arrives; keep waiting until the
+    # gateway is really gone, then take its true exit status. The `||` keeps a
+    # non-zero status from tripping `set -e`.
     gateway_status=0
-    wait "$gateway_pid" || gateway_status=$?
+    while kill -0 "$gateway_pid" 2>/dev/null; do
+        gateway_status=0
+        wait "$gateway_pid" || gateway_status=$?
+    done
+
+    if [ -n "$handoff_follow_pid" ]; then
+        kill "$handoff_follow_pid" 2>/dev/null || true
+    fi
+    # Not on a stop from the platform, nor on a gateway that exited on its
+    # own: a pod that never took the store over leaves it alone.
+    if [ -z "$stopping" ] && [ -f "$handoff_reload_flag" ]; then
+        rm -f "$handoff_reload_flag"
+        handoff_following=""
+        echo "[entrypoint] gateway stopped; reloading the state store to take it over" >&2
+        webui_pause
+        pull_state
+        sync_bundled_skills
+        webui_resume
+        start_sync_loop
+        [ -z "$stopping" ] || break
+        continue
+    fi
+    break
 done
 
 if [ -n "$handoff_watch_pid" ]; then
@@ -104,19 +135,18 @@ if [ -n "$handoff_watch_pid" ]; then
     fi
 fi
 if [ -n "$sync_loop_pid" ]; then
+    # Stops the loop, not a periodic upload already running: killed, it could
+    # leave dr-sync's lease held. The final upload waits for it instead.
     kill "$sync_loop_pid" 2>/dev/null || true
-    # Handing off, this upload is the marker the next generation waits for.
-    if [ -f "$handoff_flag" ]; then
-        echo "$handoff_self" > "$HERMES_HOME/$handoff_marker"
-    fi
     echo "[entrypoint] gateway exited ($gateway_status); running final dr-sync upload" >&2
     if [ -f "$handoff_flag" ]; then
-        # Draining, not terminated: there is time to retry, and the next
-        # generation waits for exactly this upload, or for this one to stop.
+        # Draining, not terminated: there is time to wait and retry, and the
+        # next generation waits for exactly this upload, the one carrying the
+        # marker, or for this one to stop.
         attempt=1
-        until sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}"; do
+        until sync_up "${DR_SYNC_FINAL_TIMEOUT:-20}" $((DR_SYNC_UPLOAD_TIMEOUT + 30)) "$handoff_self"; do
             if [ "$attempt" -ge "${HANDOFF_UPLOAD_ATTEMPTS:-5}" ]; then
-                rm -f "$HERMES_HOME/$handoff_marker"
+                rm -rf "${HERMES_HOME:?}/$handoff_marker"
                 break
             fi
             echo "[entrypoint] Warning: handoff upload failed (attempt $attempt); retrying" >&2

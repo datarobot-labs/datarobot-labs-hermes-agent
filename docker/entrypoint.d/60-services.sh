@@ -27,16 +27,40 @@ cd "$HERMES_HOME"
 #
 # Explicit venv path (not relying on the `activate` above) because these
 # are separate long-running processes, not sourced into this shell.
+#
+# The web UI keeps its state in $HERMES_HOME/webui, and sessions in memory: on
+# a rollout's reload (entrypoint.sh) it is stopped while the state is
+# replaced, and started again on the new state (webui_pause, webui_resume).
+webui_pause_flag=/tmp/hermes-webui-paused
+webui_pid_file=/tmp/hermes-webui.pid
+rm -f "$webui_pause_flag" "$webui_pid_file"
 (
     while true; do
-        /opt/hermes/.venv/bin/python3 /opt/hermes-webui/server.py \
-            || echo "[entrypoint] Warning: hermes-webui exited; restarting in 2s" >&2
+        if [ ! -e "$webui_pause_flag" ]; then
+            "$HERMES_PYTHON" /opt/hermes-webui/server.py &
+            echo $! > "$webui_pid_file"
+            wait $! || echo "[entrypoint] Warning: hermes-webui exited; restarting in 2s" >&2
+        fi
         sleep 2
     done
 ) &
 
-# The handoff's stand-in held nginx's port until now (15-handoff.sh).
-handoff_release_port
+# Stops the web UI, within 10 s, and keeps it stopped until webui_resume.
+webui_pause() {
+    : > "$webui_pause_flag"
+    webui_pid=$(cat "$webui_pid_file" 2>/dev/null) || return 0
+    kill -TERM "$webui_pid" 2>/dev/null || return 0
+    for _ in $(seq 50); do
+        kill -0 "$webui_pid" 2>/dev/null || return 0
+        sleep 0.2
+    done
+    kill -KILL "$webui_pid" 2>/dev/null || true
+}
+
+webui_resume() {
+    rm -f "$webui_pause_flag"
+}
+
 (
     while true; do
         nginx -c /opt/hermes-workload/nginx.conf \

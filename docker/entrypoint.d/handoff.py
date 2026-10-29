@@ -15,17 +15,10 @@
 
 """Helpers for the state store's rollout handoff (15-handoff.sh).
 
-  handoff.py protons         one "<id> <status>" line per generation (proton)
-                             of $WORKLOAD_ID, read with the workload's own key
-  handoff.py standin <port>  answer on <port> until killed: 200 for /health,
-                             503 for anything else
-
-The platform makes a new generation the active one as soon as its port
-answers. The stand-in lets a new pod become active while it waits for the old
-one to hand the state store off, without starting the gateway early.
+  handoff.py protons  one "<id> <status>" line per generation (proton) of
+                      $WORKLOAD_ID, read with the workload's own key
 """
 
-import http.server
 import json
 import os
 import sys
@@ -61,6 +54,9 @@ def protons():
     # The token goes in a header, never on a command line.
     headers = {"Authorization": f"Bearer {os.environ['DATAROBOT_API_TOKEN']}"}
     opener = urllib.request.build_opener(SameOrigin(origin))
+    # Printed only once every page is read: a list cut short by a failed page
+    # could leave out a generation that still writes.
+    lines = []
     for _ in range(MAX_PAGES):
         with opener.open(urllib.request.Request(url, headers=headers), timeout=15) as r:
             page = json.load(r)
@@ -71,41 +67,25 @@ def protons():
             raise ValueError("the protons route answered without a list")
         for proton in data:
             if isinstance(proton, dict) and proton.get("id"):
-                print(proton["id"], proton.get("status") or "unknown")
-        url = page.get("next")
-        if not url:
+                lines.append(f"{proton['id']} {proton.get('status') or 'unknown'}")
+        next_url = page.get("next")
+        if not next_url:
+            print("\n".join(lines))
             return
-        # The key goes with every page: never to a host the endpoint isn't.
-        url = urllib.parse.urljoin(endpoint + "/", url)
+        # Relative to the page that gave it, as a browser would. The key goes
+        # with every page: never to a host the endpoint isn't.
+        url = urllib.parse.urljoin(url, next_url)
         if urllib.parse.urlsplit(url)[:2] != origin:
             raise ValueError("the next page is on another host; not sending the key there")
     raise ValueError(f"the protons list ran past {MAX_PAGES} pages")
-
-
-class StandIn(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        healthy = self.path.split("?")[0] == "/health"
-        self.send_response(200 if healthy else 503)
-        self.send_header("Content-Type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"waiting for the state store handoff\n")
-
-    def log_message(self, *args):
-        pass
-
-
-def standin(port):
-    http.server.HTTPServer(("", int(port)), StandIn).serve_forever()
 
 
 if __name__ == "__main__":
     try:
         if sys.argv[1:] == ["protons"]:
             protons()
-        elif len(sys.argv) == 3 and sys.argv[1] == "standin":
-            standin(sys.argv[2])
         else:
-            sys.exit("usage: handoff.py protons | handoff.py standin <port>")
+            sys.exit("usage: handoff.py protons")
     except (OSError, ValueError, KeyError) as e:
         print(f"[entrypoint] handoff.py: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(1)
