@@ -83,9 +83,6 @@ trap 'stopping=1; kill -TERM "$gateway_pid" 2>/dev/null || true' TERM INT
 while true; do
     hermes gateway run --no-supervise "$@" &
     gateway_pid=$!
-    if [ -f "$handoff_ready_flag" ]; then
-        handoff_ready_wait &
-    fi
 
     # Once this generation drains, the watcher stops the gateway so the next
     # one can take the state store over; on a pod that follows another

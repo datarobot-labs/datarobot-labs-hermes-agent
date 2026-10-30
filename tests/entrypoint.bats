@@ -374,6 +374,7 @@ STUB
 # workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
 # last one repeating; one that says FAIL fails). dr-sync serves a handoff marker once $WORK/marker
 # exists. The full download fails from the call $WORK/fail-download-from on,
+# and hangs for a few seconds from the call $WORK/hang-download-from on,
 # and the store's download holds a directory or a symlink at the marker's path when
 # $WORK/stored-marker says so. With $WORK/slow-first, the first upload takes
 # that many seconds and records in $WORK/first-saw whether the marker was
@@ -418,6 +419,10 @@ case "\$*" in
         n=\$(( \$(cat "$WORK/downloads" 2>/dev/null || echo 0) + 1 ))
         echo "\$n" > "$WORK/downloads"
         if [ "\$n" -ge "\$(cat "$WORK/fail-download-from" 2>/dev/null || echo 99)" ]; then exit 1; fi
+        if [ "\$n" -ge "\$(cat "$WORK/hang-download-from" 2>/dev/null || echo 99)" ]; then
+            sleep 6
+            [ ! -e /tmp/hermes-reloading ] || echo "probe still answered after the hung download" >> "\$STUB_LOG"
+        fi
         case "\$(cat "$WORK/stored-marker" 2>/dev/null)" in
             dir) mkdir -p "\$2/.dr-sync-handoff" && touch "\$2/.dr-sync-handoff/x" ;;
             symlink) ln -s "$WORK/target" "\$2/.dr-sync-handoff" ;;
@@ -510,12 +515,27 @@ line() {
     [ ! -e /tmp/hermes-webui-paused ]
 }
 
-# reload_gateway: a gateway that runs until it is told to stop and logs
-# whether nginx was answering the readiness probe for it when it started.
+# reload_gateway: a gateway that runs until it is told to stop, logs whether
+# nginx was answering the readiness probe for it when it started, and keeps
+# $WORK/gateway-up while it runs. curl answers its /health only then.
 reload_gateway() {
-    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\n[ ! -e /tmp/hermes-reloading ] || echo "probe answered for the gateway" >> "$STUB_LOG"\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
-        > "$WORK/bin/hermes"
-    chmod +x "$WORK/bin/hermes"
+    cat > "$WORK/bin/hermes" <<STUB
+#!/bin/sh
+echo "hermes \$*" >> "\$STUB_LOG"
+[ "\$1 \$2" = "gateway run" ] || exit 0
+[ ! -e /tmp/hermes-reloading ] || echo "probe answered for the gateway" >> "\$STUB_LOG"
+: > "$WORK/gateway-up"
+trap 'rm -f "$WORK/gateway-up"; exit 0' TERM
+sleep 60 &
+wait \$!
+STUB
+    cat > "$WORK/bin/curl" <<STUB
+#!/bin/sh
+echo "curl \$*" >> "\$STUB_LOG"
+case "\$*" in *8643/health*) [ -e "$WORK/gateway-up" ] || exit 7; echo "gateway answered /health" >> "\$STUB_LOG" ;; esac
+echo 200
+STUB
+    chmod +x "$WORK/bin/hermes" "$WORK/bin/curl"
 }
 
 # until_gone <file> [seconds]: wait up to that long (10 s by default) for the file to go.
@@ -530,17 +550,38 @@ until_gone() {
 @test "while the gateway restarts for the reload, the probe is answered for it until it answers itself" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     reload_gateway
-    printf '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\necho 200\n' > "$WORK/bin/curl"
-    chmod +x "$WORK/bin/curl"
     printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
     echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
-    UNTIL_COUNT=2 boot_until '^hermes gateway run'
+    boot_until '^gateway answered /health' HANDOFF_READY_SECONDS=30
+    # Let go once the restarted gateway answers, well before the deadline.
     until_gone /tmp/hermes-reloading
+    ! grep -q 'was not back' "$WORK/err" || false
     # Only the gateway started after the reload, not the first one.
     [ "$(grep -c '^probe answered for the gateway' "$WORK/calls.log")" = 1 ]
     [ "$(line '^hermes gateway run' 2)" -lt "$(line '^probe answered for the gateway')" ]
-    # Let go at the first /health the gateway answers itself.
-    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" = 1 ]
+}
+
+@test "the gateway being stopped for the reload can't end the probe's answer early" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    reload_gateway
+    # It still answers /health for 3 s after it is told to stop.
+    sed -i "s|^trap 'rm|trap 'sleep 3; rm|" "$WORK/bin/hermes"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_READY_SECONDS=30
+    [ "$(grep -c '^probe answered for the gateway' "$WORK/calls.log")" = 1 ]
+}
+
+@test "a reload that hangs can't keep the probe answered past HANDOFF_READY_SECONDS" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    reload_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    # The reload's download hangs for 6 s, well past the 2 s bound.
+    echo 2 > "$WORK/hang-download-from"
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_READY_SECONDS=2
+    grep -q 'the gateway was not back 2s after the reload started' "$WORK/err"
+    ! grep -q '^probe still answered after the hung download' "$WORK/calls.log" || false
 }
 
 @test "a gateway that never answers after the reload fails the probe again after HANDOFF_READY_SECONDS" {
@@ -552,8 +593,8 @@ until_gone() {
     echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
     UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_READY_SECONDS=3
     until_gone /tmp/hermes-reloading
-    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" -ge 2 ]
-    grep -q 'the gateway did not answer /health within 3s of the reload' "$WORK/err"
+    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" -ge 1 ]
+    grep -q 'the gateway was not back 3s after the reload started' "$WORK/err"
 }
 
 @test "a gateway that hangs on /health after the reload can't stretch HANDOFF_READY_SECONDS" {
