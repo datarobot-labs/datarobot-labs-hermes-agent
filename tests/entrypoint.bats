@@ -510,6 +510,51 @@ line() {
     [ ! -e /tmp/hermes-webui-paused ]
 }
 
+# reload_gateway: a gateway that runs until it is told to stop and logs
+# whether nginx was answering the readiness probe for it when it started.
+reload_gateway() {
+    printf '#!/bin/sh\necho "hermes $*" >> "$STUB_LOG"\n[ "$1 $2" = "gateway run" ] || exit 0\n[ ! -e /tmp/hermes-reloading ] || echo "probe answered for the gateway" >> "$STUB_LOG"\ntrap "exit 0" TERM\nsleep 60 &\nwait $!\n' \
+        > "$WORK/bin/hermes"
+    chmod +x "$WORK/bin/hermes"
+}
+
+# until_gone <file>: wait up to 10 s for the file to go.
+until_gone() {
+    for _ in $(seq 50); do
+        [ -e "$1" ] || return 0
+        sleep 0.2
+    done
+    return 1
+}
+
+@test "while the gateway restarts for the reload, the probe is answered for it until it answers itself" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    reload_gateway
+    printf '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\necho 200\n' > "$WORK/bin/curl"
+    chmod +x "$WORK/bin/curl"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    UNTIL_COUNT=2 boot_until '^hermes gateway run'
+    until_gone /tmp/hermes-reloading
+    # Only the gateway started after the reload, not the first one.
+    [ "$(grep -c '^probe answered for the gateway' "$WORK/calls.log")" = 1 ]
+    [ "$(line '^hermes gateway run' 2)" -lt "$(line '^probe answered for the gateway')" ]
+    # Let go at the first /health the gateway answers itself.
+    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" = 1 ]
+}
+
+@test "a gateway that never answers after the reload fails the probe again after HANDOFF_READY_SECONDS" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    reload_gateway
+    printf '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\ncase "$*" in *8643/health*) exit 7 ;; esac\necho 200\n' > "$WORK/bin/curl"
+    chmod +x "$WORK/bin/curl"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_READY_SECONDS=3
+    until_gone /tmp/hermes-reloading
+    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" = 3 ]
+}
+
 @test "a gateway that ignores the stop for the reload is killed, and the reload goes on" {
     handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
     # The first gateway ignores SIGTERM; the one after the reload doesn't.
@@ -804,10 +849,13 @@ wait_idle() {
 
 @test "a handoff flag left in /tmp by an earlier run doesn't stop the next one from serving" {
     : > /tmp/dr-sync-handed-off
+    : > /tmp/hermes-reloading
     run boot DR_SYNC_CATALOG_ID=catalog123
     [ "$status" -eq 0 ]
     ! grep -q 'idling until' "$WORK/err" || false
     [ ! -e /tmp/dr-sync-handed-off ]
+    # Nor answer the readiness probe for a gateway that never reloaded.
+    [ ! -e /tmp/hermes-reloading ]
 }
 
 @test "a download that keeps failing is fatal and the gateway never starts" {
