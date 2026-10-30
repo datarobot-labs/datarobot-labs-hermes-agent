@@ -518,9 +518,9 @@ reload_gateway() {
     chmod +x "$WORK/bin/hermes"
 }
 
-# until_gone <file>: wait up to 10 s for the file to go.
+# until_gone <file> [seconds]: wait up to that long (10 s by default) for the file to go.
 until_gone() {
-    for _ in $(seq 50); do
+    for _ in $(seq $((${2:-10} * 5))); do
         [ -e "$1" ] || return 0
         sleep 0.2
     done
@@ -552,7 +552,24 @@ until_gone() {
     echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
     UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_READY_SECONDS=3
     until_gone /tmp/hermes-reloading
-    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" = 3 ]
+    [ "$(grep -c '^curl .*127.0.0.1:8643/health' "$WORK/calls.log")" -ge 2 ]
+    grep -q 'the gateway did not answer /health within 3s of the reload' "$WORK/err"
+}
+
+@test "a gateway that hangs on /health after the reload can't stretch HANDOFF_READY_SECONDS" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    reload_gateway
+    # Each /health takes its full --max-time, as from a gateway that accepts
+    # the connection and never answers.
+    printf '#!/bin/sh\necho "curl $*" >> "$STUB_LOG"\ncase "$*" in *8643/health*) sleep 3; exit 28 ;; esac\necho 200\n' > "$WORK/bin/curl"
+    chmod +x "$WORK/bin/curl"
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' HANDOFF_READY_SECONDS=4
+    start=$(date +%s)
+    until_gone /tmp/hermes-reloading 30
+    # The deadline plus at most one try (4 + 4 s), not four tries (16 s).
+    [ $(($(date +%s) - start)) -lt 12 ]
 }
 
 @test "a gateway that ignores the stop for the reload is killed, and the reload goes on" {

@@ -326,7 +326,7 @@ old one changed meanwhile. So the pods hand the store over
   nginx answers the readiness probe's `/health` itself: a failing probe would
   mark it `errored`, and `dr workload up` would fail the deploy. `/health`
   goes back to the gateway once the gateway answers it, or after
-  `HANDOFF_READY_SECONDS` (180), so a gateway that never comes back up still
+  `HANDOFF_READY_SECONDS` (120), so a gateway that never comes back up still
   fails the probe.
 
 A redeploy costs a few seconds with two gateways, Slack included, and then a

@@ -49,7 +49,7 @@ HERMES_PYTHON="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
 HANDOFF_POLL_SECONDS="${HANDOFF_POLL_SECONDS:-5}"
 HANDOFF_TIMEOUT_SECONDS="${HANDOFF_TIMEOUT_SECONDS:-900}"
 HANDOFF_STOP_SECONDS="${HANDOFF_STOP_SECONDS:-30}"
-HANDOFF_READY_SECONDS="${HANDOFF_READY_SECONDS:-180}"
+HANDOFF_READY_SECONDS="${HANDOFF_READY_SECONDS:-120}"
 handoff_marker=.dr-sync-handoff
 handoff_flag=/tmp/dr-sync-handed-off
 handoff_reload_flag=/tmp/dr-sync-reload
@@ -180,13 +180,19 @@ handoff_follow() {
 
 # Run in the background by entrypoint.sh once the gateway has restarted after
 # a reload: lets the readiness probe reach the gateway again as soon as it
-# answers /health itself, or after HANDOFF_READY_SECONDS, so that a gateway
-# that never comes up still fails it.
+# answers /health itself, or HANDOFF_READY_SECONDS after it was started, so
+# that a gateway that never comes up still fails it. A deadline, not a count of
+# tries: a hung gateway takes each try's full --max-time.
 handoff_ready_wait() {
-    for _ in $(seq "$HANDOFF_READY_SECONDS"); do
+    ready_deadline=$(($(date +%s) + HANDOFF_READY_SECONDS))
+    while [ "$(date +%s)" -lt "$ready_deadline" ]; do
         sleep 1
-        curl -sf -o /dev/null --max-time 2 http://127.0.0.1:8643/health && break
+        if curl -sf -o /dev/null --max-time 2 http://127.0.0.1:8643/health; then
+            rm -f "$handoff_ready_flag"
+            return 0
+        fi
     done
+    echo "[entrypoint] Warning: the gateway did not answer /health within ${HANDOFF_READY_SECONDS}s of the reload; the readiness probe reaches it again" >&2
     rm -f "$handoff_ready_flag"
 }
 
