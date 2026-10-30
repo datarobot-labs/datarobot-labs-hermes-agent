@@ -35,7 +35,9 @@
 #   platform stops it (entrypoint.sh);
 # - the new pod waits for that marker, or for the old pod to stop
 #   (handoff_follow). It then stops its gateway, reloads the state handed off,
-#   starts the gateway again and takes the store over (entrypoint.sh).
+#   starts the gateway again and takes the store over (entrypoint.sh). Being
+#   the active pod by then, it has nginx answer the readiness probe while its
+#   gateway is down (handoff_ready_wait).
 # For a few seconds both gateways serve. The reload lays the state handed off
 # over what the new one wrote meanwhile, as a boot lays it over the seed: the
 # databases and every file the store has are replaced, a file only the new
@@ -47,13 +49,16 @@ HERMES_PYTHON="${HERMES_PYTHON:-/opt/hermes/.venv/bin/python3}"
 HANDOFF_POLL_SECONDS="${HANDOFF_POLL_SECONDS:-5}"
 HANDOFF_TIMEOUT_SECONDS="${HANDOFF_TIMEOUT_SECONDS:-900}"
 HANDOFF_STOP_SECONDS="${HANDOFF_STOP_SECONDS:-30}"
+HANDOFF_READY_SECONDS="${HANDOFF_READY_SECONDS:-120}"
 handoff_marker=.dr-sync-handoff
 handoff_flag=/tmp/dr-sync-handed-off
 handoff_reload_flag=/tmp/dr-sync-reload
+# While it exists, nginx answers the readiness probe itself (docker/nginx.conf).
+handoff_ready_flag=/tmp/hermes-reloading
 # Set only once this pod has handed off, or is to reload. A container
 # restarted in the same pod can keep /tmp (10-seed.sh), and must not take an
 # earlier run's flags for its own: it would idle instead of serving.
-rm -f "$handoff_flag" "$handoff_reload_flag"
+rm -f "$handoff_flag" "$handoff_reload_flag" "$handoff_ready_flag"
 # The generations this pod waits on before it uploads anything (handoff_check),
 # or "unread" when the list couldn't be read at boot.
 handoff_following=""
@@ -158,6 +163,11 @@ handoff_follow() {
         fi
     done
     : > "$handoff_reload_flag"
+    # This pod is the active one by now: keep it ready while the gateway is
+    # down for the reload, or the platform marks it errored and the deploy
+    # fails (handoff_ready_wait).
+    : > "$handoff_ready_flag"
+    handoff_ready_wait &
     kill -TERM "$1" 2>/dev/null || true
     # A gateway that won't stop would keep this pod on the state from before
     # the handoff for good, uploading nothing.
@@ -167,6 +177,28 @@ handoff_follow() {
     done
     echo "[entrypoint] Warning: the gateway did not stop within ${HANDOFF_STOP_SECONDS}s; killing it to reload" >&2
     kill -KILL "$1" 2>/dev/null || true
+}
+
+# Run in the background by handoff_follow as it starts the reload: lets the
+# readiness probe reach the gateway again as soon as the restarted one answers
+# /health itself, or HANDOFF_READY_SECONDS after the reload started, whatever
+# holds it up (a download that hangs included), so that a pod whose gateway
+# never comes back still fails it. A deadline, not a count of tries: a hung
+# gateway takes each try's full --max-time.
+handoff_ready_wait() {
+    ready_deadline=$(($(date +%s) + HANDOFF_READY_SECONDS))
+    while [ "$(date +%s)" -lt "$ready_deadline" ]; do
+        sleep 1
+        # entrypoint.sh takes the reload flag only once the gateway being
+        # stopped has exited: until then, an answer may still be that one's.
+        [ ! -f "$handoff_reload_flag" ] || continue
+        if curl -sf -o /dev/null --max-time 2 http://127.0.0.1:8643/health; then
+            rm -f "$handoff_ready_flag"
+            return 0
+        fi
+    done
+    echo "[entrypoint] Warning: the gateway was not back ${HANDOFF_READY_SECONDS}s after the reload started; the readiness probe reaches it again" >&2
+    rm -f "$handoff_ready_flag"
 }
 
 # Run in the background by entrypoint.sh once the gateway is up: when this
