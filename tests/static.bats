@@ -89,6 +89,18 @@ upload_set() {
     [ -z "$(grep -v '|| false$' <<< "$output")" ] || { grep -v '|| false$' <<< "$output"; false; }
 }
 
+@test "every MCP server sent the DataRobot token is the workload's own install's" {
+    # A literal URL would send another install's DATAROBOT_API_TOKEN there.
+    python3 - /repo/config/config.yaml <<'PY'
+import sys, yaml
+servers = yaml.safe_load(open(sys.argv[1]))["mcp_servers"]
+sent = {n: s for n, s in servers.items() if "DATAROBOT_API_TOKEN" in str(s.get("headers", ""))}
+assert sent, "no MCP server is sent the DataRobot token; update this test"
+bad = {n: s.get("url") for n, s in sent.items() if s.get("url") != "${DATAROBOT_MCP_URL}"}
+assert not bad, bad
+PY
+}
+
 @test "YAML and JSON files parse" {
     cd /repo
     for f in config/config.yaml compose.yaml Taskfile.yaml .pre-commit-config.yaml .github/dependabot.yml .github/workflows/*.yml .github/zizmor.yml .gitlab-ci.yml \

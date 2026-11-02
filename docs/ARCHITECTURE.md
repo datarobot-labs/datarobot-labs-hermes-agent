@@ -74,9 +74,10 @@ To point at a different `chat_completions` gateway, set the relevant vars in
 `.env`, `LLM_API_KEY` included, then `dr run env` and `dr workload up` — no
 edits to `config.yaml` needed.
 
-One URL is still a literal: the `datarobot` MCP server in `config/config.yaml`
-(`https://app.datarobot.com/api/v2/genai/globalmcp/mcp`). On another install,
-edit it before deploying, or the agent's DataRobot tools reach across to `app`.
+The `datarobot` MCP server follows `DATAROBOT_ENDPOINT` too: its URL in
+`config/config.yaml` is `${DATAROBOT_MCP_URL}`, which the entrypoint sets to
+that install's `/genai/globalmcp/mcp` on every boot. It is sent
+`DATAROBOT_API_TOKEN`, so it can't be pointed anywhere else.
 
 ## Secrets
 
