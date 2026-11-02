@@ -65,7 +65,13 @@ case "$1" in
     exec)
         shift 2
         case "$1" in
+            # STUB_MCP: what the web UI lists as the MCP servers.
             curl)
+                case "$*" in *"/api/mcp/servers"*)
+                    mcp='{"servers": [{"name": "datarobot", "url": "https://dr.smoke.invalid/api/v2/genai/globalmcp/mcp"}]}'
+                    printf '%s' "${STUB_MCP-$mcp}"
+                    exit 0 ;;
+                esac
                 count probes
                 # shellcheck disable=SC2086
                 set -- ${STUB_HEALTH:-200}
@@ -95,7 +101,8 @@ teardown() {
 
 smoke() {
     run env PATH="$WORK/bin:$PATH" SMOKE_IMAGE="${SMOKE_IMAGE-labs-hermes:test}" \
-        SMOKE_GRACE=0 SMOKE_POLL=0 SMOKE_SLACK_TIMEOUT="${SMOKE_SLACK_TIMEOUT-3}" sh /repo/tests/smoke.sh
+        SMOKE_GRACE=0 SMOKE_POLL=0 SMOKE_SLACK_TIMEOUT="${SMOKE_SLACK_TIMEOUT-3}" \
+        SMOKE_MCP_TIMEOUT="${SMOKE_MCP_TIMEOUT-3}" sh /repo/tests/smoke.sh
 }
 
 @test "a container that answers /health passes, run as uid 1000 on a read-only root without a network" {
@@ -263,6 +270,25 @@ smoke() {
     STUB_TOUCH_ERROR='Permission denied' smoke
     [ "$status" -eq 1 ]
     [[ "$output" == *"FAIL: could not probe /opt/hermes-seed: touch: cannot touch '/opt/hermes-seed/.smoke': Permission denied"* ]]
+}
+
+@test "the container gets a DATAROBOT_ENDPOINT, and the datarobot MCP server must resolve to its install" {
+    smoke
+    [ "$status" -eq 0 ]
+    grep -qx 'DATAROBOT_ENDPOINT=https://dr.smoke.invalid/api/v2/' "$WORK/run.env"
+    [[ "$output" == *"Hermes resolves the datarobot MCP server to https://dr.smoke.invalid/api/v2/genai/globalmcp/mcp"* ]]
+}
+
+@test "a datarobot MCP server left on another URL fails" {
+    STUB_MCP='{"servers": [{"name": "datarobot", "url": "${DATAROBOT_MCP_URL}"}]}' smoke
+    [ "$status" -ne 0 ]
+    [[ "$output" == *'resolves the datarobot MCP server to '"'"'${DATAROBOT_MCP_URL}'"'"''* ]]
+}
+
+@test "no datarobot MCP server listed fails after SMOKE_MCP_TIMEOUT" {
+    STUB_MCP='{"servers": []}' SMOKE_MCP_TIMEOUT=1 smoke
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"did not list a datarobot MCP server within 1s"* ]]
 }
 
 @test "a log without the skill count fails" {
