@@ -56,6 +56,7 @@ PY
 }
 
 teardown_file() {
+    rm -f /tmp/hermes-reloading
     pkill -f /tmp/upstream.py || true
     pkill -x nginx || true
 }
@@ -66,6 +67,14 @@ route() {
 }
 
 @test "/health reaches the gateway, not the web UI" {
+    [ "$(route /health)" = "gateway /health" ]
+}
+
+@test "while the gateway restarts for a reload, nginx answers /health itself, and only /health" {
+    : > /tmp/hermes-reloading
+    [ "$(route /health)" = '{"status": "reloading"}' ]
+    [ "$(route /health/detailed)" = "gateway /health/detailed" ]
+    rm -f /tmp/hermes-reloading
     [ "$(route /health)" = "gateway /health" ]
 }
 

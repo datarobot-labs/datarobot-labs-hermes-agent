@@ -321,7 +321,13 @@ old one changed meanwhile. So the pods hand the store over
   a boot does, and starts its gateway and its uploads. The web UI, which keeps
   its own state there and sessions in memory, is stopped for the reload and
   started again on the new state. A gateway that hasn't stopped within
-  `HANDOFF_STOP_SECONDS` (30) is killed.
+  `HANDOFF_STOP_SECONDS` (30) is killed. The new pod is the active one by
+  then, so while its gateway is down for the reload (about 30 s on staging)
+  nginx answers the readiness probe's `/health` itself: a failing probe would
+  mark it `errored`, and `dr workload up` would fail the deploy. `/health`
+  goes back to the gateway once the restarted gateway answers it, or
+  `HANDOFF_READY_SECONDS` (120) after the reload started, whatever holds it
+  up, so a pod whose gateway never comes back still fails the probe.
 
 A redeploy costs a few seconds with two gateways, Slack included, and then a
 short gap while the new pod reloads, instead of minutes of two writers. What
@@ -500,7 +506,9 @@ The gateway's own `api_server` answers `/health`, unauthenticated, and nginx
 sits in front of it. `dr start` writes the manifest with
 `--health /health`, so `.datarobot.yaml`'s `readinessProbe` points at it
 (`path: /health, port: 8642`). A manifest written some other way may have no
-probe at all; add that block under the container to get one.
+probe at all; add that block under the container to get one. The one
+exception is the few seconds a new pod's gateway restarts during a rollout,
+when nginx answers `/health` itself (see the rollout handoff above).
 
 It's deliberately **not** routed to hermes-webui (see `docker/nginx.conf`):
 the WebUI answering its own health would prove nothing about whether the
