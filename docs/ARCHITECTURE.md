@@ -250,7 +250,9 @@ instead:
   paths never reach the store, and the databases travel as their snapshots,
   so neither counts as a deletion. An upload only runs on a tree that holds
   the whole download: a boot that can't download or merge it stops, and a pod
-  that follows another generation uploads nothing until it has reloaded.
+  that follows another generation uploads nothing until it has reloaded. The
+  reload also removes what that generation deleted after this pod booted,
+  keeping what this pod wrote meanwhile.
 - **Retention** is `--keep-generations 144` (about a day of 10-minute
   uploads), so a bad overwrite or deletion can be rolled back (see below).
 

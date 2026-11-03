@@ -127,6 +127,9 @@ sync_up() {
 # directory, or the reverse): every boot would stop. An empty directory has
 # nothing to conflict with.
 stage=/tmp/dr-sync-stage
+# The paths the last download brought, for the next one to compare with.
+pulled=/tmp/dr-sync-pulled.list
+rm -f "$pulled"
 download_state() {
     rm -rf "$stage"
     mkdir -p "$stage"
@@ -170,6 +173,23 @@ merge_state() {
         find "$stage" -mindepth 1 -name "*$nl*" -prune -exec rm -rf {} + || return 1
     fi
     (cd "$stage" && find . -mindepth 1) > /tmp/dr-sync-stage.list || return 1
+    LC_ALL=C sort /tmp/dr-sync-stage.list > /tmp/dr-sync-stage.sorted || return 1
+    # On a reload: a path the boot's download brought and this one doesn't, the
+    # generation that wrote the store since deleted. It goes here too, or this
+    # pod's next upload would put it back. Entries before their directory, and
+    # a directory only once empty, so what this pod wrote since stays.
+    if [ -f "$pulled" ]; then
+        LC_ALL=C comm -23 "$pulled" /tmp/dr-sync-stage.sorted | LC_ALL=C sort -r |
+        while IFS= read -r p; do
+            p=${p#./}
+            if is_dir "$HERMES_HOME/$p"; then
+                rmdir "${HERMES_HOME:?}/$p" 2>/dev/null || true
+            else
+                rm -f "${HERMES_HOME:?}/$p" || return 1
+            fi
+        done || return 1
+    fi
+    mv -f /tmp/dr-sync-stage.sorted "$pulled" || return 1
     # Parents come before their entries, so a directory moved whole takes its
     # entries with it, and a directory both sides have is merged entry by entry.
     while IFS= read -r p; do

@@ -431,7 +431,8 @@ STUB
 # handoff_setup <self id>: the stubs for a pod named lrs-<self id>-... in a
 # workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
 # last one repeating; one that says FAIL fails). dr-sync serves a handoff marker once $WORK/marker
-# exists. The full download fails from the call $WORK/fail-download-from on,
+# exists. The nth full download brings what $WORK/stored.<n> holds, if anything.
+# It fails from the call $WORK/fail-download-from on,
 # and hangs for a few seconds from the call $WORK/hang-download-from on,
 # and the store's download holds a directory or a symlink at the marker's path when
 # $WORK/stored-marker says so. With $WORK/slow-first, the first upload takes
@@ -481,6 +482,7 @@ case "\$*" in
             sleep 6
             [ ! -e /tmp/hermes-reloading ] || echo "probe still answered after the hung download" >> "\$STUB_LOG"
         fi
+        if [ -d "$WORK/stored.\$n" ]; then cp -R "$WORK/stored.\$n/." "\$2/"; fi
         case "\$(cat "$WORK/stored-marker" 2>/dev/null)" in
             dir) mkdir -p "\$2/.dr-sync-handoff" && touch "\$2/.dr-sync-handoff/x" ;;
             symlink) ln -s "$WORK/target" "\$2/.dr-sync-handoff" ;;
@@ -571,6 +573,40 @@ line() {
     [ "$(line '^webui start')" -lt "$(line '^webui stop')" ]
     [ "$(line '^webui stop')" -lt "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" ]
     [ ! -e /tmp/hermes-webui-paused ]
+}
+
+@test "on the reload, what the old generation deleted since this pod booted goes, and what this pod wrote stays" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    mkdir -p "$WORK/stored.1/sessions/gone" "$WORK/stored.1/skills/learned" "$WORK/stored.1/skills/both"
+    echo old > "$WORK/stored.1/sessions/old.json"
+    echo kept > "$WORK/stored.1/sessions/kept.json"
+    echo gone > "$WORK/stored.1/sessions/gone/chat.json"
+    echo agent > "$WORK/stored.1/skills/learned/SKILL.md"
+    echo agent > "$WORK/stored.1/skills/both/SKILL.md"
+    # The old generation deleted old.json, sessions/gone and the learned skill
+    # before it handed off, and changed kept.json.
+    mkdir -p "$WORK/stored.2/sessions"
+    echo kept2 > "$WORK/stored.2/sessions/kept.json"
+    # This pod, while it served, wrote a session and a file in a skill the old
+    # generation deleted.
+    (
+        sleep 2
+        echo new > /tmp/hermes/sessions/new.json
+        echo notes > /tmp/hermes/skills/both/notes.md
+        sleep 1
+        echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    ) &
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    [ ! -e /tmp/hermes/sessions/old.json ]
+    [ ! -e /tmp/hermes/sessions/gone ]
+    [ ! -e /tmp/hermes/skills/learned ]
+    [ "$(cat /tmp/hermes/sessions/kept.json)" = kept2 ]
+    [ "$(cat /tmp/hermes/sessions/new.json)" = new ]
+    [ "$(cat /tmp/hermes/skills/both/notes.md)" = notes ]
+    [ ! -e /tmp/hermes/skills/both/SKILL.md ]
 }
 
 # reload_gateway: a gateway that runs until it is told to stop, logs whether
