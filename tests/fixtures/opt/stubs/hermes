@@ -1,8 +1,11 @@
 #!/bin/sh
 # Records the call. For the final `gateway run`, also saves the environment the
-# gateway would start with.
+# gateway would start with, and removes the paths in STUB_GATEWAY_RM when that is set, as
+# the agent deleting a file while it runs.
 echo "hermes $*" >> "$STUB_LOG"
 if [ "$1 $2" = "gateway run" ]; then
     env > "$STUB_ENV"
+    # shellcheck disable=SC2086 # space-separated paths
+    [ -z "${STUB_GATEWAY_RM:-}" ] || rm -rf $STUB_GATEWAY_RM
 fi
 exit 0

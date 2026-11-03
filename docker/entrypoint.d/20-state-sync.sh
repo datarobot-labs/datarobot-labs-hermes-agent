@@ -109,8 +109,14 @@ sync_up() {
             rm -rf "${HERMES_HOME:?}/$handoff_marker"
             echo "$3" > "$HERMES_HOME/$handoff_marker" || exit 1
         fi
+        # --delete: the store mirrors $HERMES_HOME, so what the agent deletes
+        # stays deleted. It drops every stored path this tree lacks, excluded
+        # ones too, so an upload only ever runs on a tree that holds the whole
+        # download: pull_state stops the boot when it can't, a pod that follows
+        # another generation uploads nothing until it has reloaded, and the
+        # handoff (15-handoff.sh) keeps that generation from writing after it.
         timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
-            --keep-generations 144 \
+            --delete --keep-generations 144 \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'
     ) 9>/tmp/.dr-sync.lock
 }
@@ -219,10 +225,10 @@ pull_state() {
     # older copies of this image's skills and plugins, and ones this image
     # dropped. .dr-sync-shipped, uploaded with the rest, lists every file any
     # image shipped to this store: those this one doesn't go, then this image's
-    # are laid over the rest. Every one, not just the last image's: an upload
-    # keeps a file the store has after it's deleted here, so a dropped skill
-    # comes back with every download and has to go every time. Hermes' bundled
-    # skills are skills_sync.py's (50-skills.sh).
+    # are laid over the rest. Every one, not just the last image's: a store
+    # written before uploads mirrored $HERMES_HOME still holds the files of
+    # skills dropped images ago. Hermes' bundled skills are skills_sync.py's
+    # (50-skills.sh).
     shipped="$HERMES_HOME/.dr-sync-shipped"
     (cd "$HERMES_SEED" && find skills plugins -type f 2>/dev/null) | sort > /tmp/dr-sync-shipped
     if [ -f "$shipped" ]; then

@@ -209,11 +209,48 @@ STUB
     [ "$(cat /tmp/hermes/skills/kept/SKILL.md)" = new ]
     [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
     [ "$(cat /tmp/hermes/sessions/chat.json)" = chat ]
-    # The dropped skill stays listed: the store keeps its file, and the next
-    # download brings it back.
+    # The dropped skill stays listed, for a store written before uploads
+    # mirrored HERMES_HOME, which still holds its file.
     grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
     grep -qx 'skills/kept/SKILL.md' /tmp/hermes/.dr-sync-shipped
     ! grep -qx 'skills/learned/SKILL.md' /tmp/hermes/.dr-sync-shipped || false
+}
+
+@test "what the agent deletes stays deleted on the next boot, and the databases still travel" {
+    mkdir -p "$WORK/bin" "$WORK/store/sessions" "$WORK/store/skills/learned" "$WORK/store/.dr-sync-snapshots"
+    echo old > "$WORK/store/sessions/old.json"
+    echo kept > "$WORK/store/sessions/kept.json"
+    echo agent > "$WORK/store/skills/learned/SKILL.md"
+    echo db > "$WORK/store/.dr-sync-snapshots/state.db.snap"
+    # A store: a download copies it out, an upload copies HERMES_HOME in
+    # without the live databases, and with --delete drops what HERMES_HOME lacks.
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+case \$1 in
+download) cp -R "$WORK/store/." "\$2/" ;;
+upload)
+    case " \$* " in *" --delete "*) rm -rf "$WORK/store" ;; esac
+    mkdir -p "$WORK/store"
+    cp -R "\$2/." "$WORK/store/"
+    find "$WORK/store" \( -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' \) -delete
+    ;;
+esac
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123 \
+        STUB_GATEWAY_RM="/tmp/hermes/sessions/old.json /tmp/hermes/skills/learned"
+    [ "$status" -eq 0 ]
+    grep -q -- '^dr-sync upload /tmp/hermes .*--delete' "$WORK/calls.log"
+    rm -rf /tmp/hermes
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/hermes/sessions/old.json ]
+    [ ! -e /tmp/hermes/skills/learned ]
+    [ "$(cat /tmp/hermes/sessions/kept.json)" = kept ]
+    [ "$(cat /tmp/hermes/state.db)" = db ]
+    [ "$(cat "$WORK/store/.dr-sync-snapshots/state.db.snap")" = db ]
 }
 
 @test "a skill dropped two images ago, still in the store, is removed again" {
