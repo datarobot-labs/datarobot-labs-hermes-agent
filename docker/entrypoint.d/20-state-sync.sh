@@ -160,6 +160,15 @@ is_dir() {
 # not copied: /tmp is the only writable filesystem, and a copy would hold the
 # whole state twice for a moment.
 merge_state() {
+    # The walk below reads one path per line, so a stored name with a newline
+    # in it would read as other paths. It stays out, and the next upload drops
+    # it from the store.
+    nl='
+'
+    if [ -n "$(find "$stage" -mindepth 1 -name "*$nl*" -print -quit)" ]; then
+        echo "[entrypoint] Warning: the store has names with a newline in them; leaving them out" >&2
+        find "$stage" -mindepth 1 -name "*$nl*" -prune -exec rm -rf {} + || return 1
+    fi
     (cd "$stage" && find . -mindepth 1) > /tmp/dr-sync-stage.list || return 1
     # Parents come before their entries, so a directory moved whole takes its
     # entries with it, and a directory both sides have is merged entry by entry.

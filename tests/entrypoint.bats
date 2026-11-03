@@ -253,6 +253,27 @@ STUB
     [ "$(cat "$WORK/store/.dr-sync-snapshots/state.db.snap")" = db ]
 }
 
+@test "a stored name with a newline in it stays out, and can't read as another path" {
+    mkdir -p "$WORK/bin" "$WORK/store/newdir"
+    echo agent > "$WORK/store/newdir/notes.md"
+    # Read one line at a time, aa<newline>../dr-sync-stage.list names the walk's
+    # own list: a move onto itself, which would stop every boot.
+    mkdir "$WORK/store/aa"$'\n'".."
+    echo crafted > "$WORK/store/aa"$'\n'"../dr-sync-stage.list"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/store/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    grep -q 'Warning: the store has names with a newline in them; leaving them out' "$WORK/err"
+    [ "$(cat /tmp/hermes/newdir/notes.md)" = agent ]
+    [ -z "$(find /tmp/hermes -name "*"$'\n'"*")" ]
+}
+
 @test "a skill dropped two images ago, still in the store, is removed again" {
     mkdir -p "$SEED/skills/kept" "$WORK/bin" "$WORK/stored/skills/dropped"
     echo new > "$SEED/skills/kept/SKILL.md"
