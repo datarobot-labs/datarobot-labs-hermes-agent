@@ -1109,6 +1109,19 @@ STUB
     grep -q '^LLM_API_KEY=ownkey$' "$WORK/gateway.env"
 }
 
+@test "the datarobot MCP server follows DATAROBOT_ENDPOINT" {
+    run boot DATAROBOT_ENDPOINT=https://staging.example.com/api/v2/
+    [ "$status" -eq 0 ]
+    grep -q '^DATAROBOT_MCP_URL=https://staging.example.com/api/v2/genai/globalmcp/mcp$' "$WORK/gateway.env"
+    grep -q 'datarobot MCP server: https://staging.example.com/api/v2/genai/globalmcp/mcp$' "$WORK/err"
+}
+
+@test "the datarobot MCP server is never pointed away from DATAROBOT_ENDPOINT's install" {
+    run boot DATAROBOT_ENDPOINT=https://dr.example.com/api/v2 DATAROBOT_MCP_URL=https://evil.test/mcp
+    [ "$status" -eq 0 ]
+    grep -q '^DATAROBOT_MCP_URL=https://dr.example.com/api/v2/genai/globalmcp/mcp$' "$WORK/gateway.env"
+}
+
 @test "passes LLM_MODEL and LLM_BASE_URL to Hermes through config set" {
     run boot LLM_MODEL=my-model LLM_BASE_URL=https://llm.test LLM_API_KEY=k
     [ "$status" -eq 0 ]

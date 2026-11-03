@@ -20,18 +20,21 @@
 # The container gets dummy Slack, GitHub and DataRobot values, including a
 # canary PEM, and no network: Slack, the LLM self-test and OTel fail fast, and
 # nothing can leave the box. It passes when /health answers 200, still does
-# after the Slack adapter has failed, and the logs never show a canary value.
+# after the Slack adapter has failed, Hermes resolves the datarobot MCP server
+# to DATAROBOT_ENDPOINT's install, and the logs never show a canary value.
 #
 #   SMOKE_IMAGE    test this image instead of building labs-hermes:smoke
 #   SMOKE_TIMEOUT        seconds to wait for /health (default 240)
 #   SMOKE_SLACK_TIMEOUT  seconds to wait, after that, for Slack to fail (default 120)
 #   SMOKE_GRACE          seconds /health must stay up after Slack failed (default 20)
+#   SMOKE_MCP_TIMEOUT    seconds to wait for the web UI to list the MCP servers (default 60)
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 timeout=${SMOKE_TIMEOUT:-240}
 slack_timeout=${SMOKE_SLACK_TIMEOUT:-120}
 grace=${SMOKE_GRACE:-20}
+mcp_timeout=${SMOKE_MCP_TIMEOUT:-60}
 poll=${SMOKE_POLL:-2}
 container=labs-hermes-smoke-$$
 volume=$container-data
@@ -108,6 +111,7 @@ docker run --detach --name "$container" --platform linux/amd64 \
     --env SLACK_BOT_TOKEN --env SLACK_APP_TOKEN --env SLACK_ALLOWED_USERS=U0SMOKE \
     --env GITHUB_APP_ID=1 --env GITHUB_INSTALLATION_IDS=1 --env GITHUB_PRIVATE_KEY \
     --env DATAROBOT_API_TOKEN --env LLM_API_KEY --env LLM_BASE_URL=http://127.0.0.1:9/v1 \
+    --env DATAROBOT_ENDPOINT=https://dr.smoke.invalid/api/v2/ \
     --env WORKLOAD_ID=smoke \
     "$image" > /dev/null \
     || fail "the container did not start"
@@ -159,6 +163,22 @@ read_only() {
 read_only /opt/hermes-seed
 read_only /opt/data
 say "runs as uid 1000 on a read-only root, /opt/data included"
+
+# The datarobot MCP server is sent DATAROBOT_API_TOKEN, so its url has to be
+# DATAROBOT_ENDPOINT's install's, as Hermes itself resolves config.yaml's
+# ${DATAROBOT_MCP_URL}: the web UI lists the servers through Hermes' loader. A
+# Hermes that stopped interpolating it would leave the literal or nothing.
+mcp_want=https://dr.smoke.invalid/api/v2/genai/globalmcp/mcp
+mcp_start=$(date +%s)
+until mcp_url=$(docker exec "$container" curl -sSf --max-time 10 http://127.0.0.1:8642/api/mcp/servers 2>/dev/null |
+    python3 -c 'import json, sys; s = json.load(sys.stdin)["servers"]; s = s if isinstance(s, list) else [dict(v, name=k) for k, v in s.items()]; print(next(x.get("url", "") for x in s if x.get("name") == "datarobot"))' 2>/dev/null); do
+    running || fail "the container exited before the web UI listed the MCP servers"
+    [ $(($(date +%s) - mcp_start)) -lt "$mcp_timeout" ] \
+        || fail "the web UI did not list a datarobot MCP server within ${mcp_timeout}s"
+    sleep "$poll"
+done
+[ "$mcp_url" = "$mcp_want" ] || fail "Hermes resolves the datarobot MCP server to '$mcp_url', not $mcp_want"
+say "Hermes resolves the datarobot MCP server to $mcp_want"
 
 # The seed's own skill count, for the skills check below; it needs the
 # container still running.

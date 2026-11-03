@@ -35,6 +35,18 @@ if [ -z "${LLM_BASE_URL:-}" ] && [ -n "${DATAROBOT_ENDPOINT:-}" ]; then
 fi
 export LLM_BASE_URL="${LLM_BASE_URL:-}"
 
+# The datarobot MCP server in config.yaml (url: ${DATAROBOT_MCP_URL}) is sent
+# DATAROBOT_API_TOKEN, so its URL is always the global MCP of the install
+# DATAROBOT_ENDPOINT names, and never taken from outside: a literal app URL
+# sent every other install's token to app. Hermes refuses to connect a server
+# whose url is still an unset ${...}, so an empty one sends the token nowhere.
+DATAROBOT_MCP_URL=""
+if [ -n "${DATAROBOT_ENDPOINT:-}" ]; then
+    DATAROBOT_MCP_URL="$(printf '%s' "$DATAROBOT_ENDPOINT" | sed 's#/*$##')/genai/globalmcp/mcp"
+fi
+export DATAROBOT_MCP_URL
+echo "[entrypoint] datarobot MCP server: ${DATAROBOT_MCP_URL:-none (DATAROBOT_ENDPOINT is unset)}" >&2
+
 # Default LLM_API_KEY to the platform-injected DATAROBOT_API_TOKEN (`source:
 # api-key` in .datarobot.yaml) rather than requiring a separately managed
 # dr-credential: LLM_BASE_URL's default is the DataRobot LLM gateway itself,

@@ -129,13 +129,15 @@ booting.
 
 ## A non-`app` install still reaches `app.datarobot.com`
 
-`dr start` points the LLM gateway at the install `.env` uses, but one URL in
-`config/config.yaml` is a literal: the `datarobot` MCP server
-(`https://app.datarobot.com/api/v2/genai/globalmcp/mcp`). Edit it to your
-install's host before deploying. To find any others:
+The LLM gateway and the `datarobot` MCP server both follow
+`DATAROBOT_ENDPOINT`, which the platform sets for a deployed workload and
+`.env` sets for a local run. A request to `app.datarobot.com` from another
+install, such as an MCP `401 Invalid Authorization` from `app.datarobot.com`
+in `dr workload logs`, means the image predates that, or the endpoint is
+wrong. Check what the workload is given:
 
 ```sh
-grep -rn 'app\.datarobot\.com' config/config.yaml
+dr workload logs | grep -E 'base_url|datarobot MCP server'
 ```
 
 ## State store not found

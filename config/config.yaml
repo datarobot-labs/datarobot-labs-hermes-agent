@@ -187,7 +187,7 @@ mcp_servers:
     url: "https://mcp.atlassian.com/v1/mcp"
     auth: oauth
   datarobot:
-    url: "https://app.datarobot.com/api/v2/genai/globalmcp/mcp"
+    url: "${DATAROBOT_MCP_URL}"
     headers:
       Authorization: "Bearer ${DATAROBOT_API_TOKEN}"
 known_plugin_toolsets:
