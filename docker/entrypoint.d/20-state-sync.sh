@@ -201,7 +201,7 @@ merge_state() {
             fi
         done || return 1
     fi
-    mv -f /tmp/dr-sync-stage.sorted "$pulled" || return 1
+    : > /tmp/dr-sync-stage.rejected || return 1
     # Parents come before their entries, so a directory moved whole takes its
     # entries with it, and a directory both sides have is merged entry by entry.
     while IFS= read -r p; do
@@ -216,21 +216,29 @@ merge_state() {
         # one over a directory would fail the merge.
         elif [ -L "$stage/$p" ]; then
             echo "[entrypoint] Warning: the store has a symlink at $p, where the image has a file or directory; keeping the image's" >&2
+            echo "./$p" >> /tmp/dr-sync-stage.rejected
             rm -f "$stage/$p"
         elif is_dir "$stage/$p"; then
             if ! is_dir "$HERMES_HOME/$p"; then
                 echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
+                echo "./$p" >> /tmp/dr-sync-stage.rejected
                 rm -rf "${stage:?}/$p"
             fi
         elif is_dir "$HERMES_HOME/$p"; then
             echo "[entrypoint] Warning: the store has a file at $p, where the image has a directory; keeping the image's" >&2
+            echo "./$p" >> /tmp/dr-sync-stage.rejected
             rm -f "$stage/$p"
         else
             # A rename: it replaces the path itself, never writing through it.
             mv -f "$stage/$p" "$HERMES_HOME/$p" || return 1
         fi
     done < /tmp/dr-sync-stage.list
-    rm -rf "$stage" /tmp/dr-sync-stage.list
+    # What the next download is compared with: only what this one put here. A
+    # stored path kept out, and all under it, is the image's, not the store's.
+    LC_ALL=C awk 'FILENAME == ARGV[1] { out[$0]; next }
+        { q = $0; while (!(q in out) && sub(/\/[^\/]*$/, "", q)) ; if (!(q in out)) print }' \
+        /tmp/dr-sync-stage.rejected /tmp/dr-sync-stage.sorted > "$pulled" || return 1
+    rm -rf "$stage" /tmp/dr-sync-stage.list /tmp/dr-sync-stage.sorted /tmp/dr-sync-stage.rejected
 }
 
 # HERMES_HOME is per-boot (see top of file); DR_SYNC_CATALOG_ID points dr-sync

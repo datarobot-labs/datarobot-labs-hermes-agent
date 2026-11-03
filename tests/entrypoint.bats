@@ -630,6 +630,26 @@ line() {
     [ "$(cat "$WORK/outside/chat.json")" = outside ]
 }
 
+@test "on the reload, a stored path the boot kept out for the image's is not the store's to remove" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    # The store has a directory where the image ships SOUL.md, and a file
+    # where it has sessions; the old generation then deleted both.
+    mkdir -p "$WORK/stored.1/SOUL.md" "$WORK/stored.2"
+    echo stored > "$WORK/stored.1/SOUL.md/notes.md"
+    echo stored > "$WORK/stored.1/sessions"
+    (
+        sleep 3
+        echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    ) &
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    grep -q 'the store has a directory at SOUL.md, where the image has a file' "$WORK/err"
+    cmp /tmp/hermes/SOUL.md "$SEED/SOUL.md"
+    [ -d /tmp/hermes/sessions ]
+}
+
 # reload_gateway: a gateway that runs until it is told to stop, logs whether
 # nginx was answering the readiness probe for it when it started, and keeps
 # $WORK/gateway-up while it runs. curl answers its /health only then.
