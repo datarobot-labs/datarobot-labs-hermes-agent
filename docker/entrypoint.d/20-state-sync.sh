@@ -158,6 +158,17 @@ is_dir() {
     [ -d "$1" ] && [ ! -L "$1" ]
 }
 
+# Whether every directory between $HERMES_HOME and its path $1 is still a real
+# one. Under a parent this pod replaced with a file or a symlink, $1 is no
+# longer what the download brought, and a symlink would take a removal elsewhere.
+under_real_dirs() {
+    d=$1
+    while [ "${d%/*}" != "$d" ]; do
+        d=${d%/*}
+        is_dir "$HERMES_HOME/$d" || return 1
+    done
+}
+
 # Moves the download into $HERMES_HOME, which holds the image's seed. A stored
 # path of another type than the one there stays out: the image wins. Moved,
 # not copied: /tmp is the only writable filesystem, and a copy would hold the
@@ -182,6 +193,7 @@ merge_state() {
         LC_ALL=C comm -23 "$pulled" /tmp/dr-sync-stage.sorted | LC_ALL=C sort -r |
         while IFS= read -r p; do
             p=${p#./}
+            under_real_dirs "$p" || continue
             if is_dir "$HERMES_HOME/$p"; then
                 rmdir "${HERMES_HOME:?}/$p" 2>/dev/null || true
             else

@@ -609,6 +609,27 @@ line() {
     [ ! -e /tmp/hermes/skills/both/SKILL.md ]
 }
 
+@test "on the reload, a deletion under a directory this pod replaced with a symlink stays out of the symlink's target" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    mkdir -p "$WORK/stored.1/sessions/gone" "$WORK/stored.2/sessions" "$WORK/outside"
+    echo gone > "$WORK/stored.1/sessions/gone/chat.json"
+    echo outside > "$WORK/outside/chat.json"
+    # The old generation deleted sessions/gone; this pod, while it served,
+    # replaced it with a symlink to a directory with the same name in it.
+    (
+        sleep 2
+        rm -rf /tmp/hermes/sessions/gone
+        ln -s "$WORK/outside" /tmp/hermes/sessions/gone
+        sleep 1
+        echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    ) &
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    [ "$(cat "$WORK/outside/chat.json")" = outside ]
+}
+
 # reload_gateway: a gateway that runs until it is told to stop, logs whether
 # nginx was answering the readiness probe for it when it started, and keeps
 # $WORK/gateway-up while it runs. curl answers its /health only then.
