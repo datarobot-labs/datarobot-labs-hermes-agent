@@ -20,7 +20,8 @@ lock file included, so a skill the agent installed from the hub at runtime
 would lose its record and the hub could no longer update or remove it. This
 keeps every stored record whose skill is still in skills/ and lets the image's
 own records win. A record whose skill is gone, pruned with an image that no
-longer ships it, is dropped.
+longer ships it, is dropped: its directory may stay, holding a file the agent
+added, so a skill counts only while it has a SKILL.md.
 
 Usage: hub-lock.py <stored lock> <the image's lock, rewritten in place> <skills dir>
 """
@@ -40,6 +41,13 @@ def load(path):
     return lock
 
 
+def has_skill(path):
+    try:
+        return stat.S_ISREG(os.lstat(os.path.join(path, "SKILL.md")).st_mode)
+    except OSError:
+        return False
+
+
 def merge(stored_path, image_path, skills_dir):
     stored, image = load(stored_path), load(image_path)
     skills = os.path.realpath(skills_dir)
@@ -50,7 +58,7 @@ def merge(stored_path, image_path, skills_dir):
             continue
         # The store is outside data: only a path inside skills/ counts.
         path = os.path.realpath(os.path.join(skills, rel))
-        if path.startswith(skills + os.sep) and os.path.isdir(path):
+        if path.startswith(skills + os.sep) and has_skill(path):
             installed[name] = record
     installed.update(image.get("installed", {}))
     image["installed"] = installed
