@@ -18,8 +18,8 @@
 name: workflow-lint
 
 on:
-  pull_request:
-    paths: [".github/**", "Taskfile.yaml"]
+  # Called by ci.yml for pull requests and the merge queue, when anything under .github changes.
+  workflow_call:
   push:
     branches: [main]
     paths: [".github/**", "Taskfile.yaml"]

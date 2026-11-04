@@ -25,3 +25,10 @@ rules:
   secrets-inherit:
     ignore:
       - review-router.yml
+  # ci.yml calls the other workflows of this repository with the
+  # workspace-relative `./` syntax. zizmor suggests GitHub's `$/` syntax, but
+  # the pinned actionlint rejects it. Remove this ignore and switch ci.yml when
+  # actionlint accepts `$/`.
+  self-repository:
+    ignore:
+      - ci.yml

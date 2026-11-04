@@ -1,0 +1,127 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Runs every check on a pull request and in the merge queue, and rolls the
+# results up into one check, go-no-go, that the branch ruleset requires.
+# The image build, the link check and the workflow lint run only for the files
+# they cover, so the ruleset cannot require them directly: a skipped workflow
+# never reports. go-no-go reports every time, fails when a job that had to run
+# did not succeed, and fails when a job that had to run was skipped.
+name: CI
+
+on:
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      # Reads the changed files from the API, so it needs no checkout. When the
+      # list is unavailable, every job runs.
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          everything=false
+          if [ "$EVENT" = pull_request ]; then
+            files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename') || everything=true
+          else
+            files=$(gh api "repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" --jq '.files[].filename') || everything=true
+          fi
+          [ "$everything" = false ] || echo "::warning::Could not list the changed files, so every job runs."
+
+          touches() {
+            [ "$everything" = true ] || grep -Eq "$1" <<<"$files"
+          }
+          # Keep these in step with the push paths of image.yml, the paths of
+          # link-check.yml and workflow-lint.yml, and tests/static.bats.
+          for entry in \
+            'image:^(Dockerfile|\.dockerignore|Taskfile\.yaml|tests/smoke\.sh|\.github/workflows/image\.yml)$|^(docker|config)/' \
+            'docs:\.md$|^(\.lycheeignore|Taskfile\.yaml|\.github/workflows/link-check\.yml)$' \
+            'workflows:^(\.github/|Taskfile\.yaml$)'; do
+            if touches "${entry#*:}"; then
+              echo "${entry%%:*}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${entry%%:*}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+  lint:
+    uses: ./.github/workflows/lint.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  license-header:
+    uses: ./.github/workflows/license-header.yml
+
+  secret-scan:
+    uses: ./.github/workflows/secret-scan.yml
+
+  image:
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
+    uses: ./.github/workflows/image.yml
+
+  link-check:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    uses: ./.github/workflows/link-check.yml
+
+  workflow-lint:
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    uses: ./.github/workflows/workflow-lint.yml
+
+  go-no-go:
+    # Runs after every job, whatever their results.
+    if: always()
+    needs: [changes, lint, test, license-header, secret-scan, image, link-check, workflow-lint]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci-roll-up.sh
+          sparse-checkout-cone-mode: false
+      - name: Check every job that had to run
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          LICENSE_HEADER_RESULT: ${{ needs.license-header.result }}
+          SECRET_SCAN_RESULT: ${{ needs.secret-scan.result }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          LINK_CHECK_RESULT: ${{ needs.link-check.result }}
+          WORKFLOW_LINT_RESULT: ${{ needs.workflow-lint.result }}
+          NEEDS_IMAGE: ${{ needs.changes.outputs.image }}
+          NEEDS_LINK_CHECK: ${{ needs.changes.outputs.docs }}
+          NEEDS_WORKFLOW_LINT: ${{ needs.changes.outputs.workflows }}
+        run: sh scripts/ci-roll-up.sh

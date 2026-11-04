@@ -138,14 +138,40 @@ PY
 }
 
 @test "the image workflow builds every change that reaches the image" {
-    run python3 - /repo/.github/workflows/image.yml <<'PY'
+    run python3 - /repo/.github/workflows/image.yml /repo/.github/workflows/ci.yml <<'PY'
 import sys, yaml
 workflow = yaml.safe_load(open(sys.argv[1]))
 on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
-for event in ("pull_request", "push"):
-    missing = {"Dockerfile", ".dockerignore", "docker/**", "config/**", "Taskfile.yaml"} - set(on[event]["paths"])
-    assert not missing, f"{event} does not trigger on {sorted(missing)}"
+missing = {"Dockerfile", ".dockerignore", "docker/**", "config/**", "Taskfile.yaml"} - set(on["push"]["paths"])
+assert not missing, f"push does not trigger on {sorted(missing)}"
 assert "schedule" in on, "no scheduled build"
+# On a pull request and in the merge queue, the changes job of ci.yml selects the build.
+ci = open(sys.argv[2]).read()
+for pattern in ("Dockerfile", r"\.dockerignore", r"Taskfile\.yaml", r"tests/smoke\.sh", "docker|config"):
+    assert pattern in ci, f"ci.yml does not select the image build for {pattern}"
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "the CI workflow runs on pull requests and the merge queue, and go-no-go needs every job" {
+    run python3 - /repo/.github/workflows <<'PY'
+import os, sys, yaml
+
+def triggers(path):
+    workflow = yaml.safe_load(open(path))
+    return workflow, workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+
+directory = sys.argv[1]
+ci, on = triggers(os.path.join(directory, "ci.yml"))
+assert {"pull_request", "merge_group"} <= set(on), f"ci.yml triggers on {sorted(on)}"
+jobs = ci["jobs"]
+assert set(jobs["go-no-go"]["needs"]) == set(jobs) - {"go-no-go"}, "go-no-go does not need every job"
+assert jobs["go-no-go"]["if"] == "always()", "go-no-go stops when a job fails, so the check never reports"
+for name, job in jobs.items():
+    if "uses" in job:
+        _, called = triggers(os.path.join(directory, os.path.basename(job["uses"])))
+        assert "workflow_call" in called, f"{name} calls a workflow with no workflow_call trigger"
+        assert "pull_request" not in called, f"{job['uses']} also runs on its own for pull requests, so it runs twice"
 PY
     [ "$status" -eq 0 ]
 }
@@ -534,13 +560,15 @@ PY
     [ "$status" -eq 0 ]
 }
 
-@test "the zizmor ignores name only the shared Review Router workflow" {
+@test "the zizmor ignores name only the files that need them" {
     run python3 - /repo/.github/zizmor.yml <<'PY'
 import sys, yaml
 rules = yaml.safe_load(open(sys.argv[1]))["rules"]
 assert rules, "no ignores, so this file is not needed"
 for rule, settings in rules.items():
-    assert settings["ignore"] == ["review-router.yml"], f"{rule} ignores {settings['ignore']}"
+    # Only ci.yml has a second ignore: the `./` form of its workflow calls, which actionlint requires.
+    expected = ["ci.yml"] if rule == "self-repository" else ["review-router.yml"]
+    assert settings["ignore"] == expected, f"{rule} ignores {settings['ignore']}"
 PY
     [ "$status" -eq 0 ]
 }

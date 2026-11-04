@@ -15,7 +15,8 @@
 name: Lint
 
 on:
-  pull_request:
+  # Called by ci.yml for pull requests and the merge queue.
+  workflow_call:
   push:
     branches: [main]
 
