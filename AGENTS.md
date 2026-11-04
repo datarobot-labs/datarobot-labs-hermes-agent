@@ -38,6 +38,7 @@ When you change a deploy pipeline, a pin, or a rule that keeps secrets out of th
 - Pin every action, component, and image by full commit SHA or digest, with the version in a comment. Tests check the actions and the base image.
 - The `dr` version in the `Dockerfile` must be at least the minimum in `.datarobot/cli/versions.yaml`. A test checks it.
 - Files under the paths in `.licenserc.yaml` start with the Apache 2.0 header, year included.
+- Add a check that runs on pull requests as a job in `.github/workflows/ci.yml`, with a `workflow_call` trigger on its own workflow, and add it to `needs` of `go-no-go`. The branch ruleset requires only `go-no-go`. A test checks the wiring.
 - Write documentation to the [Google developer documentation style guide](https://developers.google.com/style): sentence-case headings, imperative steps, present tense, and no "we".
 
 ## Know how a deploy behaves

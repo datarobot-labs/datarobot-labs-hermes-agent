@@ -18,15 +18,8 @@
 name: image
 
 on:
-  pull_request:
-    paths:
-      - Dockerfile
-      - .dockerignore
-      - docker/**
-      - config/**
-      - tests/smoke.sh
-      - Taskfile.yaml
-      - .github/workflows/image.yml
+  # Called by ci.yml for pull requests and the merge queue, when a change can reach the image.
+  workflow_call:
   push:
     branches: [main]
     paths:
