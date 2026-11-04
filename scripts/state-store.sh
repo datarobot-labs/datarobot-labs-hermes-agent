@@ -34,6 +34,8 @@
 #   --check   report only: never create a store or change .env
 #   --if-set  as --check, but no id in .env passes: a .env from before dr
 #             start made stores still deploys, as it did then
+# Both exit 2 when Hermes' container can't be identified: that is not a
+# missing name, and `dr run env` would hit the same manifest.
 
 set -eu
 
@@ -54,9 +56,12 @@ env_value() {
 
 # Whether Hermes' container in .datarobot.yaml declares the store's variable,
 # so the workload gets it. Only the name: dr keeps the id as a credential,
-# which can't be read back here.
+# which can't be read back here. Exits 2, after --env-names has said why,
+# when that container can't be told apart. A pipe would hide that status:
+# grep exits 1 on the empty output, and the name would look merely absent.
 manifest_declares_store() {
-    sh "$here/workload-config.sh" --env-names "$manifest" | grep -qx DR_SYNC_CATALOG_ID
+    names=$(sh "$here/workload-config.sh" --env-names "$manifest") || exit 2
+    printf '%s\n' "$names" | grep -qx DR_SYNC_CATALOG_ID
 }
 
 # Whether .datarobot.yaml mentions the store's variable at all, in any

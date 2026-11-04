@@ -320,3 +320,29 @@ YAML
     [ "$status" -eq 0 ]
     [ "$(inits)" = 0 ]
 }
+
+@test "--check and --if-set stop when Hermes' container can't be told apart" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    cat > "$WORK/.datarobot.yaml" <<'YAML'
+name: hermes-agent
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: one
+            environmentVars:
+              - name: DR_SYNC_CATALOG_ID
+          - name: two
+            environmentVars:
+              - name: SLACK_HOME_CHANNEL
+YAML
+    store --check
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+    [[ "$output" != *"Run 'dr run env'"* ]]
+    store --if-set
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+    [[ "$output" != *"Run 'dr run env'"* ]]
+    [ "$(inits)" = 0 ]
+}

@@ -83,6 +83,47 @@ upload_set() {
     rm -rf "$work"
 }
 
+@test "doctor sends no one to 'dr run env' for a manifest or .env that it can't fix" {
+    work=$(mktemp -d)
+    python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["tasks"]["doctor"]["cmds"][0])' \
+        /repo/Taskfile.yaml > "$work/doctor.sh"
+    mkdir "$work/scripts" "$work/bin"
+    printf '#!/bin/sh\nexit 0\n' > "$work/bin/dr"
+    printf '#!/bin/sh\nexit 0\n' > "$work/scripts/check-credentials.sh"
+    cp "$work/scripts/check-credentials.sh" "$work/scripts/state-store.sh"
+    # --env-names exits STUB_NAMES; env-drift.sh exits STUB_DRIFT, as the real ones do.
+    cat > "$work/scripts/workload-config.sh" <<'STUB'
+#!/bin/sh
+[ "$1" = --env-names ] || exit 0
+[ "$STUB_NAMES" = 0 ] || echo "Can't tell which container in .datarobot.yaml is Hermes'" >&2
+exit "$STUB_NAMES"
+STUB
+    cat > "$work/scripts/env-drift.sh" <<'STUB'
+#!/bin/sh
+case $STUB_DRIFT in 1) echo SLACK_HOME_CHANNEL ;; 2) echo "Can't read .env." >&2 ;; esac
+exit "$STUB_DRIFT"
+STUB
+    chmod +x "$work/bin/dr" "$work/scripts/"*
+    : > "$work/.datarobot.yaml"
+    cd "$work"
+    PATH="$work/bin:$PATH" STUB_NAMES=2 STUB_DRIFT=0 run sh doctor.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+    [[ "$output" != *"dr run env"* ]]
+    PATH="$work/bin:$PATH" STUB_NAMES=0 STUB_DRIFT=2 run sh doctor.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Can't read .env."* ]]
+    [[ "$output" != *"dr run env"* ]]
+    PATH="$work/bin:$PATH" STUB_NAMES=0 STUB_DRIFT=1 run sh doctor.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"doesn't get them: SLACK_HOME_CHANNEL"* ]]
+    PATH="$work/bin:$PATH" STUB_NAMES=0 STUB_DRIFT=0 run sh doctor.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *".datarobot.yaml is complete."* ]]
+    cd /
+    rm -rf "$work"
+}
+
 @test "the repo's own scripts pass shellcheck" {
     # As `task lint` and the Lint workflow run it: every severity, info included.
     run shellcheck -s sh /repo/scripts/*.sh

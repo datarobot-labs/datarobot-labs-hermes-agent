@@ -146,17 +146,24 @@ tasks:
         if ! scripts/check-credentials.sh; then
           echo "A credential is still PLACEHOLDER. See docs/TROUBLESHOOTING.md."
           failed=1
+        # Before the checks below, which would read this as a missing entry
+        # and send the user to 'dr run env', which can't fix it. It says why.
+        elif ! scripts/workload-config.sh --env-names > /dev/null; then
+          failed=1
         elif ! scripts/workload-config.sh --check 2>/dev/null; then
           echo "DATAROBOT_API_TOKEN isn't the workload's own key (source: api-key),"
           echo "so the agent may be running with your token. Run 'dr run env', then"
           echo "'dr workload up'. See docs/TROUBLESHOOTING.md."
           failed=1
-        elif ! missing=$(scripts/env-drift.sh); then
+        elif missing=$(scripts/env-drift.sh); then
+          echo ".datarobot.yaml is complete."
+        elif [ -n "$missing" ]; then
           echo "In .env but not in .datarobot.yaml, so the workload doesn't get them:" $missing
           echo "Run 'dr run env', then 'dr workload up'."
           failed=1
         else
-          echo ".datarobot.yaml is complete."
+          # env-drift.sh said why: .env or the manifest can't be read.
+          failed=1
         fi
 
         step "State store"
