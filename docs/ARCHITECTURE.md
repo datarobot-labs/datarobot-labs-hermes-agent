@@ -88,8 +88,13 @@ that install's `/genai/globalmcp/mcp` on every boot. It is sent
 `dr run env` re-runs it when `.env` changes. A re-run of `dr start` over an
 existing manifest offers the same step, with `dr`'s own yes/no, when `.env`
 names a variable the manifest doesn't (`scripts/env-drift.sh`), and
-`dr run doctor` flags those names. Only missing names can be caught: a changed
+`dr run doctor` flags those names. If the step fails, rather than being
+declined, `dr start` stops there. Only missing names can be caught: a changed
 value needs `dr run env`, since `dr` can't compare a credential with `.env`.
+These checks read `.env` as `dr` does, with godotenv's rules
+(`scripts/dotenv.sh`: indented, `export`ed, `NAME = value` and `NAME: value`
+lines too). In the manifest, only Hermes' own container counts: a variable that
+only a sidecar declares never reaches Hermes.
 
 - **`DATAROBOT_API_TOKEN`** is the exception. In `.env` it is the token of
   whoever ran `dr start`, which `dr` itself and a local `docker compose up`
