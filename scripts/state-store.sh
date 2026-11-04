@@ -52,8 +52,16 @@ env_value() {
     sh "$here/dotenv.sh" value "$1" "$env_file"
 }
 
-# Whether .datarobot.yaml names the store's variable at all. Only the name:
-# dr keeps the id as a credential, which can't be read back here.
+# Whether Hermes' container in .datarobot.yaml declares the store's variable,
+# so the workload gets it. Only the name: dr keeps the id as a credential,
+# which can't be read back here.
+manifest_declares_store() {
+    sh "$here/workload-config.sh" --env-names "$manifest" | grep -qx DR_SYNC_CATALOG_ID
+}
+
+# Whether .datarobot.yaml mentions the store's variable at all, in any
+# container, form or comment. Broader than the above on purpose: it only
+# stops dr start from making a second store.
 manifest_names_store() {
     [ -f "$manifest" ] && grep -qw DR_SYNC_CATALOG_ID "$manifest"
 }
@@ -86,7 +94,7 @@ id=$(env_value DR_SYNC_CATALOG_ID)
 if [ -n "$id" ]; then
     verify "$id" "in $env_file"
     echo "State store $id (DR_SYNC_CATALOG_ID in $env_file) is in place."
-    if [ -n "$check" ] && [ -f "$manifest" ] && ! manifest_names_store; then
+    if [ -n "$check" ] && [ -f "$manifest" ] && ! manifest_declares_store; then
         echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
         exit 1
     fi

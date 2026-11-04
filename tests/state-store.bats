@@ -278,3 +278,45 @@ trailing" store
         [ "$(inits)" = 0 ]
     done
 }
+
+@test "--check counts the store only where Hermes' container declares it" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    # In a comment, or as another variable's value, it isn't declared.
+    manifest hermes-agent "              # - name: DR_SYNC_CATALOG_ID
+              - name: SLACK_HOME_CHANNEL
+                value: DR_SYNC_CATALOG_ID"
+    store --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Run 'dr run env'"* ]]
+    store --if-set
+    [ "$status" -eq 1 ]
+
+    # Only a sidecar declares it.
+    cat > "$WORK/.datarobot.yaml" <<'YAML'
+name: hermes-agent
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: hermes
+            primary: true
+            environmentVars:
+              - name: SLACK_HOME_CHANNEL
+          - name: sidecar
+            environmentVars:
+              - name: DR_SYNC_CATALOG_ID
+YAML
+    store --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Run 'dr run env'"* ]]
+
+    # Keys reordered, or a flow list: declared.
+    manifest hermes-agent "              - value: \"$STORE\"
+                name: DR_SYNC_CATALOG_ID"
+    store --check
+    [ "$status" -eq 0 ]
+    printf 'name: hermes-agent\nartifact:\n  spec:\n    containerGroups:\n      - containers:\n          - environmentVars: [{value: x, name: DR_SYNC_CATALOG_ID}]\n' > "$WORK/.datarobot.yaml"
+    store --check
+    [ "$status" -eq 0 ]
+    [ "$(inits)" = 0 ]
+}

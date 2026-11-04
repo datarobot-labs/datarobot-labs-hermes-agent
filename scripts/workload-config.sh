@@ -100,7 +100,9 @@ names_token() {
 # container group has its own primary), else the only container. Prints
 # "<line of the environmentVars key> <its column> <the column of its items>
 # <1 if it holds the api-key entry, else 0>". The items' column is two past the
-# key's when the list is empty, and the key's own for an indentationless list.
+# key's when the list is empty, the key's own for an indentationless list, and
+# -1 for a flow list on the key's own line (`environmentVars: [...]`), which
+# never holds the api-key entry.
 # The api-key entry counts only when `source: api-key` is its
 # one key besides name: no value, no other source. Exits 2 when none of those
 # rules picks one container, and 3 when it has no environmentVars key. A
@@ -120,7 +122,7 @@ primary_env() {
             if (!initem) return
             items++
             # The column its items use; with none yet, two under the key.
-            it = (eitem >= 0) ? eitem : envcol + 2
+            it = flow ? -1 : (eitem >= 0) ? eitem : envcol + 2
             if (built) { builts++; b_env = env; b_col = envcol; b_it = it; b_pair = pair }
             if (isprim) { prims++; p_env = env; p_col = envcol; p_it = it; p_pair = pair }
             if (items == 1) { f_env = env; f_col = envcol; f_it = it; f_pair = pair }
@@ -136,7 +138,7 @@ primary_env() {
             first = 0
             if ($0 ~ /^ *- / && (itemcol < 0 || i == itemcol)) {
                 finish()
-                initem = 1; itemcol = i; isprim = 0; built = 0; env = 0; envcol = 0; pair = 0; intok = 0
+                initem = 1; itemcol = i; isprim = 0; built = 0; env = 0; envcol = 0; pair = 0; intok = 0; flow = 0
                 match($0, /^ *- +/); keycol = RLENGTH; first = 1
             }
             if (inenv && !first) {
@@ -161,7 +163,8 @@ primary_env() {
             if (first || i == keycol) {
                 kv = substr($0, keycol + 1)
                 if (kv ~ /^primary: *true *(#.*)?$/) isprim = 1
-                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1; eitem = -1 }
+                if (kv ~ /^environmentVars: *(#.*)?$/) { env = NR; envcol = keycol; inenv = 1; eitem = -1; flow = 0 }
+                else if (kv ~ /^environmentVars: *[^ #]/) { env = NR; envcol = keycol; flow = 1 }
             }
             next
         }
@@ -196,6 +199,7 @@ remove_token_entries() {
 # and nowhere else.
 add_api_key_entry() {
     loc=$(primary_env "$1") || return
+    [ "$(echo "$loc" | cut -d' ' -f3)" -ge 0 ] || return 3
     awk -v name="$token" -v at="${loc%% *}" -v col="$(echo "$loc" | cut -d' ' -f3)" '
         { print }
         NR == at {
@@ -205,6 +209,67 @@ add_api_key_entry() {
         }
     ' "$1"
 }
+
+# Prints the names in the primary container's environmentVars, one per line:
+# entries at the list's item column, `- name: X`, `- {name: X, ...}`, or
+# `name: X` after another of the entry's keys, and every entry of a flow list
+# (`[{name: X}, ...]`, on one line or several). Comments, other containers and
+# text inside a value aren't entries. Exits as primary_env does when there is
+# no such container; one without environmentVars declares nothing.
+env_names() {
+    loc=$(primary_env "$1") || {
+        status=$?
+        [ "$status" -eq 3 ] && return 0
+        return "$status"
+    }
+    awk -v at="${loc%% *}" -v it="$(echo "$loc" | cut -d' ' -f3)" '
+        function ind(s) { match(s, /^ */); return RLENGTH }
+        function unquote(s) { gsub(/["'\'']/, "", s); return s }
+        # The names in flow text: each `name: X` that ends at a comma or brace.
+        function flow_names(s) {
+            while (match(s, /name: *["'\'']?[A-Za-z_][A-Za-z0-9_]*["'\'']? *[,}]/)) {
+                n = substr(s, RSTART + 5, RLENGTH - 6); gsub(/ /, "", n)
+                print unquote(n); s = substr(s, RSTART + RLENGTH)
+            }
+        }
+        NR < at { next }
+        NR == at && it < 0 {
+            v = $0; sub(/^[^:]*environmentVars: */, "", v); sub(/ #.*/, "", v)
+            text = v; open = (v ~ /^\[/ && v !~ /\]/)
+            if (!open) { flow_names(text); exit }
+            next
+        }
+        open {
+            v = $0; sub(/ #.*/, "", v); text = text " " v
+            if (v ~ /\]/) { flow_names(text); exit }
+            next
+        }
+        NR == at || /^[[:space:]]*(#.*)?$/ { next }
+        {
+            i = ind($0)
+            if (i < it || (i == it && $0 !~ /^ *- /)) exit
+            if (i == it) {
+                match($0, /^ *- +/); keyin = RLENGTH
+                item = substr($0, keyin + 1)
+                if (item ~ /^[{]/) flow_names(item)
+                else if (match(item, /^name: *["'\'']?[A-Za-z_][A-Za-z0-9_]*["'\'']? *(#.*)?$/)) {
+                    n = item; sub(/^name: */, "", n); sub(/ *(#.*)?$/, "", n); print unquote(n)
+                }
+            } else if (i == keyin && $0 ~ /^ *name: *["'\'']?[A-Za-z_][A-Za-z0-9_]*["'\'']? *(#.*)?$/) {
+                n = $0; sub(/^ *name: */, "", n); sub(/ *(#.*)?$/, "", n); print unquote(n)
+            }
+        }
+    ' "$1"
+}
+
+if [ "${1:-}" = --env-names ]; then
+    file=${2:-$manifest}
+    env_names "$file" && exit 0
+    echo "Can't tell which container in $file is Hermes', so its variables can't be read." >&2
+    echo "It is the one built from ./Dockerfile; with no build config, mark it as the" >&2
+    echo "only 'primary: true'." >&2
+    exit 2
+fi
 
 if [ "${1:-}" = --check ]; then
     file=${2:-$manifest}

@@ -90,3 +90,42 @@ SLACK_BOT_TOKEN" ]
 NOTE
 SLACK_HOME_CHANNEL" ]
 }
+
+@test "entries with their keys reordered, or in a flow list on one line or several, are declared" {
+    manifest '              - value: https://dr.example.com/api/v2
+                name: DATAROBOT_ENDPOINT
+              - {value: dr-credential:0123456789abcdef01234567/apiToken, name: SLACK_BOT_TOKEN}'
+    drift
+    [ "$status" -eq 0 ]
+    printf 'name: hermes-agent\nartifact:\n  spec:\n    containerGroups:\n      - containers:\n          - environmentVars: [{name: DATAROBOT_ENDPOINT, value: x}, {value: y, name: "SLACK_BOT_TOKEN"}]\n' > "$WORK/.datarobot.yaml"
+    drift
+    [ "$status" -eq 0 ]
+    printf 'name: hermes-agent\nartifact:\n  spec:\n    containerGroups:\n      - containers:\n          - environmentVars: [\n              {name: DATAROBOT_ENDPOINT}, # a comment\n              {name: SLACK_BOT_TOKEN}]\n' > "$WORK/.datarobot.yaml"
+    drift
+    [ "$status" -eq 0 ]
+}
+
+@test "a name only a sidecar declares isn't declared: it never reaches Hermes" {
+    cat > "$WORK/.datarobot.yaml" <<'YAML'
+name: hermes-agent
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: hermes
+            primary: true
+            environmentVars:
+              - name: DATAROBOT_ENDPOINT
+          - name: sidecar
+            environmentVars:
+              - name: SLACK_BOT_TOKEN
+YAML
+    drift
+    [ "$status" -eq 1 ]
+    [ "$output" = SLACK_BOT_TOKEN ]
+    # With no way to tell which container is Hermes', it can't say.
+    sed -i '/primary: true/d' "$WORK/.datarobot.yaml"
+    drift
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+}
