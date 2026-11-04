@@ -262,3 +262,19 @@ trailing" store
     [ "$status" -eq 1 ]
     [[ "$output" == *"DataRobot can't give state store $STORE"* ]]
 }
+
+@test "a DR_SYNC_CATALOG_ID in any form dr reads is the store: reused, checked, never a second one" {
+    cp "$ENV" "$WORK/base"
+    for line in "DR_SYNC_CATALOG_ID: $STORE" "  DR_SYNC_CATALOG_ID = \"$STORE\"" \
+        "export DR_SYNC_CATALOG_ID='$STORE'" "DR_SYNC_CATALOG_ID=$STORE # made by dr start"; do
+        cp "$WORK/base" "$ENV"
+        printf '%s\n' "$line" >> "$ENV"
+        : > "$STUB_LOG"
+        store --if-set
+        [ "$status" -eq 0 ] || { echo "$line: $output"; false; }
+        grep -qx "inspect $STORE" "$STUB_LOG"
+        store
+        [ "$status" -eq 0 ]
+        [ "$(inits)" = 0 ]
+    done
+}

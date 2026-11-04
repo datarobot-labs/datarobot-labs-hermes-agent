@@ -79,3 +79,14 @@ SLACK_BOT_TOKEN" ]
     drift
     [ "$status" -eq 2 ]
 }
+
+@test ".env names count in every form dr reads, and a name inside a quoted value doesn't" {
+    printf '  SLACK_HOME_CHANNEL = C1\nDR_SYNC_CATALOG_ID: 0123456789abcdef01234567\nNOTE="two\nGHOST=lines"\n' >> "$ENV"
+    manifest '              - name: DATAROBOT_ENDPOINT
+              - name: SLACK_BOT_TOKEN'
+    drift
+    [ "$status" -eq 1 ]
+    [ "$output" = "DR_SYNC_CATALOG_ID
+NOTE
+SLACK_HOME_CHANNEL" ]
+}

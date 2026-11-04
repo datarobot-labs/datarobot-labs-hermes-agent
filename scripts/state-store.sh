@@ -43,18 +43,13 @@ case ${1:-} in
     --check) check=1; shift ;;
     --if-set) check=1 if_set=1; shift ;;
 esac
+here=$(dirname "$0")
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
 
-# The last value .env gives NAME, exported or not, without the quotes dotenv
-# allows.
+# The last value .env gives NAME, read as dr reads it.
 env_value() {
-    v=$(sed -nE "s/^(export[[:space:]]+)?$1=//p" "$env_file" | tail -n 1)
-    case $v in
-        \"*\") v=${v#\"} v=${v%\"} ;;
-        \'*\') v=${v#\'} v=${v%\'} ;;
-    esac
-    printf '%s' "$v"
+    sh "$here/dotenv.sh" value "$1" "$env_file"
 }
 
 # Whether .datarobot.yaml names the store's variable at all. Only the name:
