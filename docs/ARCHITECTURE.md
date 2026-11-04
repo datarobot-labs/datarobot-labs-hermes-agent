@@ -244,8 +244,17 @@ instead:
   shipped, plus pure caches and logs that aren't worth persisting. `skills/`
   and `plugins/` are synced, and the image's own are laid over them after the
   download.
+- **Deletions stay deleted.** Each upload runs with `--delete`, so the store
+  mirrors `$HERMES_HOME`: a session, memory or skill the agent deletes is gone
+  from the next generation, and the next boot doesn't bring it back. Excluded
+  paths never reach the store, and the databases travel as their snapshots,
+  so neither counts as a deletion. An upload only runs on a tree that holds
+  the whole download: a boot that can't download or merge it stops, and a pod
+  that follows another generation uploads nothing until it has reloaded. The
+  reload also removes what that generation deleted after this pod booted,
+  keeping what this pod wrote meanwhile.
 - **Retention** is `--keep-generations 144` (about a day of 10-minute
-  uploads), so a bad overwrite can be rolled back (see below).
+  uploads), so a bad overwrite or deletion can be rolled back (see below).
 
 This assumes a **single writer**: one replica pushing to one container, so
 there's no lock contention to design around. A rollout's two generations take
@@ -274,8 +283,8 @@ restart. On every boot, after the download, the ones this repo's image ships
 (`config/skills/`, the plugins in the seed) are laid over the stored copies, so
 the current image's version wins, and the ones an earlier image shipped but
 this one doesn't are removed: the store keeps a list of every file an image
-shipped to it (`.dr-sync-shipped`). An upload never deletes from the store, so
-a dropped skill's file stays there, and every boot removes it again. The
+shipped to it (`.dr-sync-shipped`), and the next upload drops their files from
+the store. The
 hub's `skills/.hub/lock.json` is merged rather than replaced
 (`docker/entrypoint.d/hub-lock.py`): the image's records win, and a record for
 a skill the agent installed at runtime stays while its skill does. Hermes' own
@@ -284,7 +293,8 @@ new image's version, one the agent changed is kept, and one Hermes dropped
 stays.
 
 Never point two running copies at one store: a second writer's fresh state
-competes with the pod's. So `compose.yaml` leaves a local `docker compose up`
+competes with the pod's, and since an upload mirrors its own tree, it deletes
+what the pod wrote. So `compose.yaml` leaves a local `docker compose up`
 without a store, whatever `.env` says. To give a local run one of its own,
 create a separate store (for example `datarobot sync init --name hermes-local`) and
 pass its id on the command line, not in `.env`, where `dr run env` would carry

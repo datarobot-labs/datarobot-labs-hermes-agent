@@ -19,7 +19,12 @@
 
 setup() {
     WORK=$(mktemp -d)
-    mkdir -p "$WORK/skills/.hub" "$WORK/skills/creative/ascii-art" "$WORK/skills/runtime/learned"
+    mkdir -p "$WORK/skills/.hub" "$WORK/skills/creative/ascii-art" "$WORK/skills/runtime/learned" \
+        "$WORK/skills/gone/leftover" "$WORK/skills/odd/linked"
+    touch "$WORK/skills/creative/ascii-art/SKILL.md" "$WORK/skills/runtime/learned/SKILL.md"
+    # Pruned with the image that shipped it, all but a file the agent added.
+    touch "$WORK/skills/gone/leftover/notes.md"
+    ln -s "$WORK/skills/runtime/learned/SKILL.md" "$WORK/skills/odd/linked/SKILL.md"
     cat > "$WORK/skills/.hub/lock.json" <<'JSON'
 {"version": 1, "installed": {
   "ascii-art": {"install_path": "creative/ascii-art", "content_hash": "sha256:new"}}}
@@ -30,10 +35,13 @@ JSON
   "ascii-art": {"install_path": "creative/ascii-art", "content_hash": "sha256:old"},
   "learned": {"install_path": "runtime/learned"},
   "pruned": {"install_path": "gone/pruned"},
+  "leftover": {"install_path": "gone/leftover"},
+  "linked": {"install_path": "odd/linked"},
   "escape": {"install_path": "../outside"},
   "odd": "not a record"}}
 JSON
     mkdir -p "$WORK/outside"
+    touch "$WORK/outside/SKILL.md"
 }
 
 teardown() {
@@ -62,6 +70,8 @@ print(json.dumps(lock.get(sys.argv[2])))' "$WORK/skills/.hub/lock.json" "$1"
     merge "$WORK/stored.json"
     [ "$status" -eq 0 ]
     [ "$(record pruned)" = null ]
+    [ "$(record leftover)" = null ]
+    [ "$(record linked)" = null ]
     [ "$(record escape)" = null ]
     [ "$(record odd)" = null ]
 }

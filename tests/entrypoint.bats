@@ -209,11 +209,69 @@ STUB
     [ "$(cat /tmp/hermes/skills/kept/SKILL.md)" = new ]
     [ "$(cat /tmp/hermes/skills/learned/SKILL.md)" = agent ]
     [ "$(cat /tmp/hermes/sessions/chat.json)" = chat ]
-    # The dropped skill stays listed: the store keeps its file, and the next
-    # download brings it back.
+    # The dropped skill stays listed, for a store written before uploads
+    # mirrored HERMES_HOME, which still holds its file.
     grep -qx 'skills/dropped/SKILL.md' /tmp/hermes/.dr-sync-shipped
     grep -qx 'skills/kept/SKILL.md' /tmp/hermes/.dr-sync-shipped
     ! grep -qx 'skills/learned/SKILL.md' /tmp/hermes/.dr-sync-shipped || false
+}
+
+@test "what the agent deletes stays deleted on the next boot, and the databases still travel" {
+    mkdir -p "$WORK/bin" "$WORK/store/sessions" "$WORK/store/skills/learned" "$WORK/store/.dr-sync-snapshots"
+    echo old > "$WORK/store/sessions/old.json"
+    echo kept > "$WORK/store/sessions/kept.json"
+    echo agent > "$WORK/store/skills/learned/SKILL.md"
+    echo db > "$WORK/store/.dr-sync-snapshots/state.db.snap"
+    # A store: a download copies it out, an upload copies HERMES_HOME in
+    # without the live databases, and with --delete drops what HERMES_HOME lacks.
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+case \$1 in
+download) cp -R "$WORK/store/." "\$2/" ;;
+upload)
+    case " \$* " in *" --delete "*) rm -rf "$WORK/store" ;; esac
+    mkdir -p "$WORK/store"
+    cp -R "\$2/." "$WORK/store/"
+    find "$WORK/store" \( -name '*.db' -o -name '*.db-wal' -o -name '*.db-shm' \) -delete
+    ;;
+esac
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123 \
+        STUB_GATEWAY_RM="/tmp/hermes/sessions/old.json /tmp/hermes/skills/learned"
+    [ "$status" -eq 0 ]
+    grep -q -- '^dr-sync upload /tmp/hermes .*--delete' "$WORK/calls.log"
+    rm -rf /tmp/hermes
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    [ ! -e /tmp/hermes/sessions/old.json ]
+    [ ! -e /tmp/hermes/skills/learned ]
+    [ "$(cat /tmp/hermes/sessions/kept.json)" = kept ]
+    [ "$(cat /tmp/hermes/state.db)" = db ]
+    [ "$(cat "$WORK/store/.dr-sync-snapshots/state.db.snap")" = db ]
+}
+
+@test "a stored name with a newline in it stays out, and can't read as another path" {
+    mkdir -p "$WORK/bin" "$WORK/store/newdir"
+    echo agent > "$WORK/store/newdir/notes.md"
+    # Read one line at a time, aa<newline>../dr-sync-stage.list names the walk's
+    # own list: a move onto itself, which would stop every boot.
+    mkdir "$WORK/store/aa"$'\n'".."
+    echo crafted > "$WORK/store/aa"$'\n'"../dr-sync-stage.list"
+    cat > "$WORK/bin/dr-sync" <<STUB
+#!/bin/sh
+echo "dr-sync \$*" >> "\$STUB_LOG"
+if [ "\$1" = download ]; then cp -R "$WORK/store/." "\$2/"; fi
+exit 0
+STUB
+    chmod +x "$WORK/bin/dr-sync"
+    run boot PATH="$WORK/bin:/opt/stubs:/usr/local/bin:/usr/bin:/bin" DR_SYNC_CATALOG_ID=catalog123
+    [ "$status" -eq 0 ]
+    grep -q 'Warning: the store has names with a newline in them; leaving them out' "$WORK/err"
+    [ "$(cat /tmp/hermes/newdir/notes.md)" = agent ]
+    [ -z "$(find /tmp/hermes -name "*"$'\n'"*")" ]
 }
 
 @test "a skill dropped two images ago, still in the store, is removed again" {
@@ -373,7 +431,8 @@ STUB
 # handoff_setup <self id>: the stubs for a pod named lrs-<self id>-... in a
 # workload whose proton list, call by call, is $WORK/protons.1, .2, ... (the
 # last one repeating; one that says FAIL fails). dr-sync serves a handoff marker once $WORK/marker
-# exists. The full download fails from the call $WORK/fail-download-from on,
+# exists. The nth full download brings what $WORK/stored.<n> holds, if anything.
+# It fails from the call $WORK/fail-download-from on,
 # and hangs for a few seconds from the call $WORK/hang-download-from on,
 # and the store's download holds a directory or a symlink at the marker's path when
 # $WORK/stored-marker says so. With $WORK/slow-first, the first upload takes
@@ -423,6 +482,7 @@ case "\$*" in
             sleep 6
             [ ! -e /tmp/hermes-reloading ] || echo "probe still answered after the hung download" >> "\$STUB_LOG"
         fi
+        if [ -d "$WORK/stored.\$n" ]; then cp -R "$WORK/stored.\$n/." "\$2/"; fi
         case "\$(cat "$WORK/stored-marker" 2>/dev/null)" in
             dir) mkdir -p "\$2/.dr-sync-handoff" && touch "\$2/.dr-sync-handoff/x" ;;
             symlink) ln -s "$WORK/target" "\$2/.dr-sync-handoff" ;;
@@ -513,6 +573,81 @@ line() {
     [ "$(line '^webui start')" -lt "$(line '^webui stop')" ]
     [ "$(line '^webui stop')" -lt "$(line '^dr-sync download /tmp/dr-sync-stage$' 2)" ]
     [ ! -e /tmp/hermes-webui-paused ]
+}
+
+@test "on the reload, what the old generation deleted since this pod booted goes, and what this pod wrote stays" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    mkdir -p "$WORK/stored.1/sessions/gone" "$WORK/stored.1/skills/learned" "$WORK/stored.1/skills/both"
+    echo old > "$WORK/stored.1/sessions/old.json"
+    echo kept > "$WORK/stored.1/sessions/kept.json"
+    echo gone > "$WORK/stored.1/sessions/gone/chat.json"
+    echo agent > "$WORK/stored.1/skills/learned/SKILL.md"
+    echo agent > "$WORK/stored.1/skills/both/SKILL.md"
+    # The old generation deleted old.json, sessions/gone and the learned skill
+    # before it handed off, and changed kept.json.
+    mkdir -p "$WORK/stored.2/sessions"
+    echo kept2 > "$WORK/stored.2/sessions/kept.json"
+    # This pod, while it served, wrote a session and a file in a skill the old
+    # generation deleted.
+    (
+        sleep 2
+        echo new > /tmp/hermes/sessions/new.json
+        echo notes > /tmp/hermes/skills/both/notes.md
+        sleep 1
+        echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    ) &
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    [ ! -e /tmp/hermes/sessions/old.json ]
+    [ ! -e /tmp/hermes/sessions/gone ]
+    [ ! -e /tmp/hermes/skills/learned ]
+    [ "$(cat /tmp/hermes/sessions/kept.json)" = kept2 ]
+    [ "$(cat /tmp/hermes/sessions/new.json)" = new ]
+    [ "$(cat /tmp/hermes/skills/both/notes.md)" = notes ]
+    [ ! -e /tmp/hermes/skills/both/SKILL.md ]
+}
+
+@test "on the reload, a deletion under a directory this pod replaced with a symlink stays out of the symlink's target" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    mkdir -p "$WORK/stored.1/sessions/gone" "$WORK/stored.2/sessions" "$WORK/outside"
+    echo gone > "$WORK/stored.1/sessions/gone/chat.json"
+    echo outside > "$WORK/outside/chat.json"
+    # The old generation deleted sessions/gone; this pod, while it served,
+    # replaced it with a symlink to a directory with the same name in it.
+    (
+        sleep 2
+        rm -rf /tmp/hermes/sessions/gone
+        ln -s "$WORK/outside" /tmp/hermes/sessions/gone
+        sleep 1
+        echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    ) &
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    [ "$(cat "$WORK/outside/chat.json")" = outside ]
+}
+
+@test "on the reload, a stored path the boot kept out for the image's is not the store's to remove" {
+    handoff_setup aaaaaaaaaaaaaaaaaaaaaaaa
+    long_gateway
+    printf 'aaaaaaaaaaaaaaaaaaaaaaaa running\nbbbbbbbbbbbbbbbbbbbbbbbb draining\n' > "$WORK/protons.1"
+    # The store has a directory where the image ships SOUL.md, and a file
+    # where it has sessions; the old generation then deleted both.
+    mkdir -p "$WORK/stored.1/SOUL.md" "$WORK/stored.2"
+    echo stored > "$WORK/stored.1/SOUL.md/notes.md"
+    echo stored > "$WORK/stored.1/sessions"
+    (
+        sleep 3
+        echo bbbbbbbbbbbbbbbbbbbbbbbb > "$WORK/marker"
+    ) &
+    UNTIL_COUNT=2 boot_until '^hermes gateway run' DR_SYNC_INTERVAL_SECONDS=1
+    grep -q 'reloading the state store to take it over' "$WORK/err"
+    grep -q 'the store has a directory at SOUL.md, where the image has a file' "$WORK/err"
+    cmp /tmp/hermes/SOUL.md "$SEED/SOUL.md"
+    [ -d /tmp/hermes/sessions ]
 }
 
 # reload_gateway: a gateway that runs until it is told to stop, logs whether

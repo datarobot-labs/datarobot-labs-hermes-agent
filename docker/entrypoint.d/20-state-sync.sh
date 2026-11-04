@@ -109,8 +109,14 @@ sync_up() {
             rm -rf "${HERMES_HOME:?}/$handoff_marker"
             echo "$3" > "$HERMES_HOME/$handoff_marker" || exit 1
         fi
+        # --delete: the store mirrors $HERMES_HOME, so what the agent deletes
+        # stays deleted. It drops every stored path this tree lacks, excluded
+        # ones too, so an upload only ever runs on a tree that holds the whole
+        # download: pull_state stops the boot when it can't, a pod that follows
+        # another generation uploads nothing until it has reloaded, and the
+        # handoff (15-handoff.sh) keeps that generation from writing after it.
         timeout --kill-after=2 "${1:-0}" dr-sync upload "$HERMES_HOME" \
-            --keep-generations 144 \
+            --delete --keep-generations 144 \
             --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm'
     ) 9>/tmp/.dr-sync.lock
 }
@@ -121,6 +127,9 @@ sync_up() {
 # directory, or the reverse): every boot would stop. An empty directory has
 # nothing to conflict with.
 stage=/tmp/dr-sync-stage
+# The paths the last download brought, for the next one to compare with.
+pulled=/tmp/dr-sync-pulled.list
+rm -f "$pulled"
 download_state() {
     rm -rf "$stage"
     mkdir -p "$stage"
@@ -149,12 +158,50 @@ is_dir() {
     [ -d "$1" ] && [ ! -L "$1" ]
 }
 
+# Whether every directory between $HERMES_HOME and its path $1 is still a real
+# one. Under a parent this pod replaced with a file or a symlink, $1 is no
+# longer what the download brought, and a symlink would take a removal elsewhere.
+under_real_dirs() {
+    d=$1
+    while [ "${d%/*}" != "$d" ]; do
+        d=${d%/*}
+        is_dir "$HERMES_HOME/$d" || return 1
+    done
+}
+
 # Moves the download into $HERMES_HOME, which holds the image's seed. A stored
 # path of another type than the one there stays out: the image wins. Moved,
 # not copied: /tmp is the only writable filesystem, and a copy would hold the
 # whole state twice for a moment.
 merge_state() {
+    # The walk below reads one path per line, so a stored name with a newline
+    # in it would read as other paths. It stays out, and the next upload drops
+    # it from the store.
+    nl='
+'
+    if [ -n "$(find "$stage" -mindepth 1 -name "*$nl*" -print -quit)" ]; then
+        echo "[entrypoint] Warning: the store has names with a newline in them; leaving them out" >&2
+        find "$stage" -mindepth 1 -name "*$nl*" -prune -exec rm -rf {} + || return 1
+    fi
     (cd "$stage" && find . -mindepth 1) > /tmp/dr-sync-stage.list || return 1
+    LC_ALL=C sort /tmp/dr-sync-stage.list > /tmp/dr-sync-stage.sorted || return 1
+    # On a reload: a path the boot's download brought and this one doesn't, the
+    # generation that wrote the store since deleted. It goes here too, or this
+    # pod's next upload would put it back. Entries before their directory, and
+    # a directory only once empty, so what this pod wrote since stays.
+    if [ -f "$pulled" ]; then
+        LC_ALL=C comm -23 "$pulled" /tmp/dr-sync-stage.sorted | LC_ALL=C sort -r |
+        while IFS= read -r p; do
+            p=${p#./}
+            under_real_dirs "$p" || continue
+            if is_dir "$HERMES_HOME/$p"; then
+                rmdir "${HERMES_HOME:?}/$p" 2>/dev/null || true
+            else
+                rm -f "${HERMES_HOME:?}/$p" || return 1
+            fi
+        done || return 1
+    fi
+    : > /tmp/dr-sync-stage.rejected || return 1
     # Parents come before their entries, so a directory moved whole takes its
     # entries with it, and a directory both sides have is merged entry by entry.
     while IFS= read -r p; do
@@ -169,21 +216,29 @@ merge_state() {
         # one over a directory would fail the merge.
         elif [ -L "$stage/$p" ]; then
             echo "[entrypoint] Warning: the store has a symlink at $p, where the image has a file or directory; keeping the image's" >&2
+            echo "./$p" >> /tmp/dr-sync-stage.rejected
             rm -f "$stage/$p"
         elif is_dir "$stage/$p"; then
             if ! is_dir "$HERMES_HOME/$p"; then
                 echo "[entrypoint] Warning: the store has a directory at $p, where the image has a file; keeping the image's" >&2
+                echo "./$p" >> /tmp/dr-sync-stage.rejected
                 rm -rf "${stage:?}/$p"
             fi
         elif is_dir "$HERMES_HOME/$p"; then
             echo "[entrypoint] Warning: the store has a file at $p, where the image has a directory; keeping the image's" >&2
+            echo "./$p" >> /tmp/dr-sync-stage.rejected
             rm -f "$stage/$p"
         else
             # A rename: it replaces the path itself, never writing through it.
             mv -f "$stage/$p" "$HERMES_HOME/$p" || return 1
         fi
     done < /tmp/dr-sync-stage.list
-    rm -rf "$stage" /tmp/dr-sync-stage.list
+    # What the next download is compared with: only what this one put here. A
+    # stored path kept out, and all under it, is the image's, not the store's.
+    LC_ALL=C awk 'FILENAME == ARGV[1] { out[$0]; next }
+        { q = $0; while (!(q in out) && sub(/\/[^\/]*$/, "", q)) ; if (!(q in out)) print }' \
+        /tmp/dr-sync-stage.rejected /tmp/dr-sync-stage.sorted > "$pulled" || return 1
+    rm -rf "$stage" /tmp/dr-sync-stage.list /tmp/dr-sync-stage.sorted /tmp/dr-sync-stage.rejected
 }
 
 # HERMES_HOME is per-boot (see top of file); DR_SYNC_CATALOG_ID points dr-sync
@@ -219,10 +274,10 @@ pull_state() {
     # older copies of this image's skills and plugins, and ones this image
     # dropped. .dr-sync-shipped, uploaded with the rest, lists every file any
     # image shipped to this store: those this one doesn't go, then this image's
-    # are laid over the rest. Every one, not just the last image's: an upload
-    # keeps a file the store has after it's deleted here, so a dropped skill
-    # comes back with every download and has to go every time. Hermes' bundled
-    # skills are skills_sync.py's (50-skills.sh).
+    # are laid over the rest. Every one, not just the last image's: a store
+    # written before uploads mirrored $HERMES_HOME still holds the files of
+    # skills dropped images ago. Hermes' bundled skills are skills_sync.py's
+    # (50-skills.sh).
     shipped="$HERMES_HOME/.dr-sync-shipped"
     (cd "$HERMES_SEED" && find skills plugins -type f 2>/dev/null) | sort > /tmp/dr-sync-shipped
     if [ -f "$shipped" ]; then
