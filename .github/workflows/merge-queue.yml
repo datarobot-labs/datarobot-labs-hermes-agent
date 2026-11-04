@@ -1,0 +1,109 @@
+# Copyright 2026 DataRobot, Inc. and its affiliates.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Adds a pull request to the merge queue once it is ready to merge, so nobody
+# clicks "Merge when ready". It runs when CI completes and on a schedule that
+# picks up what no event announced, such as a pull request that was approved
+# after its checks finished. It enqueues only when the merge state is CLEAN,
+# so every trigger is safe to repeat. Add the `hold` label to keep a pull
+# request out.
+#
+# GitHub's own auto-merge doesn't work here: a request enabled by GITHUB_TOKEN
+# never enqueues, and an enqueue by GITHUB_TOKEN starts no merge_group runs.
+# The queue App enqueues instead. Its key is a secret of the `merge-queue`
+# environment, which only the default branch can read. An organization admin
+# installs the App on the repository and creates the environment.
+#
+# SECURITY: workflow_run and schedule run this workflow from the default
+# branch. The job that holds the key checks out the default branch only, reads
+# fields from the API, and never runs a pull request's code. Do NOT add a
+# pull_request trigger or a checkout of a pull request.
+name: merge-queue
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  posture:
+    # CI for a merge group is the queue's own check, nothing to enqueue.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      ready: ${{ steps.posture.outputs.ready }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - id: posture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: sh scripts/merge-queue-posture.sh
+
+  enqueue:
+    needs: posture
+    if: needs.posture.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    concurrency:
+      group: merge-queue
+    # The queue App key is an environment secret limited to the default branch.
+    environment: merge-queue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.MERGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MERGE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Add the ready pull requests to the merge queue
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          if [ "$EVENT" = workflow_run ]; then
+            # The merge state needs a moment to settle after the last check completes.
+            WAIT_SECONDS=30 sh scripts/merge-queue-enqueue.sh "$PR_NUMBER" "$HEAD_SHA"
+          else
+            for pr in $(gh pr list --state open --base "$DEFAULT_BRANCH" --json number --jq '.[].number'); do
+              sh scripts/merge-queue-enqueue.sh "$pr" || echo "::warning::PR $pr could not be added to the queue."
+            done
+          fi

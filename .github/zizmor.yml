@@ -16,11 +16,14 @@
 # workflow run. Every ignore names one file and says why. tests/static.bats
 # fails when an ignore names any other file.
 rules:
+  # merge-queue.yml runs on workflow_run, which reads the workflow from the
+  # default branch, so the queue App's key never reaches a pull request's code.
   # review-router.yml calls the shared Review Router workflow of the
   # datarobot-oss organization, which needs these triggers, the secrets
   # inheritance, and a commit pin that the organization sets.
   dangerous-triggers:
     ignore:
+      - merge-queue.yml
       - review-router.yml
   secrets-inherit:
     ignore:

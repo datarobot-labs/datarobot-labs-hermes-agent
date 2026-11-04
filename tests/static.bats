@@ -560,15 +560,46 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "the merge queue workflow reads its key only from the merge-queue environment and runs no pull request code" {
+    run python3 - /repo/.github/workflows/merge-queue.yml <<'PY'
+import sys, yaml
+text = open(sys.argv[1]).read()
+workflow = yaml.safe_load(text)
+on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+# These events run the workflow from the default branch. A pull_request trigger would run the branch's copy.
+assert set(on) <= {"workflow_run", "schedule", "workflow_dispatch"}, f"unexpected triggers {sorted(on)}"
+job = workflow["jobs"]["enqueue"]
+assert job["environment"] == "merge-queue", "the key must come from the environment limited to the default branch"
+steps = job["steps"]
+token = [s for s in steps if str(s.get("uses", "")).startswith("actions/create-github-app-token@")]
+assert len(token) == 1, "one token step expected"
+with_ = token[0]["with"]
+assert "client-id" in with_ and "app-id" not in with_, "use client-id, app-id is deprecated"
+permissions = {k for k in with_ if k.startswith("permission-")}
+assert permissions == {"permission-contents", "permission-pull-requests"}, f"token permissions {sorted(permissions)}"
+assert "permission-workflows" not in text, "the App must never get the workflows permission"
+for job_name, each in workflow["jobs"].items():
+    for step in each["steps"]:
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            assert "ref" not in step.get("with", {}), f"{job_name} checks out a ref, not the default branch"
+            assert step["with"].get("persist-credentials") is False, f"{job_name} keeps the checkout credentials"
+PY
+    [ "$status" -eq 0 ]
+}
+
 @test "the zizmor ignores name only the files that need them" {
     run python3 - /repo/.github/zizmor.yml <<'PY'
 import sys, yaml
 rules = yaml.safe_load(open(sys.argv[1]))["rules"]
 assert rules, "no ignores, so this file is not needed"
 for rule, settings in rules.items():
-    # Only ci.yml has a second ignore: the `./` form of its workflow calls, which actionlint requires.
-    expected = ["ci.yml"] if rule == "self-repository" else ["review-router.yml"]
-    assert settings["ignore"] == expected, f"{rule} ignores {settings['ignore']}"
+    allowed = {
+        "dangerous-triggers": ["merge-queue.yml", "review-router.yml"],
+        "secrets-inherit": ["review-router.yml"],
+        # ci.yml calls its workflows with the `./` form, which actionlint requires.
+        "self-repository": ["ci.yml"],
+    }
+    assert sorted(settings["ignore"]) == allowed[rule], f"{rule} ignores {settings['ignore']}"
 PY
     [ "$status" -eq 0 ]
 }
