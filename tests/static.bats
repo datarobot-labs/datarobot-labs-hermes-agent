@@ -60,6 +60,29 @@ upload_set() {
     [ "$status" -eq 0 ]
 }
 
+@test "dr start stops when bringing .env over to the manifest fails, and goes on when it is declined" {
+    work=$(mktemp -d)
+    python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["tasks"]["_manifest"]["cmds"][0])' \
+        /repo/Taskfile.yaml > "$work/manifest.sh"
+    mkdir "$work/scripts"
+    # A manifest that lacks a name .env sets, and a --sync-env that exits STUB_STATUS.
+    printf '#!/bin/sh\necho SLACK_HOME_CHANNEL\nexit 1\n' > "$work/scripts/env-drift.sh"
+    printf '#!/bin/sh\necho "workload-config $*"\nexit "$STUB_STATUS"\n' > "$work/scripts/workload-config.sh"
+    chmod +x "$work/scripts/env-drift.sh" "$work/scripts/workload-config.sh"
+    : > "$work/.datarobot.yaml"
+    cd "$work"
+    STUB_STATUS=1 run sh manifest.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"workload-config --sync-env"* ]]
+    [[ "$output" == *"Couldn't bring .env over"* ]]
+    [[ "$output" != *"Not brought over yet"* ]]
+    STUB_STATUS=0 run sh manifest.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Not brought over yet"* ]]
+    cd /
+    rm -rf "$work"
+}
+
 @test "the repo's own scripts pass shellcheck" {
     # As `task lint` and the Lint workflow run it: every severity, info included.
     run shellcheck -s sh /repo/scripts/*.sh
@@ -434,7 +457,7 @@ assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
 assert "scripts/state-store.sh --if-set" in [p["sh"] for p in tasks["deploy"]["preconditions"]], tasks["deploy"]
 # An existing manifest gets what .env gained through dr's own question, never --yes.
 manifest = tasks["_manifest"]["cmds"][0]
-assert "scripts/env-drift.sh" in manifest and "scripts/workload-config.sh --sync-env\n" in manifest, manifest
+assert "scripts/env-drift.sh" in manifest and "if ! scripts/workload-config.sh --sync-env; then\n" in manifest, manifest
 assert tasks["_manifest"].get("interactive") is True
 assert "scripts/env-drift.sh" in tasks["doctor"]["cmds"][0]
 prompts = yaml.safe_load(open(sys.argv[2]))
