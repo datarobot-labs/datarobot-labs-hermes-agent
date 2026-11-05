@@ -21,3 +21,7 @@ dependabot:
   defaults:
     update_types: [patch, minor]
     min_compatibility: 70
+
+# The schedule runs hourly. A stale PR is reminded about every 6 hours.
+reminders:
+  interval_hours: 6
