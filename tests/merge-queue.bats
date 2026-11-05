@@ -158,7 +158,7 @@ posture() {
     grep -qx 'ready=true' "$GITHUB_OUTPUT"
 }
 
-@test "the posture is ready when the Review Router gate replaces the approval" {
+@test "the posture is ready when the Bouncer check replaces the approval" {
     posture "$(printf 'true\t2\t0\ttrue')"
     [ "$status" -eq 0 ]
     grep -qx 'ready=true' "$GITHUB_OUTPUT"

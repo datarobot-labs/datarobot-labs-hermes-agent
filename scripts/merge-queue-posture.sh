@@ -36,7 +36,7 @@ rules=$(gh api "repos/$repo/rules/branches/$base" --jq '
   [ any(.[]; .type == "merge_queue"),
     ([.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?] | length),
     ([.[] | select(.type == "pull_request") | .parameters.required_approving_review_count] | max // 0),
-    any(.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?; .context == "Review Router gate")
+    any(.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[]?; .context == "Bouncer")
   ] | @tsv') || { echo "Could not read the rules of $base." >&2; exit 1; }
 
 IFS='	' read -r queue checks approvals gate <<EOF
@@ -47,7 +47,7 @@ problems=""
 [ "$queue" = true ] || problems="$problems no merge queue rule;"
 [ "${checks:-0}" -ge 1 ] || problems="$problems no required status check;"
 if [ "${approvals:-0}" -lt 1 ] && [ "$gate" != true ]; then
-    problems="$problems no required approval and no required Review Router gate;"
+    problems="$problems no required approval and no required Bouncer check;"
 fi
 
 if [ -n "$problems" ]; then
