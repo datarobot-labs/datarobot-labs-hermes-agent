@@ -25,4 +25,3 @@ dependabot:
 # The schedule runs hourly. A stale PR is reminded about every 6 hours.
 reminders:
   interval_hours: 6
-  tick_minutes: 60
