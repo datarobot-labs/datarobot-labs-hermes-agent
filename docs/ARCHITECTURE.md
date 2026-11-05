@@ -91,11 +91,11 @@ names a variable the manifest doesn't (`scripts/env-drift.sh`), and
 `dr run doctor` flags those names. If the step fails, rather than being
 declined, `dr start` stops there. Only missing names can be caught: a changed
 value needs `dr run env`, since `dr` can't compare a credential with `.env`.
-These checks read `.env` as `dr` does, with godotenv's rules
-(`scripts/dotenv.sh`: indented, `export`ed, `NAME = value` and `NAME: value`
-lines too). In the manifest, only Hermes' own container counts: a variable that
-only a sidecar declares never reaches Hermes. When that container can't be
-identified, these checks stop and say so.
+These checks read `.env` with `scripts/dotenv.sh`, which handles indented,
+`export`ed and quoted lines and inline comments as `dr` does. In the manifest,
+only Hermes' own container counts: a variable that only a sidecar declares
+never reaches Hermes. When that container can't be identified, these checks
+stop and say so.
 
 - **`DATAROBOT_API_TOKEN`** is the exception. In `.env` it is the token of
   whoever ran `dr start`, which `dr` itself and a local `docker compose up`

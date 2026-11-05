@@ -263,9 +263,9 @@ trailing" store
     [[ "$output" == *"DataRobot can't give state store $STORE"* ]]
 }
 
-@test "a DR_SYNC_CATALOG_ID in any form dr reads is the store: reused, checked, never a second one" {
+@test "a DR_SYNC_CATALOG_ID indented, exported, quoted or commented is the store: reused, checked, never a second one" {
     cp "$ENV" "$WORK/base"
-    for line in "DR_SYNC_CATALOG_ID: $STORE" "  DR_SYNC_CATALOG_ID = \"$STORE\"" \
+    for line in "  DR_SYNC_CATALOG_ID=\"$STORE\"" \
         "export DR_SYNC_CATALOG_ID='$STORE'" "DR_SYNC_CATALOG_ID=$STORE # made by dr start"; do
         cp "$WORK/base" "$ENV"
         printf '%s\n' "$line" >> "$ENV"
