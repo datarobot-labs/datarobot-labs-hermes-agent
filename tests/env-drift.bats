@@ -123,7 +123,6 @@ YAML
     drift
     [ "$status" -eq 1 ]
     [ "$output" = SLACK_BOT_TOKEN ]
-    # With no way to tell which container is Hermes', it can't say.
     sed -i '/primary: true/d' "$WORK/.datarobot.yaml"
     drift
     [ "$status" -eq 2 ]

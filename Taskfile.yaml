@@ -146,8 +146,7 @@ tasks:
         if ! scripts/check-credentials.sh; then
           echo "A credential is still PLACEHOLDER. See docs/TROUBLESHOOTING.md."
           failed=1
-        # Before the checks below, which would read this as a missing entry
-        # and send the user to 'dr run env', which can't fix it. It says why.
+        # First: the checks below would misreport this as a missing entry.
         elif ! scripts/workload-config.sh --env-names > /dev/null; then
           failed=1
         elif ! scripts/workload-config.sh --check 2>/dev/null; then
@@ -162,7 +161,7 @@ tasks:
           echo "Run 'dr run env', then 'dr workload up'."
           failed=1
         else
-          # env-drift.sh said why: .env or the manifest can't be read.
+          # env-drift.sh said why.
           failed=1
         fi
 
@@ -244,8 +243,7 @@ tasks:
           exit
         fi
         echo "In .env but not in .datarobot.yaml:" $missing
-        # Declining dr's question exits 0; a failure (login, service, write)
-        # doesn't, and stops dr start before it says Ready.
+        # Declining dr's question exits 0; only a failure stops dr start.
         if ! scripts/workload-config.sh --sync-env; then
           echo "Couldn't bring .env over to .datarobot.yaml (see above). Fix that, then run 'dr run env'."
           exit 1

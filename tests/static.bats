@@ -65,7 +65,6 @@ upload_set() {
     python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["tasks"]["_manifest"]["cmds"][0])' \
         /repo/Taskfile.yaml > "$work/manifest.sh"
     mkdir "$work/scripts"
-    # A manifest that lacks a name .env sets, and a --sync-env that exits STUB_STATUS.
     printf '#!/bin/sh\necho SLACK_HOME_CHANNEL\nexit 1\n' > "$work/scripts/env-drift.sh"
     printf '#!/bin/sh\necho "workload-config $*"\nexit "$STUB_STATUS"\n' > "$work/scripts/workload-config.sh"
     chmod +x "$work/scripts/env-drift.sh" "$work/scripts/workload-config.sh"
@@ -91,7 +90,6 @@ upload_set() {
     printf '#!/bin/sh\nexit 0\n' > "$work/bin/dr"
     printf '#!/bin/sh\nexit 0\n' > "$work/scripts/check-credentials.sh"
     cp "$work/scripts/check-credentials.sh" "$work/scripts/state-store.sh"
-    # --env-names exits STUB_NAMES; env-drift.sh exits STUB_DRIFT, as the real ones do.
     cat > "$work/scripts/workload-config.sh" <<'STUB'
 #!/bin/sh
 [ "$1" = --env-names ] || exit 0

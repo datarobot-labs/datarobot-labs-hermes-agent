@@ -101,8 +101,7 @@ names_token() {
 # "<line of the environmentVars key> <its column> <the column of its items>
 # <1 if it holds the api-key entry, else 0>". The items' column is two past the
 # key's when the list is empty, the key's own for an indentationless list, and
-# -1 for a flow list on the key's own line (`environmentVars: [...]`), which
-# never holds the api-key entry.
+# -1 for a flow list (`environmentVars: [...]`).
 # The api-key entry counts only when `source: api-key` is its
 # one key besides name: no value, no other source. Exits 2 when none of those
 # rules picks one container, and 3 when it has no environmentVars key. A
@@ -210,12 +209,8 @@ add_api_key_entry() {
     ' "$1"
 }
 
-# Prints the names in the primary container's environmentVars, one per line:
-# entries at the list's item column, `- name: X`, `- {name: X, ...}`, or
-# `name: X` after another of the entry's keys, and every entry of a flow list
-# (`[{name: X}, ...]`, on one line or several). Comments, other containers and
-# text inside a value aren't entries. Exits as primary_env does when there is
-# no such container; one without environmentVars declares nothing.
+# Prints the names Hermes' container declares, one per line, in block or flow
+# style. Exits 2 as primary_env does.
 env_names() {
     loc=$(primary_env "$1") || {
         status=$?
@@ -225,7 +220,6 @@ env_names() {
     awk -v at="${loc%% *}" -v it="$(echo "$loc" | cut -d' ' -f3)" '
         function ind(s) { match(s, /^ */); return RLENGTH }
         function unquote(s) { gsub(/["'\'']/, "", s); return s }
-        # The names in flow text: each `name: X` that ends at a comma or brace.
         function flow_names(s) {
             while (match(s, /name: *["'\'']?[A-Za-z_][A-Za-z0-9_]*["'\'']? *[,}]/)) {
                 n = substr(s, RSTART + 5, RLENGTH - 6); gsub(/ /, "", n)

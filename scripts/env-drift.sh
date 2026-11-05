@@ -20,11 +20,10 @@
 #
 # Every name counts, empty or `export`ed, as for `dr workload config
 # --sync-env`, except DATAROBOT_API_TOKEN: the manifest gives the workload its
-# own key under that name, never .env's. .env is read as dr reads it
-# (scripts/dotenv.sh), and only Hermes' container counts as declaring a name
-# (scripts/workload-config.sh --env-names): a sidecar's variables never reach
-# Hermes. Names only: values that differ can't be compared here, since dr keeps
-# secrets, the store id among them, as credentials it never hands back.
+# own key under that name, never .env's. Only Hermes' container counts: a
+# sidecar's variables never reach it. Names only: values that differ can't be
+# compared here, since dr keeps secrets, the store id among them, as
+# credentials it never hands back.
 #
 # Usage: scripts/env-drift.sh [env file, default .env]
 # Exits 2 when it can't read .env or the manifest next to it, or can't tell
