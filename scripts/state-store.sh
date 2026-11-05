@@ -34,6 +34,7 @@
 #   --check   report only: never create a store or change .env
 #   --if-set  as --check, but no id in .env passes: a .env from before dr
 #             start made stores still deploys, as it did then
+# Both exit 2 when Hermes' container can't be identified.
 
 set -eu
 
@@ -43,22 +44,23 @@ case ${1:-} in
     --check) check=1; shift ;;
     --if-set) check=1 if_set=1; shift ;;
 esac
+here=$(dirname "$0")
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
 
-# The last value .env gives NAME, exported or not, without the quotes dotenv
-# allows.
 env_value() {
-    v=$(sed -nE "s/^(export[[:space:]]+)?$1=//p" "$env_file" | tail -n 1)
-    case $v in
-        \"*\") v=${v#\"} v=${v%\"} ;;
-        \'*\') v=${v#\'} v=${v%\'} ;;
-    esac
-    printf '%s' "$v"
+    sh "$here/dotenv.sh" value "$1" "$env_file"
 }
 
-# Whether .datarobot.yaml names the store's variable at all. Only the name:
-# dr keeps the id as a credential, which can't be read back here.
+# Whether Hermes' container declares the store's variable (only the name: dr
+# keeps the id as a credential). Not a pipe, which would hide exit 2.
+manifest_declares_store() {
+    names=$(sh "$here/workload-config.sh" --env-names "$manifest") || exit 2
+    printf '%s\n' "$names" | grep -qx DR_SYNC_CATALOG_ID
+}
+
+# Any mention at all, even in a comment: broader on purpose, as it only stops
+# dr start from making a second store.
 manifest_names_store() {
     [ -f "$manifest" ] && grep -qw DR_SYNC_CATALOG_ID "$manifest"
 }
@@ -91,7 +93,7 @@ id=$(env_value DR_SYNC_CATALOG_ID)
 if [ -n "$id" ]; then
     verify "$id" "in $env_file"
     echo "State store $id (DR_SYNC_CATALOG_ID in $env_file) is in place."
-    if [ -n "$check" ] && [ -f "$manifest" ] && ! manifest_names_store; then
+    if [ -n "$check" ] && [ -f "$manifest" ] && ! manifest_declares_store; then
         echo ".datarobot.yaml doesn't carry it yet, so the workload doesn't persist. Run 'dr run env'." >&2
         exit 1
     fi

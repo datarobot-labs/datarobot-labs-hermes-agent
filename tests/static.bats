@@ -60,6 +60,68 @@ upload_set() {
     [ "$status" -eq 0 ]
 }
 
+@test "dr start stops when bringing .env over to the manifest fails, and goes on when it is declined" {
+    work=$(mktemp -d)
+    python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["tasks"]["_manifest"]["cmds"][0])' \
+        /repo/Taskfile.yaml > "$work/manifest.sh"
+    mkdir "$work/scripts"
+    printf '#!/bin/sh\necho SLACK_HOME_CHANNEL\nexit 1\n' > "$work/scripts/env-drift.sh"
+    printf '#!/bin/sh\necho "workload-config $*"\nexit "$STUB_STATUS"\n' > "$work/scripts/workload-config.sh"
+    chmod +x "$work/scripts/env-drift.sh" "$work/scripts/workload-config.sh"
+    : > "$work/.datarobot.yaml"
+    cd "$work"
+    STUB_STATUS=1 run sh manifest.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"workload-config --sync-env"* ]]
+    [[ "$output" == *"Couldn't bring .env over"* ]]
+    [[ "$output" != *"Not brought over yet"* ]]
+    STUB_STATUS=0 run sh manifest.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Not brought over yet"* ]]
+    cd /
+    rm -rf "$work"
+}
+
+@test "doctor sends no one to 'dr run env' for a manifest or .env that it can't fix" {
+    work=$(mktemp -d)
+    python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["tasks"]["doctor"]["cmds"][0])' \
+        /repo/Taskfile.yaml > "$work/doctor.sh"
+    mkdir "$work/scripts" "$work/bin"
+    printf '#!/bin/sh\nexit 0\n' > "$work/bin/dr"
+    printf '#!/bin/sh\nexit 0\n' > "$work/scripts/check-credentials.sh"
+    cp "$work/scripts/check-credentials.sh" "$work/scripts/state-store.sh"
+    cat > "$work/scripts/workload-config.sh" <<'STUB'
+#!/bin/sh
+[ "$1" = --env-names ] || exit 0
+[ "$STUB_NAMES" = 0 ] || echo "Can't tell which container in .datarobot.yaml is Hermes'" >&2
+exit "$STUB_NAMES"
+STUB
+    cat > "$work/scripts/env-drift.sh" <<'STUB'
+#!/bin/sh
+case $STUB_DRIFT in 1) echo SLACK_HOME_CHANNEL ;; 2) echo "Can't read .env." >&2 ;; esac
+exit "$STUB_DRIFT"
+STUB
+    chmod +x "$work/bin/dr" "$work/scripts/"*
+    : > "$work/.datarobot.yaml"
+    cd "$work"
+    PATH="$work/bin:$PATH" STUB_NAMES=2 STUB_DRIFT=0 run sh doctor.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+    [[ "$output" != *"dr run env"* ]]
+    PATH="$work/bin:$PATH" STUB_NAMES=0 STUB_DRIFT=2 run sh doctor.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Can't read .env."* ]]
+    [[ "$output" != *"dr run env"* ]]
+    PATH="$work/bin:$PATH" STUB_NAMES=0 STUB_DRIFT=1 run sh doctor.sh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"doesn't get them: SLACK_HOME_CHANNEL"* ]]
+    PATH="$work/bin:$PATH" STUB_NAMES=0 STUB_DRIFT=0 run sh doctor.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *".datarobot.yaml is complete."* ]]
+    cd /
+    rm -rf "$work"
+}
+
 @test "the repo's own scripts pass shellcheck" {
     # As `task lint` and the Lint workflow run it: every severity, info included.
     run shellcheck -s sh /repo/scripts/*.sh
@@ -434,7 +496,7 @@ assert "scripts/state-store.sh --check" in tasks["doctor"]["cmds"][0]
 assert "scripts/state-store.sh --if-set" in [p["sh"] for p in tasks["deploy"]["preconditions"]], tasks["deploy"]
 # An existing manifest gets what .env gained through dr's own question, never --yes.
 manifest = tasks["_manifest"]["cmds"][0]
-assert "scripts/env-drift.sh" in manifest and "scripts/workload-config.sh --sync-env\n" in manifest, manifest
+assert "scripts/env-drift.sh" in manifest and "if ! scripts/workload-config.sh --sync-env; then\n" in manifest, manifest
 assert tasks["_manifest"].get("interactive") is True
 assert "scripts/env-drift.sh" in tasks["doctor"]["cmds"][0]
 prompts = yaml.safe_load(open(sys.argv[2]))

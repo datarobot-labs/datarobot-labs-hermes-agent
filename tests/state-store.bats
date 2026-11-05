@@ -262,3 +262,84 @@ trailing" store
     [ "$status" -eq 1 ]
     [[ "$output" == *"DataRobot can't give state store $STORE"* ]]
 }
+
+@test "a DR_SYNC_CATALOG_ID indented, exported, quoted or commented is the store: reused, checked, never a second one" {
+    cp "$ENV" "$WORK/base"
+    for line in "  DR_SYNC_CATALOG_ID=\"$STORE\"" \
+        "export DR_SYNC_CATALOG_ID='$STORE'" "DR_SYNC_CATALOG_ID=$STORE # made by dr start"; do
+        cp "$WORK/base" "$ENV"
+        printf '%s\n' "$line" >> "$ENV"
+        : > "$STUB_LOG"
+        store --if-set
+        [ "$status" -eq 0 ] || { echo "$line: $output"; false; }
+        grep -qx "inspect $STORE" "$STUB_LOG"
+        store
+        [ "$status" -eq 0 ]
+        [ "$(inits)" = 0 ]
+    done
+}
+
+@test "--check counts the store only where Hermes' container declares it" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    manifest hermes-agent "              # - name: DR_SYNC_CATALOG_ID
+              - name: SLACK_HOME_CHANNEL
+                value: DR_SYNC_CATALOG_ID"
+    store --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Run 'dr run env'"* ]]
+    store --if-set
+    [ "$status" -eq 1 ]
+
+    cat > "$WORK/.datarobot.yaml" <<'YAML'
+name: hermes-agent
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: hermes
+            primary: true
+            environmentVars:
+              - name: SLACK_HOME_CHANNEL
+          - name: sidecar
+            environmentVars:
+              - name: DR_SYNC_CATALOG_ID
+YAML
+    store --check
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Run 'dr run env'"* ]]
+
+    manifest hermes-agent "              - value: \"$STORE\"
+                name: DR_SYNC_CATALOG_ID"
+    store --check
+    [ "$status" -eq 0 ]
+    printf 'name: hermes-agent\nartifact:\n  spec:\n    containerGroups:\n      - containers:\n          - environmentVars: [{value: x, name: DR_SYNC_CATALOG_ID}]\n' > "$WORK/.datarobot.yaml"
+    store --check
+    [ "$status" -eq 0 ]
+    [ "$(inits)" = 0 ]
+}
+
+@test "--check and --if-set stop when Hermes' container can't be told apart" {
+    printf 'DR_SYNC_CATALOG_ID="%s"\n' "$STORE" >> "$ENV"
+    cat > "$WORK/.datarobot.yaml" <<'YAML'
+name: hermes-agent
+artifact:
+  spec:
+    containerGroups:
+      - containers:
+          - name: one
+            environmentVars:
+              - name: DR_SYNC_CATALOG_ID
+          - name: two
+            environmentVars:
+              - name: SLACK_HOME_CHANNEL
+YAML
+    store --check
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+    [[ "$output" != *"Run 'dr run env'"* ]]
+    store --if-set
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Can't tell which container"* ]]
+    [[ "$output" != *"Run 'dr run env'"* ]]
+    [ "$(inits)" = 0 ]
+}

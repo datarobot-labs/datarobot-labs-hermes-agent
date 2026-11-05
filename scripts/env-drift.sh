@@ -20,25 +20,28 @@
 #
 # Every name counts, empty or `export`ed, as for `dr workload config
 # --sync-env`, except DATAROBOT_API_TOKEN: the manifest gives the workload its
-# own key under that name, never .env's. Names only: values that differ can't
-# be compared here, since dr keeps secrets, the store id among them, as
+# own key under that name, never .env's. Only Hermes' container counts: a
+# sidecar's variables never reach it. Names only: values that differ can't be
+# compared here, since dr keeps secrets, the store id among them, as
 # credentials it never hands back.
 #
 # Usage: scripts/env-drift.sh [env file, default .env]
-# Exits 2 when it can't read .env or the manifest next to it.
+# Exits 2 when it can't read .env or the manifest next to it, or can't tell
+# which container is Hermes'.
 
 set -eu
 
+here=$(dirname "$0")
 env_file=${1:-.env}
 manifest=$(dirname "$env_file")/.datarobot.yaml
 for f in "$env_file" "$manifest"; do
     [ -r "$f" ] || { echo "Can't read $f." >&2; exit 2; }
 done
 
-missing=$(sed -nE 's/^(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/p' "$env_file" |
-    grep -vx DATAROBOT_API_TOKEN | sort -u |
+names=$(sh "$here/dotenv.sh" names "$env_file") || exit 2
+declared=$(sh "$here/workload-config.sh" --env-names "$manifest") || exit 2
+missing=$(printf '%s\n' "$names" | grep -vx -e DATAROBOT_API_TOKEN -e '' |
     while read -r name; do
-        grep -qE "^[[:space:]]*- (name: *[\"']?${name}[\"']? *(#.*)?|[{].*name: *[\"']?${name}[\"']? *[,}].*)\$" "$manifest" ||
-            echo "$name"
+        printf '%s\n' "$declared" | grep -qxF "$name" || echo "$name"
     done)
 [ -z "$missing" ] || { echo "$missing"; exit 1; }
