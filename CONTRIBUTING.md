@@ -43,6 +43,17 @@ oss-community-management@datarobot.com
 - Ensure the bug was not already reported in the projects Issues section
 - Open an issue as described above
 
+## How a pull request merges
+
+A pull request merges when CI is green and the `Bouncer` check passes. The merge queue then picks it up, within 15 minutes.
+
+`Bouncer` passes in one of two cases:
+
+- A person with write access approves the latest commit. The reviewer can't be the author, a committer, or anyone who pushed to the branch. A new push voids the approval.
+- A Dependabot update meets the rules in `.github/review-router.yml`.
+
+See the [Bouncer guide](https://github.com/datarobot-oss/review-router/blob/main/docs/setup/gate.md) for the full rules.
+
 ## Responding to issues and pull requests
 
 This project is community maintained. Maintainers respond on a best-effort
