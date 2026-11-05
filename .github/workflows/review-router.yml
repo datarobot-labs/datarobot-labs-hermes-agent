@@ -25,9 +25,9 @@ name: Review Router
 
 on:
   pull_request_target:
-    types: [labeled, opened, closed, ready_for_review, synchronize, reopened, edited]
+    types: [labeled, opened, closed, ready_for_review, synchronize, reopened]
   pull_request_review:
-    types: [submitted, dismissed, edited]
+    types: [submitted, dismissed]
   merge_group:
     types: [checks_requested]
   pull_request_review_comment:
