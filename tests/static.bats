@@ -649,6 +649,50 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "the gate workflow reads its key only from the gate environment and runs no pull request code" {
+    run python3 - /repo/.github/workflows/gate.yml /repo/.github/workflows/gate-trigger.yml <<'PY'
+import re, sys, yaml
+
+def load(path):
+    text = open(path).read()
+    workflow = yaml.safe_load(text)
+    return text, workflow, workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+
+gate_text, gate, on = load(sys.argv[1])
+trigger_text, trigger, trigger_on = load(sys.argv[2])
+
+# These events run the workflow from the default branch. A pull_request trigger would run the branch's copy.
+assert set(on) <= {"pull_request_target", "workflow_run", "schedule"}, f"unexpected gate triggers {sorted(on)}"
+assert on["workflow_run"]["workflows"] == [trigger["name"]], "the gate must start from the gate trigger workflow"
+
+job = gate["jobs"]["gate"]
+assert job["environment"] == "gate", "the key must come from the environment limited to the default branch"
+assert gate["permissions"] == {}, "the workflow token needs no permission"
+assert not any("run" in step for step in job["steps"]), "the gate job runs no shell step"
+assert not any(str(step.get("uses", "")).startswith("actions/checkout@") for step in job["steps"]), "the gate job checks out code"
+
+token = [s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/create-github-app-token@")]
+assert len(token) == 1, "one token step expected"
+with_ = token[0]["with"]
+assert "client-id" in with_ and "app-id" not in with_, "use client-id, app-id is deprecated"
+permissions = {k: v for k, v in with_.items() if k.startswith("permission-")}
+assert permissions == {"permission-checks": "write", "permission-pull-requests": "read", "permission-contents": "read"}, permissions
+
+action = [s for s in job["steps"] if str(s.get("uses", "")).startswith("datarobot-oss/review-router@")]
+assert len(action) == 1, "one gate step expected"
+assert re.fullmatch(r"datarobot-oss/review-router@[0-9a-f]{40}", action[0]["uses"]), "pin the action to a commit"
+assert action[0]["with"]["mode"] == "gate", "this job must run the gate only"
+assert "${{ steps.token.outputs.token }}" == action[0]["with"]["github-token"], "the action must run with the Gate App token"
+
+# The trigger workflow starts on events that run the branch's own copy, so it must hold nothing worth stealing.
+assert set(trigger_on) <= {"pull_request_review", "merge_group"}, f"unexpected trigger events {sorted(trigger_on)}"
+assert trigger["permissions"] == {}, "the trigger workflow needs no permission"
+assert "secrets." not in trigger_text and "environment" not in trigger_text, "the trigger workflow must hold no secret"
+assert not any("uses" in step for each in trigger["jobs"].values() for step in each["steps"]), "the trigger workflow runs no action"
+PY
+    [ "$status" -eq 0 ]
+}
+
 @test "the zizmor ignores name only the files that need them" {
     run python3 - /repo/.github/zizmor.yml <<'PY'
 import sys, yaml
@@ -656,7 +700,7 @@ rules = yaml.safe_load(open(sys.argv[1]))["rules"]
 assert rules, "no ignores, so this file is not needed"
 for rule, settings in rules.items():
     allowed = {
-        "dangerous-triggers": ["merge-queue.yml", "review-router.yml"],
+        "dangerous-triggers": ["gate.yml", "merge-queue.yml", "review-router.yml"],
         "secrets-inherit": ["review-router.yml"],
         # ci.yml calls its workflows with the `./` form, which actionlint requires.
         "self-repository": ["ci.yml"],
