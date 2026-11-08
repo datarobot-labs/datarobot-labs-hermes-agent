@@ -18,11 +18,14 @@
 rules:
   # merge-queue.yml runs on workflow_run, which reads the workflow from the
   # default branch, so the queue App's key never reaches a pull request's code.
-  # review-router.yml calls the shared Review Router workflow of the
-  # datarobot-oss organization, which needs these triggers, the secrets
-  # inheritance, and a commit pin that the organization sets.
+  # gate.yml runs on pull_request_target and workflow_run for the same reason,
+  # and holds the Gate App's key. review-router.yml calls the shared Review
+  # Router workflow of the datarobot-oss organization, which needs these
+  # triggers, the secrets inheritance, and a commit pin that the organization
+  # sets.
   dangerous-triggers:
     ignore:
+      - gate.yml
       - merge-queue.yml
       - review-router.yml
   secrets-inherit:
