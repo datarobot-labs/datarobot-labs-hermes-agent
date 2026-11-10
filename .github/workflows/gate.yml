@@ -63,7 +63,7 @@ jobs:
           permission-pull-requests: read
           permission-contents: read
 
-      - uses: datarobot-oss/review-router@6976c52875b7a8d4698ff41397af84bf14ba7c85 # main
+      - uses: datarobot-oss/review-router@6976c52875b7a8d4698ff41397af84bf14ba7c85 # the rebuild commit of main
         with:
           mode: gate
           github-token: ${{ steps.token.outputs.token }}

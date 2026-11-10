@@ -48,5 +48,5 @@ concurrency:
 
 jobs:
   route:
-    uses: datarobot-oss/.github/.github/workflows/review-router.yml@c290bf39d0950a9627e210201895d7792b8eb81d  # main
+    uses: datarobot-oss/.github/.github/workflows/review-router.yml@c290bf39d0950a9627e210201895d7792b8eb81d  # main at the time of the pin
     secrets: inherit
