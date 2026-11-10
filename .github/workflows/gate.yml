@@ -24,7 +24,9 @@
 # pull_request trigger.
 #
 # The action is pinned to a commit, not a floating tag, because this job holds
-# the key that lets a pull request merge. Move the pin through a pull request.
+# the key that lets a pull request merge. Move the pin through a pull request,
+# and pin a `chore: rebuild dist` commit: the merge commit before it ships the
+# previous bundle.
 #
 # Runs for one commit don't overlap, so a run that read the facts before an
 # approval was dismissed can't post its result over a later run's block.
@@ -47,7 +49,6 @@ concurrency:
 
 jobs:
   gate:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # The Gate App key is an environment secret limited to the default branch.
@@ -62,7 +63,7 @@ jobs:
           permission-pull-requests: read
           permission-contents: read
 
-      - uses: datarobot-oss/review-router@5c5fda3a63a720e2c5e7610778876b3038c22c64 # main
+      - uses: datarobot-oss/review-router@6976c52875b7a8d4698ff41397af84bf14ba7c85 # main
         with:
           mode: gate
           github-token: ${{ steps.token.outputs.token }}
