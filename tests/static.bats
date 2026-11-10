@@ -630,9 +630,14 @@ workflow = yaml.safe_load(text)
 on = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
 # These events run the workflow from the default branch. A pull_request trigger would run the branch's copy.
 assert set(on) <= {"workflow_run", "schedule", "workflow_dispatch"}, f"unexpected triggers {sorted(on)}"
+# An approval after CI ends with the Gate, so the queue must also run when the Gate finishes.
+assert set(on["workflow_run"]["workflows"]) == {"CI", "Gate"}, f"the queue runs after {on['workflow_run']['workflows']}"
+assert "Gate" in workflow["jobs"]["posture"]["if"], "the posture job must let a finished Gate run through"
 job = workflow["jobs"]["enqueue"]
 assert job["environment"] == "merge-queue", "the key must come from the environment limited to the default branch"
 steps = job["steps"]
+sweep = " ".join(str(s.get("run", "")) for s in steps)
+assert "gh pr list" in sweep and "--limit" in sweep, "gh pr list returns only 30 pull requests unless it has a limit"
 token = [s for s in steps if str(s.get("uses", "")).startswith("actions/create-github-app-token@")]
 assert len(token) == 1, "one token step expected"
 with_ = token[0]["with"]
