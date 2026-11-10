@@ -17,8 +17,7 @@
 # App. The App can add a pull request to the queue, so it must never work where
 # the rules would let an unreviewed or unchecked change through. It needs three
 # things: a merge queue, at least one required status check, and a review
-# control, which is either a required approval or a required `Review Router
-# gate` check.
+# control, which is either a required approval or a required `Bouncer` check.
 #
 # Usage: scripts/merge-queue-posture.sh
 # Reads REPO (owner/name) and BASE (the default branch). Writes `ready=true` or
