@@ -66,4 +66,4 @@ pygount==3.2.0
 debugpy==1.8.22
 
 # research/arxiv
-arxiv==4.0.1
+arxiv==4.0.2
