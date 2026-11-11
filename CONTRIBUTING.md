@@ -45,7 +45,7 @@ oss-community-management@datarobot.com
 
 ## How a pull request merges
 
-A pull request merges when CI is green and the `Bouncer` check passes. The merge queue then picks it up, within 15 minutes.
+A pull request merges when CI is green and the `Bouncer` check passes. The merge queue then picks it up within about a minute, when the Gate finishes. A pull request from a fork needs someone with write access to click **Merge when ready**.
 
 `Bouncer` passes in one of two cases:
 
