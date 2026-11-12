@@ -22,15 +22,18 @@ rules:
   # and holds the Gate App's key. review-router.yml calls the shared Review
   # Router workflow of the datarobot-oss organization, which needs these
   # triggers, the secrets inheritance, and a commit pin that the organization
-  # sets.
+  # sets. review-router-replay.yml calls it again on workflow_run, which reads
+  # the workflow from the default branch and never checks out pull request code.
   dangerous-triggers:
     ignore:
       - gate.yml
       - merge-queue.yml
       - review-router.yml
+      - review-router-replay.yml
   secrets-inherit:
     ignore:
       - review-router.yml
+      - review-router-replay.yml
   # ci.yml calls the other workflows of this repository with the
   # workspace-relative `./` syntax. zizmor suggests GitHub's `$/` syntax, but
   # the pinned actionlint rejects it. Remove this ignore and switch ci.yml when
