@@ -705,8 +705,8 @@ rules = yaml.safe_load(open(sys.argv[1]))["rules"]
 assert rules, "no ignores, so this file is not needed"
 for rule, settings in rules.items():
     allowed = {
-        "dangerous-triggers": ["gate.yml", "merge-queue.yml", "review-router.yml"],
-        "secrets-inherit": ["review-router.yml"],
+        "dangerous-triggers": ["gate.yml", "merge-queue.yml", "review-router-replay.yml", "review-router.yml"],
+        "secrets-inherit": ["review-router-replay.yml", "review-router.yml"],
         # ci.yml calls its workflows with the `./` form, which actionlint requires.
         "self-repository": ["ci.yml"],
     }
