@@ -31,6 +31,17 @@
 # 14 days after its upload time on PyPI ("Release history" on its pypi.org
 # page). Dependabot waits the same 14 days (.github/dependabot.yml). If a base
 # image bump changes the window, change both.
+#
+# A security update is the exception: Dependabot opens it at once, so its PR
+# stays red until the hold clears. For an advisory that affects this workload,
+# push a commit to the PR branch that adds
+# `--exclude-newer-package <package>=<upload time plus one minute, UTC>` to the
+# `uv pip install -r /tmp/requirements.txt` line of the Dockerfile. uv then lets
+# in that one release and nothing newer. Remove the flag once the release is
+# 14 days old. The commit also moves the PR out of the Dependabot family, so a
+# person approves it. Don't exempt a package with `false`: the Gate merges
+# Dependabot bumps without a reviewer, so the hold is the last delay between a
+# fresh release and this workload.
 
 ddgs==9.16.0
 
