@@ -43,7 +43,7 @@
 # Dependabot bumps without a reviewer, so the hold is the last delay between a
 # fresh release and this workload.
 
-ddgs==9.16.0
+ddgs==9.16.1
 
 # datarobot skills (datarobot-predictions, datarobot-data-preparation,
 # datarobot-model-training, datarobot-workload-api)
